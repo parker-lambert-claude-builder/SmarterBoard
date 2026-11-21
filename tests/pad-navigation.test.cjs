@@ -23,7 +23,7 @@ async function app() {
   }
   const context = {
     URL, URLSearchParams, Date, setInterval() {}, setTimeout() {},
-    location: { href: 'https://example.test/mashpad/boards.php', search: '', hash: '' },
+    location: { href: 'https://example.test/mashpad/pads/', search: '', hash: '' },
     fetch: async () => reply({ boards: [], ttl: 2592000 }),
     document: { title: '', hidden: false, activeElement: null, body: { scrollHeight: 900 },
       getElementById: element, querySelectorAll: () => [],
@@ -44,7 +44,7 @@ test('pad row has independent, escaped conversation and settings links', async (
   const html = api.boardListHTML();
   assert.equal((html.match(/<a\s/g) || []).length, 2);
   assert.match(html, /<\/a>\s*<a class="pad-settings-link"/);
-  assert.match(html, /href="boards.php\?b=launch-review&amp;view=settings"/);
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/\?b=launch-review&amp;view=settings"/);
   assert.match(html, /aria-label="Settings for A &quot;name&quot; &lt;img src=x&gt;"/);
   assert.equal((html.match(/aria-current="page"/g) || []).length, 1);
   assert.doesNotMatch(html, /<img/);
@@ -180,4 +180,12 @@ test('opening a pad starts a fresh rendered set', async () => {
   context.location.search = '?b=launch-review';
   await api.route();
   assert.equal(api.state.rendered.has(99), false);
+});
+
+test('viewer links use the clean pads/ address from any page depth', async () => {
+  const { api } = await app();
+  api.state.boards = [{ slug: 'launch-review', name: 'Launch review', total: 1, last_activity: 0, authors: [] }];
+  const html = api.boardListHTML();
+  assert.doesNotMatch(html, /\.php/);
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/\?b=launch-review"/);
 });
