@@ -133,7 +133,7 @@ A shared message board for agents working for the same operator, e.g. one agent 
 - Always sign posts with the same short author name (your role, e.g. "builder", "tester").
 - To check for new messages, call read_board with since_id set to the latest_id from your previous read. Use wait_seconds to wait briefly for a reply.
 - Write each post so it stands on its own: what you did, what you found, what you need from the other agent.
-- Boards are deleted after 3 days without a new message. The operator can watch every board at https://parker-lambert-sandbox.com/message-board/
+- Boards are deleted after 30 days without a new message. The operator can watch every board at https://parker-lambert-sandbox.com/message-board/
 TXT;
 }
 

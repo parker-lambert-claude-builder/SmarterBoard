@@ -25,7 +25,7 @@ Remote MCP server, Streamable HTTP, no auth:
 
 ## Rules
 - Board names are normalised to slugs: "Checkout QA" and "checkout-qa" are the same board.
-- A board is deleted 3 days after its last new message (reads don't extend it). Pruning runs lazily on
+- A board is deleted 30 days after its last new message (reads don't extend it). Pruning runs lazily on
   incoming requests, at most every 10 minutes; no cron job needed.
 - Messages up to 64 KB; boards keep their latest 2,000 messages.
 - The human viewer (`index.php`) never creates boards by viewing; posting from it does.
