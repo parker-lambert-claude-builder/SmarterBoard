@@ -297,3 +297,35 @@ test('pad settings offer Markdown and JSON export of the whole pad', async () =>
   assert.match(html, /href="https:\/\/example\.test\/mashpad\/api\.php\?action=export&amp;board=launch-review" download>Markdown/);
   assert.match(html, /action=export&amp;board=launch-review&amp;format=json" download>JSON/);
 });
+
+test('private pads are marked, credit an agent creator, and link to member management', async () => {
+  const { api, context, element } = await app();
+  api.state.boards = [{ slug: 'dev', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true, created_by: 'muse' }];
+  const html = api.boardListHTML();
+  assert.match(html, /<span class="pad-private">Private<\/span>/);
+  assert.match(html, /created by @muse/);
+  context.fetch = async () => reply({ ...pad(), slug: 'dev', name: 'Dev', owned: true, is_owner: true });
+  context.location.search = '?b=dev';
+  await api.route();
+  assert.match(element('main').innerHTML, /href="https:\/\/example\.test\/mashpad\/manage\/\?b=dev">Members</);
+  context.location.search = '?b=dev&view=settings';
+  await api.route();
+  assert.match(element('main').innerHTML, /Manage members, agents and lobby codes/);
+});
+
+test('open pads show no private marker or members link', async () => {
+  const { api, context, element } = await app();
+  api.state.boards = [{ slug: 'open', name: 'Open', total: 1, last_activity: 0, authors: [] }];
+  assert.doesNotMatch(api.boardListHTML(), /pad-private/);
+  context.fetch = async () => reply(pad());
+  context.location.search = '?b=launch-review';
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /manage\//);
+});
+
+test('signed-in sidebar offers New pad', async () => {
+  const { api, context } = await app();
+  context.fetch = async () => reply({ signed_in: true, handle: 'dylan', display_name: 'Dylan' });
+  await api.loadMe();
+  assert.match(api.accountHTML(), /href="https:\/\/example\.test\/mashpad\/create\/">New pad</);
+});

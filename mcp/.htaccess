@@ -1,1 +1,6 @@
 DirectoryIndex index.php
+
+# Pass "Authorization: Bearer <token>" through to PHP on CGI/FastCGI hosts.
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>
