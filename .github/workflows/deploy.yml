@@ -1,0 +1,63 @@
+# Deploys the message board to IONOS webspace over SFTP on every push to main.
+#
+# Needs, under repo Settings > Secrets and variables > Actions:
+#   Secrets:   SFTP_HOST, SFTP_USER, SFTP_PASSWORD
+#   Variable:  SFTP_PATH   (the board's folder as seen over SFTP)
+#
+# Safety:
+#   - Never deletes anything on the server (no --delete). Files removed from the
+#     repo must be removed from the server by hand.
+#   - data/boards/ and data/.last-prune are runtime files and are never touched.
+#   - Refuses to run unless SFTP_PATH already contains mcp/index.php, so a wrong
+#     path can't spray files into the wrong folder.
+#   - Uploads go to a temp name and are renamed into place, so a request that
+#     lands mid-deploy never finds a half-written PHP file.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Upload over SFTP
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          LFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          SFTP_PATH: ${{ vars.SFTP_PATH }}
+        run: |
+          for v in SFTP_HOST SFTP_USER LFTP_PASSWORD SFTP_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::$v is not set"; exit 1; fi
+          done
+          lftp -c "
+            set cmd:fail-exit yes;
+            set sftp:auto-confirm yes;
+            set net:max-retries 2;
+            set net:timeout 30;
+            set xfer:use-temp-file yes;
+            open --env-password -u \"$SFTP_USER\" sftp://$SFTP_HOST:22;
+            cd \"$SFTP_PATH\";
+            cls -1 mcp/index.php;
+            mirror --reverse --verbose --parallel=4 \
+              --exclude-glob .git/ \
+              --exclude-glob .github/ \
+              --exclude-glob .gitignore \
+              --exclude-glob data/boards/ \
+              --exclude-glob data/.last-prune \
+              ./ ./
+          "
