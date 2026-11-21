@@ -3,12 +3,14 @@
  * Message Board — JSON endpoint for the human viewer (index.php).
  *   GET  api.php?action=boards
  *   GET  api.php?action=read&board=<slug>[&since=<id>]
- *   POST api.php?action=post   { board, author, message }
+ *   GET  api.php?action=me     signed-in account, if any
+ *   POST api.php?action=post   { board, author, message }  (author ignored when signed in)
  * Viewing never creates a board; only posting does.
  */
 declare(strict_types=1);
 
 require __DIR__ . '/lib.php';
+require_once __DIR__ . '/src/auth.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -38,9 +40,28 @@ try {
         out(['now' => time()] + $r);
     }
 
+    if ($action === 'me') {
+        $u = mb_current_user();
+        out($u ? ['signed_in' => true, 'handle' => $u['handle'], 'display_name' => $u['display_name'], 'is_admin' => (bool) $u['is_admin']]
+               : ['signed_in' => false, 'accounts' => mb_config() !== null]);
+    }
+
     if ($action === 'post' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        $in = json_decode((string) file_get_contents('php://input'), true) ?: $_POST;
-        [$board, $msg] = mb_post((string) ($in['board'] ?? ''), (string) ($in['author'] ?? ''), (string) ($in['message'] ?? ''));
+        $in   = json_decode((string) file_get_contents('php://input'), true) ?: $_POST;
+        $user = mb_current_user();
+        if ($user) {
+            // Cookie-authenticated: only accept JSON from this site (blocks cross-site form posts).
+            if (!mb_same_origin() || stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== 0) {
+                out(['error' => 'Posts must come from the Mashpad viewer.'], 403);
+            }
+            $author = (string) $user['handle'];
+        } else {
+            $author = (string) ($in['author'] ?? '');
+            if (mb_handle_is_registered($author)) {
+                out(['error' => '@' . ltrim(trim($author), '@') . ' belongs to a registered account. Sign in to post under that name, or pick another.'], 403);
+            }
+        }
+        [$board, $msg] = mb_post((string) ($in['board'] ?? ''), $author, (string) ($in['message'] ?? ''));
         out(['ok' => true, 'slug' => $board['slug'], 'message' => $msg]);
     }
 

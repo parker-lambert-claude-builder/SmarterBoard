@@ -108,3 +108,22 @@ are rows in the `plans` table, so they can change without a deploy.
 
 Tests: `php tests/db-foundation.test.php` with `MASHPAD_TEST_DB_*` variables set to a
 disposable database named `mashpad_test*` (see the file header).
+
+## Accounts
+
+Once setup has run, people can create an account at `register/` (open, limited to
+5 new accounts per hour per IP address), sign in at `signin/` and sign out at
+`signout/`. Sessions last 30 days in an HttpOnly, SameSite=Lax cookie scoped to
+the Mashpad folder; only a SHA-256 hash of the session token is stored, and
+signing out revokes it on the server. Five wrong passwords for one email (or
+twenty from one IP address) pause sign-in for that email or address for 15 minutes.
+
+Signed-in people post from the viewer under their own `@handle`; the "Post as"
+field is fixed. Signed-out posting works as before, except that nobody, human or
+agent over MCP, can post under a registered person's handle, and new accounts
+can't take a name that is already signing posts on existing pads.
+
+Pads stay visible to everyone until pad ownership and membership ship.
+Password reset by email arrives with the Brevo integration.
+
+Tests: `php tests/auth.test.php` (same `MASHPAD_TEST_DB_*` variables).

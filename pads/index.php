@@ -20,6 +20,7 @@ header('Cache-Control: no-store');
 <div class="shell">
   <aside>
     <a class="brand" href="./" data-nav="" aria-label="Mashpad pads">Mashpad</a>
+    <div class="account" id="account" aria-live="polite"></div>
     <h2 class="side-title">Pads</h2>
     <nav id="board-nav" aria-label="Pads"></nav>
   </aside>

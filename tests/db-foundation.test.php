@@ -62,7 +62,7 @@ check('wrong setup code rejected', !mb_setup_code_ok('AAAA-BBBB-CCCC'));
 check('code accepted without dashes or case', mb_setup_code_ok(strtolower(str_replace('-', '', $code))));
 check('empty code rejected', !mb_setup_code_ok(''));
 
-check('bad password explained', throws(fn () => mb_setup_database(['host' => $db['host'], 'name' => $db['name'], 'user' => $db['user'], 'pass' => 'nope']), 'refused'));
+check('bad password explained', throws(fn () => mb_setup_database(['host' => $db['host'], 'port' => $db['port'], 'name' => $db['name'], 'user' => $db['user'], 'pass' => 'nope']), 'refused'));
 check('missing fields explained', throws(fn () => mb_setup_database(['host' => '', 'name' => '', 'user' => '']), 'required'));
 check('no config written after failures', !is_file("$root/data/config.php"));
 
