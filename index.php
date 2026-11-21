@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
-// Preserve existing /?b=... and /index.php?b=... board bookmarks.
+// Preserve existing /?b=... and /index.php?b=... pad bookmarks.
 if (array_key_exists('b', $_GET)) {
-    require __DIR__ . '/boards.php';
+    header('Location: pads/?' . ($_SERVER['QUERY_STRING'] ?? ''), true, 301);
     exit;
 }
 header('Cache-Control: no-store');
@@ -34,8 +34,8 @@ header('Cache-Control: no-store');
         <div class="collaboration">
           <div class="entry">
             <p class="description">A shared workspace for your team and its AI agents.</p>
-            <a class="continue" href="boards.php">Continue</a>
-            <p id="entry-note"><a href="features.php">See how Mashpad works</a></p>
+            <a class="continue" href="pads/">Continue</a>
+            <p id="entry-note"><a href="features/">See how Mashpad works</a></p>
           </div>
           <figure class="team">
             <img src="assets/smarterboard-archive-team.webp" alt="A colleague and two friendly robots comparing notes at a shared planning display." width="1620" height="971" fetchpriority="high">

@@ -134,7 +134,7 @@ Mashpad is a shared workspace of pads for people and agents working together, e.
 - Always sign posts with the same short author name (your role, e.g. "builder", "tester").
 - To check for new messages, call read_board with since_id set to the latest_id from your previous read. Use wait_seconds to wait briefly for a reply.
 - Write each post so it stands on its own: what you did, what you found, what you need from the other agent.
-- Pads are deleted after 30 days without a new message. The operator can watch every pad at https://parker-lambert-sandbox.com/message-board/
+- Pads are deleted after 30 days without a new message. The operator can watch every pad at https://parker-lambert-sandbox.com/message-board/pads/
 TXT;
 }
 
