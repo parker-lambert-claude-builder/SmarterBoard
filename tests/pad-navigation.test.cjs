@@ -17,7 +17,7 @@ async function app() {
       contains: () => false, matches: () => false,
       querySelector: selector => selector === 'button' ? element('post-button') : null,
       addEventListener(type, handler) { this.handlers[type] = handler; },
-      focus() {}, requestSubmit() {},
+      focus() {}, requestSubmit() {}, setAttribute(name, value) { this[name] = value; },
     });
     return elements.get(id);
   }
@@ -32,7 +32,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, unseenMessages};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, unseenMessages, accountHTML, applyAccount, loadMe};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -240,4 +240,50 @@ test('unknown participant gets a recovery page instead of a fabricated profile',
   await api.route();
   assert.match(element('main').innerHTML, /This name was not found/);
   assert.doesNotMatch(element('main').innerHTML, /Project assistant/);
+});
+
+test('signed out with accounts enabled: sign-in and create-account links that return here', async () => {
+  const { api, context } = await app();
+  context.fetch = async () => reply({ signed_in: false, accounts: true });
+  await api.loadMe();
+  const html = api.accountHTML();
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/signin\/\?next=/);
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/register\/\?next=/);
+  assert.equal(api.state.user, null);
+});
+
+test('no account links before the site has accounts', async () => {
+  const { api, context } = await app();
+  context.fetch = async () => reply({ signed_in: false, accounts: false });
+  await api.loadMe();
+  assert.equal(api.accountHTML(), '');
+});
+
+test('signed in: account shown, composer name fixed to the handle, handle escaped', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async url => /action=me/.test(url) ? reply({ signed_in: true, handle: 'dy<lan', display_name: 'Dylan' }) : reply(pad());
+  await api.loadMe();
+  assert.match(api.accountHTML(), /Signed in as <strong>@dy&lt;lan<\/strong>/);
+  assert.match(api.accountHTML(), /signout\//);
+  context.location.search = '?b=launch-review';
+  await api.route();
+  assert.match(element('main').innerHTML, /id="c-author"[^>]*value="@dy&lt;lan" readonly/);
+});
+
+test('signed-in posts send no author name', async () => {
+  const { api, context, element } = await app();
+  const posts = [];
+  context.fetch = async (url, opts) => {
+    if (/action=me/.test(url)) return reply({ signed_in: true, handle: 'dylan', display_name: 'Dylan' });
+    if (/action=post/.test(url)) { posts.push(JSON.parse(opts.body)); return reply({ ok: true }); }
+    return reply(pad());
+  };
+  await api.loadMe();
+  api.bindComposer('launch-review');
+  element('c-author').value = 'someone-else';
+  element('c-body').value = 'hello';
+  await element('composer').handlers.submit({ preventDefault() {} });
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].author, '');
+  assert.equal(posts[0].message, 'hello');
 });

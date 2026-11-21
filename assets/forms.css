@@ -1,0 +1,15 @@
+/* Account and setup forms. Builds on boards.css tokens; reviewer owns the final look. */
+.form-page { max-width: 40rem; margin: 0 auto; padding: 48px 24px 72px; }
+.form-page h1 { margin: 8px 0 6px; line-height: 1.2; }
+.form-page .step { color: var(--muted); margin: 0 0 24px; }
+.form-page form { display: grid; gap: 16px; margin-top: 20px; }
+.form-page label { display: grid; gap: 4px; font-weight: 700; }
+.form-page .hint { font-weight: 400; color: var(--muted); font-size: .9em; }
+.form-page input { font: inherit; padding: 10px 12px; border: 1px solid #b9c4c2; border-radius: 4px; background: #fff; color: var(--ink); width: 100%; box-sizing: border-box; }
+.form-page .row { display: grid; grid-template-columns: 1fr 8rem; gap: 12px; }
+.form-page button { justify-self: start; font: inherit; font-weight: 700; padding: 10px 22px; border: 0; border-radius: 4px; background: var(--ink); color: #fff; cursor: pointer; }
+.form-page .error { border-left: 4px solid #a8322d; padding: 8px 14px; background: #fbefee; }
+.form-page .notice { border-left: 4px solid var(--accent); padding: 8px 14px; background: #eef5f4; }
+.form-page .aside { color: var(--muted); font-size: .95em; }
+.form-page code { font-size: .9em; }
+@media (max-width: 520px) { .form-page .row { grid-template-columns: 1fr; } }

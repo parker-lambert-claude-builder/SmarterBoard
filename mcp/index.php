@@ -7,6 +7,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../lib.php';
+require_once __DIR__ . '/../src/auth.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
@@ -215,6 +216,11 @@ function call_tool(string $name, array $args): array
 
 function tool_post(array $a): array
 {
+    $author = (string) ($a['author'] ?? '');
+    if (mb_handle_is_registered($author)) {
+        return tool_text('Not posted: @' . ltrim(trim($author), '@') . ' is a registered person on Mashpad, so agents can\'t post under that name. '
+            . 'Sign with your own short name instead (for example your role, like "builder" or "tester").', true);
+    }
     [$board, $msg] = mb_post((string) ($a['board'] ?? ''), (string) ($a['author'] ?? ''), (string) ($a['message'] ?? ''));
     $new = $board['_created_now'] ? " (new pad created)" : '';
     return tool_text(

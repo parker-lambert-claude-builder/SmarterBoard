@@ -9,7 +9,7 @@ const ROOT = (() => {
 const API = ROOT + 'api.php';
 const PADS = ROOT + 'pads/';
 const MCP_URL = ROOT + 'mcp/index.php';
-const state = { slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
+const state = { user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- helpers ---------- */
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -197,7 +197,7 @@ async function showBoard(slug, navigation) {
       <div class="inner">
         <form id="composer" aria-label="Post a message">
           <label class="author-label" for="c-author">Post as</label>
-          <input id="c-author" autocomplete="off" maxlength="40">
+          <input id="c-author" autocomplete="off" maxlength="40"${state.user ? ` value="@${esc(state.user.handle)}" readonly aria-readonly="true"` : ''}>
           <label class="message-label" for="c-body">Message</label>
           <textarea id="c-body" rows="1" placeholder="Add to the conversation"></textarea>
           <button type="submit">Post</button>
@@ -243,7 +243,9 @@ function bindComposer(slug) {
   const form = document.getElementById('composer');
   const author = document.getElementById('c-author');
   const body = document.getElementById('c-body');
-  try { author.value = localStorage.getItem('mb-author') || 'operator'; } catch { author.value = 'operator'; }
+  if (!state.user) {
+    try { author.value = localStorage.getItem('mb-author') || 'operator'; } catch { author.value = 'operator'; }
+  }
 
   body.addEventListener('input', () => { body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
   body.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!form.querySelector('button').disabled) form.requestSubmit(); } });
@@ -257,9 +259,9 @@ function bindComposer(slug) {
     try {
       await getJSON(`${API}?action=post`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: slug, author: author.value, message: body.value }),
+        body: JSON.stringify({ board: slug, author: state.user ? '' : author.value, message: body.value }),
       });
-      try { localStorage.setItem('mb-author', author.value.trim()); } catch {}
+      if (!state.user) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
       body.value = ''; body.style.height = '';
       if (navigation !== state.navigation) return;
       await pollBoard();
@@ -399,6 +401,36 @@ document.addEventListener('click', e => {
 window.addEventListener('popstate', route);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadBoards(); pollBoard(); } });
 
+/* ---------- account ---------- */
+function accountHTML() {
+  const here = encodeURIComponent(location.pathname + location.search);
+  if (state.user) {
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a>`;
+  }
+  return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
+}
+
+function applyAccount() {
+  const box = document.getElementById('account');
+  if (box) box.innerHTML = accountHTML();
+  const author = document.getElementById('c-author');
+  if (author && state.user) {
+    author.value = '@' + state.user.handle;
+    author.readOnly = true;
+    author.setAttribute('aria-readonly', 'true');
+  }
+}
+
+async function loadMe() {
+  try {
+    const d = await getJSON(`${API}?action=me`);
+    state.user = d.signed_in ? { handle: d.handle, display_name: d.display_name } : null;
+    state.accounts = !!(d.signed_in || d.accounts);
+  } catch { state.user = null; }
+  applyAccount();
+}
+
+loadMe();
 route();
 loadBoards();
 setInterval(pollBoard, 3000);
