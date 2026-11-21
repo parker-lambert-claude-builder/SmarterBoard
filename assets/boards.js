@@ -1,7 +1,7 @@
 const API = 'api.php';
 const BASE = new URL('.', location.href.split('?')[0]).href;
 const MCP_URL = new URL('mcp/index.php', BASE).href;
-const state = { slug: null, view: 'home', navigation: 0, latest: 0, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
+const state = { slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- helpers ---------- */
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -116,9 +116,25 @@ function messageHTML(m, fresh) {
     </div>`;
 }
 
+/* Rendering is idempotent per message id: overlapping polls, a poll racing the
+   initial load, or a re-render can deliver the same message more than once,
+   but it is only ever drawn once. */
+function unseenMessages(msgs) {
+  const out = [];
+  for (const m of msgs) {
+    const id = Number(m.id);
+    if (!Number.isFinite(id) || state.rendered.has(id)) continue;
+    state.rendered.add(id);
+    out.push(m);
+  }
+  return out;
+}
+
 function appendMessages(msgs, fresh) {
   const t = document.getElementById('transcript');
-  if (!t) return;
+  if (!t) return 0;
+  msgs = unseenMessages(msgs);
+  if (!msgs.length) return 0;
   t.querySelector('.empty')?.remove();
   for (const m of msgs) {
     let g = t.lastElementChild;
@@ -134,10 +150,11 @@ function appendMessages(msgs, fresh) {
     g.dataset.last = m.ts;
     g.insertAdjacentHTML('beforeend', messageHTML(m, fresh));
   }
+  return msgs.length;
 }
 
 async function showBoard(slug, navigation) {
-  state.slug = slug; state.view = 'pad'; state.latest = 0;
+  state.slug = slug; state.view = 'pad'; state.latest = 0; state.rendered = new Set(); state.loading = true;
   document.getElementById('board-nav').innerHTML = boardListHTML();
   const main = document.getElementById('main');
   main.innerHTML = '<div class="inner home"><p role="status">Loading pad…</p></div>';
@@ -146,6 +163,7 @@ async function showBoard(slug, navigation) {
     d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}`);
   } catch (e) {
     if (navigation !== state.navigation) return;
+    state.loading = false;
     main.innerHTML = `<div class="inner home"><a class="back" href="boards.php" data-nav="">All pads</a>
       <h1>${esc(slug)}</h1>
       <p class="empty">${e.status === 404
@@ -154,6 +172,7 @@ async function showBoard(slug, navigation) {
     return;
   }
   if (navigation !== state.navigation) return;
+  state.loading = false;
   document.title = `${d.name || d.slug} · Mashpad`;
   main.innerHTML = `
     <div class="inner board-head">
@@ -178,7 +197,7 @@ async function showBoard(slug, navigation) {
       </div>
     </div>`;
   appendMessages(d.messages, false);
-  state.latest = d.latest_id;
+  state.latest = Math.max(state.latest, d.latest_id);
   bindComposer(slug);
   const linkedMessage = /^#m\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (linkedMessage) linkedMessage.scrollIntoView();
@@ -187,14 +206,16 @@ async function showBoard(slug, navigation) {
 
 async function pollBoard() {
   if (!state.slug || state.view !== 'pad' || document.hidden) return;
+  if (state.polling) return;            // one poll in flight at a time
+  if (state.loading) return;            // pad still loading: its own read covers this
+  state.polling = true;
   const slug = state.slug, navigation = state.navigation;
   try {
     const d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=${state.latest}`);
     if (navigation !== state.navigation) return;
     const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 160;
-    if (d.messages.length) {
-      appendMessages(d.messages, true);
-      state.latest = d.latest_id;
+    state.latest = Math.max(state.latest, d.latest_id);
+    if (appendMessages(d.messages, true)) {
       if (nearBottom) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       loadBoards();
     }
@@ -202,6 +223,8 @@ async function pollBoard() {
     if (hm) hm.innerHTML = headMeta(d);
   } catch (e) {
     if (e.status === 404 && navigation === state.navigation) showBoard(slug, navigation);
+  } finally {
+    state.polling = false;
   }
   document.querySelectorAll('time[data-ts]').forEach(t => { t.textContent = ago(Number(t.dataset.ts)); });
 }
