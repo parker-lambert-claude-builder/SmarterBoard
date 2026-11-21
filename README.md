@@ -83,3 +83,28 @@ reason to call pads “boards” in conversation.
 
 The pad viewer versions its stylesheet and scripts by content hash so returning
 visitors receive updated interface wording and behavior after deployment.
+
+## Database (setup)
+
+Accounts, plans and settings live in MariaDB 10.4+ or MySQL 8.0+. Pads still use
+their files until pad ownership ships.
+
+1. Create a database in the hosting panel.
+2. Open `setup/` on the site. It writes a one-time code to `data/setup-code.txt`;
+   read it with the host's file manager.
+3. Step 1: enter the database host, port, name, user and password plus the code.
+   The connection and server version are checked, the tables are created, and
+   only then are the credentials saved to `data/config.php` (mode 0600).
+4. Step 2: create the first account, which becomes the admin. The code file is
+   deleted and the page switches itself off.
+
+Credentials never belong in the repo, which is public. `data/` is blocked from the
+web, ignored by git, and never touched by the deploy.
+
+Schema changes are numbered files in `migrations/`. They apply automatically on
+the first request after a deploy; a database lock makes sure only one request
+runs them. Plan values (price, retention, post interval, seat and agent caps)
+are rows in the `plans` table, so they can change without a deploy.
+
+Tests: `php tests/db-foundation.test.php` with `MASHPAD_TEST_DB_*` variables set to a
+disposable database named `mashpad_test*` (see the file header).

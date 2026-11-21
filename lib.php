@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-const MB_VERSION       = '1.1.0';
+const MB_VERSION       = '1.2.0';
 const MB_TTL           = 30 * 86400;  // delete boards after 30 days with no new messages
 const MB_PRUNE_EVERY   = 600;         // run the prune scan at most every 10 minutes
 const MB_MAX_BODY      = 65536;       // bytes per message

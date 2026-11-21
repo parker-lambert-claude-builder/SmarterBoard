@@ -1,3 +1,7 @@
 data/boards/
 data/.last-prune
 .DS_Store
+data/config.php
+data/config.php.tmp
+data/schema-version
+data/setup-code.txt
