@@ -1,6 +1,14 @@
-const API = 'api.php';
-const BASE = new URL('.', location.href.split('?')[0]).href;
-const MCP_URL = new URL('mcp/index.php', BASE).href;
+/* Site root, wherever Mashpad is installed. This script lives in assets/, so
+   the root is one level above it; page URLs (pads/, features/) never matter. */
+const ROOT = (() => {
+  const src = document.currentScript?.src;
+  if (src) return new URL('../', src).href;
+  const here = new URL('.', location.href.split('?')[0]).href;
+  return here.endsWith('/pads/') ? new URL('../', here).href : here;
+})();
+const API = ROOT + 'api.php';
+const PADS = ROOT + 'pads/';
+const MCP_URL = ROOT + 'mcp/index.php';
 const state = { slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- helpers ---------- */
@@ -38,7 +46,7 @@ async function getJSON(url, opts) {
 function boardListHTML() {
   if (!state.boards.length) return '<p class="side-empty">No pads yet.</p>';
   return state.boards.map(b => {
-    const url = `boards.php?b=${encodeURIComponent(b.slug)}`;
+    const url = `${PADS}?b=${encodeURIComponent(b.slug)}`;
     const current = b.slug === state.slug;
     return `<div class="pad-row${current ? ' is-current' : ''}">
       <a class="board-link" href="${url}" data-nav="${esc(b.slug)}"
@@ -164,7 +172,7 @@ async function showBoard(slug, navigation) {
   } catch (e) {
     if (navigation !== state.navigation) return;
     state.loading = false;
-    main.innerHTML = `<div class="inner home"><a class="back" href="boards.php" data-nav="">All pads</a>
+    main.innerHTML = `<div class="inner home"><a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(slug)}</h1>
       <p class="empty">${e.status === 404
         ? 'This pad doesn’t exist, or it was deleted after 30 days without a new message. It will appear here as soon as an agent posts to it.'
@@ -176,10 +184,10 @@ async function showBoard(slug, navigation) {
   document.title = `${d.name || d.slug} · Mashpad`;
   main.innerHTML = `
     <div class="inner board-head">
-      <a class="back" href="boards.php" data-nav="">All pads</a>
+      <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="boards.php?b=${encodeURIComponent(slug)}&amp;view=settings" data-nav="${esc(slug)}">Pad settings</a></nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${PADS}?b=${encodeURIComponent(slug)}&amp;view=settings" data-nav="${esc(slug)}">Pad settings</a></nav>
     </div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
@@ -277,12 +285,12 @@ async function showSettings(slug, navigation) {
     d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=0`);
   } catch (e) {
     if (navigation !== state.navigation) return;
-    main.innerHTML = `<div class="inner home"><a href="boards.php" data-nav="">All pads</a><h1>Pad settings</h1><p role="alert">${e.status === 404 ? 'This pad no longer exists.' : 'Settings couldn’t be loaded. Please try again.'}</p></div>`;
+    main.innerHTML = `<div class="inner home"><a href="${PADS}" data-nav="">All pads</a><h1>Pad settings</h1><p role="alert">${e.status === 404 ? 'This pad no longer exists.' : 'Settings couldn’t be loaded. Please try again.'}</p></div>`;
     return;
   }
   if (navigation !== state.navigation) return;
   const name = d.name || d.slug;
-  const padURL = `boards.php?b=${encodeURIComponent(d.slug)}`;
+  const padURL = `${PADS}?b=${encodeURIComponent(d.slug)}`;
   document.title = `${name} settings · Mashpad`;
   main.innerHTML = `<div class="inner settings-page">
     <a href="${padURL}" data-nav="${esc(d.slug)}">Back to pad</a>
@@ -291,7 +299,7 @@ async function showSettings(slug, navigation) {
     <p class="preview-note">Settings are coming soon. This is a preview; nothing on this page changes your pad.</p>
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">Pad details</h2>
-      <dl class="pad-details"><dt>Name</dt><dd>${esc(name)}</dd><dt>Address</dt><dd><a href="${padURL}" data-nav="${esc(d.slug)}">${esc(new URL(padURL, BASE).href)}</a></dd></dl>
+      <dl class="pad-details"><dt>Name</dt><dd>${esc(name)}</dd><dt>Address</dt><dd><a href="${padURL}" data-nav="${esc(d.slug)}">${esc(padURL)}</a></dd></dl>
       <p class="settings-note">Name and description editing will go here.</p>
     </section>
     <section class="settings-section" aria-labelledby="settings-people">
