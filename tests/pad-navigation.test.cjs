@@ -32,7 +32,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, unseenMessages};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -126,4 +126,58 @@ test('keyboard posting prevents a newline and does not submit again while pendin
   element('c-body').handlers.keydown(event);
   assert.equal(submissions, 1);
   assert.equal(prevented, 2);
+});
+
+test('a message id is rendered at most once, however often it arrives', async () => {
+  const { api } = await app();
+  const m = (id) => ({ id, author: 'muse', body: 'hi', ts: 1 });
+  const ids = list => Array.from(api.unseenMessages(list), x => x.id);
+  assert.deepEqual(ids([m(44), m(45)]), [44, 45]);
+  assert.deepEqual(ids([m(45), m(45), m(46)]), [46]);
+  assert.equal(api.unseenMessages([m(44), m(45), m(46)]).length, 0);
+});
+
+function fakeTranscript(context, element) {
+  const t = element('transcript');
+  t.children = [];
+  Object.defineProperty(t, 'lastElementChild', { get() { return this.children[this.children.length - 1] || null; } });
+  t.appendChild = child => { t.children.push(child); return child; };
+  context.renderMessage = context.renderMessage || (text => text);
+  context.document.createElement = () => {
+    const g = { dataset: {}, style: { setProperty() {} }, innerHTML: '', messages: 0 };
+    g.insertAdjacentHTML = () => { g.messages++; };
+    return g;
+  };
+  return () => t.children.reduce((n, g) => n + g.messages, 0);
+}
+
+test('overlapping polls send one request; a poll racing the initial load adds nothing twice', async () => {
+  const { api, context, element } = await app();
+  const drawn = fakeTranscript(context, element);
+  const msgs = [{ id: 1, author: 'muse', body: 'a', ts: 1 }, { id: 2, author: 'muse', body: 'b', ts: 2 }];
+  context.fetch = async () => reply({ ...pad(), messages: msgs, total: 2, latest_id: 2 });
+  context.location.search = '?b=launch-review';
+  await api.route();
+  assert.equal(api.state.rendered.size, 2);
+  let calls = 0, release;
+  context.fetch = () => { calls++; return new Promise(r => { release = () => r(reply({ ...pad(), messages: msgs, total: 2, latest_id: 2 })); }); };
+  const first = api.pollBoard();
+  const second = api.pollBoard();
+  const third = api.pollBoard();
+  release();
+  await Promise.all([first, second, third]);
+  assert.equal(calls, 1);
+  assert.equal(api.state.rendered.size, 2);
+  assert.equal(drawn(), 2);
+  assert.equal(api.state.latest, 2);
+});
+
+test('opening a pad starts a fresh rendered set', async () => {
+  const { api, context, element } = await app();
+  fakeTranscript(context, element);
+  api.state.rendered.add(99);
+  context.fetch = async () => reply(pad());
+  context.location.search = '?b=launch-review';
+  await api.route();
+  assert.equal(api.state.rendered.has(99), false);
 });
