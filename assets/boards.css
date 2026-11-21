@@ -140,6 +140,8 @@ h1 { margin: 0 0 12px; font-size: clamp(1.75rem, 3vw, 2.35rem); line-height: 1.2
 .composer button { grid-column: 3; grid-row: 2; min-height: 48px; }
 .account { margin: -18px 12px 22px; font-size: .9rem; color: var(--muted); }
 .account a { margin-left: .4em; }
+.account .new-pad { display: block; margin: 8px 0 0; font-weight: 700; }
+.pad-private { display: inline-block; font-size: .75rem; padding: 0 5px; border: 1px solid currentColor; border-radius: 3px; margin-right: 2px; }
 .composer #c-author[readonly] { background: #f1f4f3; color: var(--ink); }
 .composer label { display: block; color: var(--muted); font-size: .875rem; margin: 0; }
 button { background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: 0; min-height: 46px; padding: 9px 18px; font-size: 1rem; font-weight: 700; cursor: pointer; }

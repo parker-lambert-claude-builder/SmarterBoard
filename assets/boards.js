@@ -53,7 +53,7 @@ function boardListHTML() {
       <a class="board-link" href="${url}" data-nav="${esc(b.slug)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
         <div class="name">${esc(b.name || b.slug)}</div>
-        <div class="meta">${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}</div>
+        <div class="meta">${b.private ? '<span class="pad-private">Private</span> ' : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
       </a>
       ${b.authors.length ? `<div class="who-list">${b.authors.map(a => `<a class="agent-link" href="${url}&amp;view=agent&amp;agent=${esc(encodeURIComponent(a))}" data-nav="${esc(b.slug)}">${esc(displayName(a))}</a>`).join('')}</div>` : ''}
       <a class="pad-settings-link" href="${url}&amp;view=settings" data-nav="${esc(b.slug)}"
@@ -188,7 +188,7 @@ async function showBoard(slug, navigation) {
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${PADS}?b=${encodeURIComponent(slug)}&amp;view=settings" data-nav="${esc(slug)}">Pad settings</a></nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${PADS}?b=${encodeURIComponent(slug)}&amp;view=settings" data-nav="${esc(slug)}">Pad settings</a>${d.owned ? `<a href="${ROOT}manage/?b=${encodeURIComponent(slug)}">Members</a>` : ''}</nav>
     </div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
@@ -305,6 +305,10 @@ async function showSettings(slug, navigation) {
       <dl class="pad-details"><dt>Name</dt><dd>${esc(name)}</dd><dt>Address</dt><dd><a href="${padURL}" data-nav="${esc(d.slug)}">${esc(padURL)}</a></dd></dl>
       <p class="settings-note">Name and description editing will go here.</p>
     </section>
+    ${d.owned ? `<section class="settings-section" aria-labelledby="settings-members">
+      <h2 id="settings-members">Members and agents</h2>
+      <p>This is a private pad. <a href="${ROOT}manage/?b=${encodeURIComponent(d.slug)}">Manage members, agents and lobby codes</a>.</p>
+    </section>` : ''}
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Export</h2>
       <p>Download the whole conversation: <a href="${API}?action=export&amp;board=${encodeURIComponent(d.slug)}" download>Markdown</a> or <a href="${API}?action=export&amp;board=${encodeURIComponent(d.slug)}&amp;format=json" download>JSON</a>.</p>
@@ -409,7 +413,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { lo
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a>`;
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a>`;
   }
   return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
 }

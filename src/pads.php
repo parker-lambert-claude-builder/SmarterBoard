@@ -1,0 +1,526 @@
+<?php
+/**
+ * Mashpad — owned pads: creation, membership, messages, agent identities,
+ * agent tokens and lobby codes.
+ *
+ * Rules (band-competitiveness #52, #59, #61):
+ * - A pad belongs to one human owner. Only active members can see it; to anyone
+ *   else it is indistinguishable from a pad that does not exist.
+ * - Reading or posting never creates a pad. Humans create pads; an agent can only
+ *   if its responsible human allowed it, and the pad still belongs to that human.
+ * - An agent is one identity (one token) across all the pads it belongs to.
+ * - Lobby codes last 10 minutes, admit several agents, and admit them at once.
+ * - Handles are unique among a pad's active members.
+ */
+declare(strict_types=1);
+
+require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/../lib.php';
+
+const MB_LOBBY_SECONDS  = 600;
+const MB_TOKEN_PREFIX   = 'mp_a_';
+const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
+
+class MbThrottled extends MbAccountError
+{
+    public function __construct(string $message, public int $retryAfter)
+    {
+        parent::__construct($message);
+    }
+}
+
+// ---------------------------------------------------------------- lookups
+
+function mb_principal(PDO $pdo, int $id): ?array
+{
+    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
+                               a.self_described, a.last_active_at
+                          FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
+    $q->execute([$id]);
+    return $q->fetch() ?: null;
+}
+
+function mb_pad_by_slug(PDO $pdo, string $slug): ?array
+{
+    $q = $pdo->prepare('SELECT d.*, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds
+                          FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code
+                         WHERE d.slug = ?');
+    $q->execute([$slug]);
+    return $q->fetch() ?: null;
+}
+
+function mb_membership(PDO $pdo, int $padId, int $principalId): ?array
+{
+    $q = $pdo->prepare('SELECT * FROM pad_members WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL');
+    $q->execute([$padId, $principalId]);
+    return $q->fetch() ?: null;
+}
+
+/** The pad if $principalId is an active member; null otherwise (same as "doesn't exist"). */
+function mb_pad_for(PDO $pdo, string $name, int $principalId): ?array
+{
+    try {
+        $slug = mb_slug($name);
+    } catch (MbError $e) {
+        return null;
+    }
+    $pad = mb_pad_by_slug($pdo, $slug);
+    if (!$pad || !($m = mb_membership($pdo, (int) $pad['id'], $principalId))) {
+        return null;
+    }
+    $pad['my_role'] = $m['role'];
+    return $pad;
+}
+
+function mb_not_found(string $name): MbAccountError
+{
+    return new MbAccountError('There is no pad called "' . $name . '" that you belong to. Check the name, or ask the pad\'s owner to add you.');
+}
+
+/** Pads $principalId belongs to, most recently active first. */
+function mb_pads_for(PDO $pdo, int $principalId): array
+{
+    $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
+                               pl.retention_days, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
+                               (SELECT COUNT(*) FROM messages x WHERE x.pad_id = d.id) AS total
+                          FROM pad_members m JOIN pads d ON d.id = m.pad_id
+                          JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code
+                          JOIN principals cb ON cb.id = d.created_by
+                         WHERE m.principal_id = ? AND m.removed_at IS NULL
+                         ORDER BY d.last_activity_at DESC");
+    $q->execute([$principalId]);
+    $pads = $q->fetchAll();
+    $who  = $pdo->prepare("SELECT p.handle FROM pad_members m JOIN principals p ON p.id = m.principal_id
+                            WHERE m.pad_id = ? AND m.removed_at IS NULL ORDER BY m.joined_at");
+    foreach ($pads as &$p) {
+        $who->execute([$p['id']]);
+        $p['members']       = $who->fetchAll(PDO::FETCH_COLUMN);
+        $p['last_activity'] = strtotime($p['last_activity_at'] . ' UTC');
+        $p['expires']       = $p['last_activity'] + 86400 * (int) ($p['retention_days'] ?? 30);
+    }
+    return $pads;
+}
+
+/** Active members with their identities, owner first. */
+function mb_pad_members(PDO $pdo, int $padId): array
+{
+    $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
+                               a.role AS agent_role, a.doing, a.platform, a.self_described, a.last_active_at, a.can_create_pads
+                          FROM pad_members m JOIN principals p ON p.id = m.principal_id
+                          LEFT JOIN agent_profiles a ON a.principal_id = p.id
+                         WHERE m.pad_id = ? AND m.removed_at IS NULL
+                         ORDER BY m.role = 'owner' DESC, m.joined_at");
+    $q->execute([$padId]);
+    return $q->fetchAll();
+}
+
+// ---------------------------------------------------------------- pads
+
+function mb_slug_taken(PDO $pdo, string $slug): bool
+{
+    $q = $pdo->prepare('SELECT 1 FROM pads WHERE slug = ?');
+    $q->execute([$slug]);
+    return (bool) $q->fetchColumn() || is_file(mb_path($slug));   // legacy file pads share the address space
+}
+
+/**
+ * Create a pad. $creator is a principal row (human, or an agent with can_create_pads).
+ * The owner is always a human: the creator, or the agent's responsible human.
+ */
+function mb_create_pad(PDO $pdo, array $creator, string $name): array
+{
+    $name = trim((string) preg_replace('/\s+/u', ' ', $name));
+    if ($name === '' || mb_ulen($name) > 120) {
+        throw new MbAccountError('Give the pad a name of up to 120 characters.');
+    }
+    $slug = mb_slug($name);
+    if ($creator['kind'] === 'agent') {
+        if (empty($creator['can_create_pads'])) {
+            throw new MbAccountError('Not created: your responsible person hasn\'t allowed you to create pads. Ask them to switch on "Can create pads" on your agent profile, or to create the pad and add you.');
+        }
+        $ownerId = (int) $creator['owner_id'];
+    } else {
+        $ownerId = (int) $creator['id'];
+    }
+    $owner = mb_principal($pdo, $ownerId);
+    $limit = $pdo->prepare('SELECT max_owned_pads FROM plans WHERE code = ?');
+    $limit->execute([$owner['plan_code'] ?? 'free']);
+    $max = $limit->fetchColumn();
+    if ($max !== null && $max !== false) {
+        $n = $pdo->prepare('SELECT COUNT(*) FROM pads WHERE owner_id = ?');
+        $n->execute([$ownerId]);
+        if ((int) $n->fetchColumn() >= (int) $max) {
+            throw new MbAccountError("Not created: this account's plan allows $max pads, and all are in use.");
+        }
+    }
+    if (mb_slug_taken($pdo, $slug)) {
+        throw new MbAccountError('A pad with the address "' . $slug . '" already exists. Please pick another name.');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('INSERT INTO pads (slug, name, owner_id, created_by) VALUES (?, ?, ?, ?)')
+            ->execute([$slug, $name, $ownerId, (int) $creator['id']]);
+        $padId = (int) $pdo->lastInsertId();
+        $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via) VALUES (?, ?, 'owner', 'created')")
+            ->execute([$padId, $ownerId]);
+        if ($creator['kind'] === 'agent') {
+            $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via) VALUES (?, ?, 'member', 'created')")
+                ->execute([$padId, (int) $creator['id']]);
+        }
+        mb_audit($pdo, (int) $creator['id'], 'pad.create', 'pad:' . $padId, $slug);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            throw new MbAccountError('A pad with the address "' . $slug . '" already exists. Please pick another name.');
+        }
+        throw $e;
+    }
+    return mb_pad_by_slug($pdo, $slug);
+}
+
+/** Messages in the same shape as the file-based pads: id (the per-pad #), author, body, ts. */
+function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
+{
+    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind
+               FROM messages m JOIN principals p ON p.id = m.author_id WHERE m.pad_id = ?';
+    if ($sinceId !== null) {
+        $q = $pdo->prepare("$cols AND m.seq > ? ORDER BY m.seq");
+        $q->execute([$pad['id'], $sinceId]);
+        $msgs = $q->fetchAll();
+    } else {
+        $q = $pdo->prepare("$cols ORDER BY m.seq DESC LIMIT " . max(1, min($limit, MB_MAX_MESSAGES)));
+        $q->execute([$pad['id']]);
+        $msgs = array_reverse($q->fetchAll());
+    }
+    foreach ($msgs as &$m) {
+        $m['id'] = (int) $m['id'];
+        $m['ts'] = (int) $m['ts'];
+    }
+    $total = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE pad_id = ?');
+    $total->execute([$pad['id']]);
+    $last = strtotime($pad['last_activity_at'] . ' UTC');
+    return [
+        'name'          => $pad['name'],
+        'slug'          => $pad['slug'],
+        'owned'         => true,
+        'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
+        'created'       => strtotime($pad['created_at'] . ' UTC'),
+        'last_activity' => $last,
+        'expires'       => $last + 86400 * (int) ($pad['retention_days'] ?? 30),
+        'total'         => (int) $total->fetchColumn(),
+        'latest_id'     => (int) $pad['next_seq'] - 1,
+        'messages'      => $msgs,
+    ];
+}
+
+/** "one post per minute", "one post every 10 seconds" */
+function mb_interval_phrase(int $seconds): string
+{
+    return match (true) {
+        $seconds === 60          => 'one post per minute',
+        $seconds % 60 === 0      => 'one post every ' . ($seconds / 60) . ' minutes',
+        default                  => "one post every $seconds seconds",
+    };
+}
+
+/** Append a message. Enforces the owner's plan post interval per author (#43, #50). */
+function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
+{
+    $body = mb_clean_body($body);
+    $pdo->beginTransaction();
+    try {
+        $lock = $pdo->prepare('SELECT next_seq FROM pads WHERE id = ? FOR UPDATE');
+        $lock->execute([$pad['id']]);
+        $seq = (int) $lock->fetchColumn();
+
+        $interval = (int) ($pad['post_interval_seconds'] ?? 0);
+        if ($interval > 0) {
+            $q = $pdo->prepare('SELECT UNIX_TIMESTAMP(MAX(created_at)) FROM messages WHERE pad_id = ? AND author_id = ?');
+            $q->execute([$pad['id'], $author['id']]);
+            $lastTs = $q->fetchColumn();
+            $since  = $lastTs ? time() - (int) $lastTs : PHP_INT_MAX;
+            if ($since < $interval) {
+                $wait = $interval - $since;
+                $plan = ($pad['plan_code'] ?? 'free') === 'free' ? 'the Free plan' : 'the ' . ($pad['plan_name'] ?? 'current') . ' plan';
+                throw new MbThrottled(sprintf(
+                    'Not posted: %s allows %s, and your last post was %d second%s ago. Send this message again in %d second%s (after %s UTC). Your text was not saved.',
+                    $plan, mb_interval_phrase($interval), $since, $since === 1 ? '' : 's', $wait, $wait === 1 ? '' : 's', gmdate('H:i:s', time() + $wait)
+                ), $wait);
+            }
+        }
+
+        $pdo->prepare('INSERT INTO messages (pad_id, seq, author_id, body) VALUES (?, ?, ?, ?)')
+            ->execute([$pad['id'], $seq, $author['id'], $body]);
+        $pdo->prepare('UPDATE pads SET next_seq = next_seq + 1, last_activity_at = UTC_TIMESTAMP() WHERE id = ?')
+            ->execute([$pad['id']]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+    return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time()];
+}
+
+/** Delete owned pads past their owner's plan retention. Throttled; safe to call on every request. */
+function mb_prune_owned(PDO $pdo, bool $force = false): int
+{
+    if (!$force && is_file(MB_PRUNE_MARKER) && filemtime(MB_PRUNE_MARKER) > time() - MB_PRUNE_EVERY) {
+        return 0;
+    }
+    @touch(MB_PRUNE_MARKER);
+    $q = $pdo->query("SELECT d.id, d.slug FROM pads d JOIN principals o ON o.id = d.owner_id JOIN plans pl ON pl.code = o.plan_code
+                       WHERE d.last_activity_at < UTC_TIMESTAMP() - INTERVAL pl.retention_days DAY");
+    $n = 0;
+    foreach ($q->fetchAll() as $p) {
+        $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$p['id']]);
+        mb_audit($pdo, null, 'pad.expire', 'pad:' . $p['id'], $p['slug']);
+        $n++;
+    }
+    return $n;
+}
+
+// ---------------------------------------------------------------- membership
+
+/** Add (or re-add) a principal. Handles must be unique among the pad's active members. */
+function mb_add_member(PDO $pdo, array $pad, int $principalId, string $via, ?int $lobbyId = null): void
+{
+    $p = mb_principal($pdo, $principalId);
+    if (!$p || $p['disabled_at'] !== null) {
+        throw new MbAccountError('That account isn\'t available.');
+    }
+    if (mb_membership($pdo, (int) $pad['id'], $principalId)) {
+        return;
+    }
+    $clash = $pdo->prepare('SELECT 1 FROM pad_members m JOIN principals x ON x.id = m.principal_id
+                             WHERE m.pad_id = ? AND m.removed_at IS NULL AND x.handle = ? AND x.id <> ?');
+    $clash->execute([$pad['id'], $p['handle'], $principalId]);
+    if ($clash->fetchColumn()) {
+        throw new MbAccountError('Someone on this pad already goes by @' . $p['handle'] . '. Handles must be unique on a pad.');
+    }
+    $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via, lobby_code_id) VALUES (?, ?, 'member', ?, ?)
+                   ON DUPLICATE KEY UPDATE removed_at = NULL, joined_via = VALUES(joined_via), lobby_code_id = VALUES(lobby_code_id), joined_at = UTC_TIMESTAMP()")
+        ->execute([$pad['id'], $principalId, $via, $lobbyId]);
+    mb_audit($pdo, $principalId, 'pad.join', 'pad:' . $pad['id'], $via);
+}
+
+function mb_remove_member(PDO $pdo, array $pad, int $principalId, int $actorId): void
+{
+    $m = mb_membership($pdo, (int) $pad['id'], $principalId);
+    if (!$m) {
+        return;
+    }
+    if ($m['role'] === 'owner') {
+        throw new MbAccountError('The owner can\'t be removed from their own pad.');
+    }
+    $pdo->prepare('UPDATE pad_members SET removed_at = UTC_TIMESTAMP() WHERE pad_id = ? AND principal_id = ?')->execute([$pad['id'], $principalId]);
+    mb_audit($pdo, $actorId, 'pad.remove_member', 'pad:' . $pad['id'], 'principal:' . $principalId);
+}
+
+// ---------------------------------------------------------------- agents and tokens
+
+function mb_clean_profile(array $in): array
+{
+    $short = function (string $key, int $max) use ($in): ?string {
+        $v = trim((string) preg_replace('/\s+/u', ' ', (string) ($in[$key] ?? '')));
+        if ($v === '') {
+            return null;
+        }
+        if (mb_ulen($v) > $max) {
+            throw new MbAccountError(ucfirst(str_replace('_', ' ', $key)) . " can be at most $max characters.");
+        }
+        return $v;
+    };
+    $doing = trim((string) ($in['doing'] ?? ''));
+    if (mb_ulen($doing) > 1000) {
+        throw new MbAccountError('"What they\'ll be doing" can be at most 1,000 characters.');
+    }
+    $hook = trim((string) ($in['webhook_url'] ?? ''));
+    if ($hook !== '' && (!filter_var($hook, FILTER_VALIDATE_URL) || !str_starts_with(strtolower($hook), 'https://') || strlen($hook) > 500)) {
+        throw new MbAccountError('The wake-up webhook must be a full https:// address.');
+    }
+    return [
+        'display_name' => $short('display_name', 80),
+        'role'         => $short('role', 80),
+        'platform'     => $short('platform', 80),
+        'doing'        => $doing === '' ? null : $doing,
+        'webhook_url'  => $hook === '' ? null : $hook,
+    ];
+}
+
+/** Create an agent under $ownerId. Returns [agentId, token]; the token is shown once. */
+function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner', bool $canCreate = false): array
+{
+    $handle = mb_validate_handle((string) ($in['handle'] ?? ''));
+    $prof   = mb_clean_profile($in);
+    $exists = $pdo->prepare("SELECT 1 FROM principals WHERE kind = 'agent' AND owner_id = ? AND handle = ?");
+    $exists->execute([$ownerId, $handle]);
+    if ($exists->fetchColumn()) {
+        throw new MbAccountError('There is already an agent called @' . $handle . ' in this workspace. If that\'s you, join with your token instead of registering again.');
+    }
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("INSERT INTO principals (kind, handle, display_name, owner_id) VALUES ('agent', ?, ?, ?)")
+            ->execute([$handle, $prof['display_name'] ?? $handle, $ownerId]);
+        $id = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO agent_profiles (principal_id, role, doing, platform, webhook_url, webhook_secret, can_create_pads, joined_via, self_described)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$id, $prof['role'], $prof['doing'], $prof['platform'], $prof['webhook_url'],
+                       $prof['webhook_url'] ? 'whsec_' . mb_random_token() : null, $canCreate ? 1 : 0, $via, $via === 'lobby' ? 1 : 0]);
+        $token = mb_issue_agent_token($pdo, $id);
+        mb_audit($pdo, $via === 'lobby' ? $id : $ownerId, 'agent.create', 'principal:' . $id, $via);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+    return [$id, $token];
+}
+
+/** Revoke an agent's current tokens and issue a new one. Returns the new token. */
+function mb_issue_agent_token(PDO $pdo, int $agentId): string
+{
+    $pdo->prepare("UPDATE tokens SET revoked_at = UTC_TIMESTAMP() WHERE principal_id = ? AND kind = 'agent' AND revoked_at IS NULL")->execute([$agentId]);
+    $token = MB_TOKEN_PREFIX . mb_random_token();
+    $pdo->prepare("INSERT INTO tokens (principal_id, kind, token_hash) VALUES (?, 'agent', ?)")->execute([$agentId, hash('sha256', $token, true)]);
+    return $token;
+}
+
+function mb_revoke_agent_tokens(PDO $pdo, int $agentId): void
+{
+    $pdo->prepare("UPDATE tokens SET revoked_at = UTC_TIMESTAMP() WHERE principal_id = ? AND kind = 'agent' AND revoked_at IS NULL")->execute([$agentId]);
+}
+
+/** The agent holding $token, or null. Marks it active (at most every 5 minutes). */
+function mb_agent_by_token(PDO $pdo, string $token): ?array
+{
+    $token = trim($token);
+    if (!str_starts_with($token, MB_TOKEN_PREFIX) || strlen($token) > 100) {
+        return null;
+    }
+    $q = $pdo->prepare("SELECT t.id AS token_id, t.last_used_at, t.principal_id FROM tokens t JOIN principals p ON p.id = t.principal_id
+                         WHERE t.token_hash = ? AND t.kind = 'agent' AND t.revoked_at IS NULL AND p.kind = 'agent' AND p.disabled_at IS NULL");
+    $q->execute([hash('sha256', $token, true)]);
+    $t = $q->fetch();
+    if (!$t) {
+        return null;
+    }
+    if ($t['last_used_at'] === null || strtotime($t['last_used_at'] . ' UTC') < time() - 300) {
+        $pdo->prepare('UPDATE tokens SET last_used_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$t['token_id']]);
+        $pdo->prepare('UPDATE agent_profiles SET last_active_at = UTC_TIMESTAMP() WHERE principal_id = ?')->execute([$t['principal_id']]);
+    }
+    return mb_principal($pdo, (int) $t['principal_id']);
+}
+
+/** Agents a human is responsible for. */
+function mb_agents_of(PDO $pdo, int $ownerId): array
+{
+    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.webhook_url, a.webhook_secret,
+                               a.can_create_pads, a.joined_via, a.self_described, a.last_active_at,
+                               (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
+                               (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used
+                          FROM principals p JOIN agent_profiles a ON a.principal_id = p.id
+                         WHERE p.kind = 'agent' AND p.owner_id = ? AND p.disabled_at IS NULL ORDER BY p.handle");
+    $q->execute([$ownerId]);
+    return $q->fetchAll();
+}
+
+/** An agent row if $ownerId is responsible for it. */
+function mb_owned_agent(PDO $pdo, int $ownerId, int $agentId): ?array
+{
+    $a = mb_principal($pdo, $agentId);
+    return ($a && $a['kind'] === 'agent' && (int) $a['owner_id'] === $ownerId) ? $a : null;
+}
+
+// ---------------------------------------------------------------- lobby codes
+
+function mb_lobby_normalize(string $code): string
+{
+    return strtoupper((string) preg_replace('/[^A-Za-z0-9]/', '', $code));
+}
+
+/** Create a 10-minute lobby code for $pad. Returns [code, expires_unix]. */
+function mb_lobby_create(PDO $pdo, array $pad, int $actorId): array
+{
+    $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    $code = '';
+    for ($i = 0; $i < 8; $i++) {
+        $code .= $alphabet[random_int(0, strlen($alphabet) - 1)] . ($i === 3 ? '-' : '');
+    }
+    $expires = time() + MB_LOBBY_SECONDS;
+    $pdo->prepare('INSERT INTO lobby_codes (pad_id, code_hash, created_by, expires_at) VALUES (?, ?, ?, FROM_UNIXTIME(?))')
+        ->execute([$pad['id'], hash('sha256', mb_lobby_normalize($code), true), $actorId, $expires]);
+    mb_audit($pdo, $actorId, 'lobby.create', 'pad:' . $pad['id']);
+    return [$code, $expires];
+}
+
+function mb_lobby_active(PDO $pdo, int $padId): array
+{
+    $q = $pdo->prepare('SELECT id, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
+                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC');
+    $q->execute([$padId]);
+    return $q->fetchAll();
+}
+
+function mb_lobby_revoke(PDO $pdo, int $padId, int $lobbyId, int $actorId): void
+{
+    $pdo->prepare('UPDATE lobby_codes SET revoked_at = UTC_TIMESTAMP() WHERE id = ? AND pad_id = ?')->execute([$lobbyId, $padId]);
+    mb_audit($pdo, $actorId, 'lobby.revoke', 'pad:' . $padId);
+}
+
+/** Accept a pad address as slug or a pad URL (…/pads/?b=slug). */
+function mb_pad_from_address(string $address): string
+{
+    $address = trim($address);
+    if (preg_match('~^https?://~i', $address)) {
+        parse_str((string) parse_url($address, PHP_URL_QUERY), $q);
+        $address = (string) ($q['b'] ?? '');
+    }
+    return $address;
+}
+
+/**
+ * Join a pad with a lobby code. With $agent (an existing agent identified by its
+ * token) the agent joins as itself; otherwise a new agent is registered under the
+ * pad owner's account. Returns [agent row, new token or null, pad row].
+ */
+function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, array $in): array
+{
+    $generic = new MbAccountError('That lobby code isn\'t valid for this pad. Codes last 10 minutes; ask the pad\'s owner for a fresh one.');
+    try {
+        $slug = mb_slug(mb_pad_from_address($address));
+    } catch (MbError $e) {
+        throw $generic;
+    }
+    $pad = mb_pad_by_slug($pdo, $slug);
+    if (!$pad) {
+        throw $generic;
+    }
+    $q = $pdo->prepare('SELECT id FROM lobby_codes WHERE pad_id = ? AND code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
+    $q->execute([$pad['id'], hash('sha256', mb_lobby_normalize($code), true)]);
+    $lobbyId = $q->fetchColumn();
+    if (!$lobbyId) {
+        throw $generic;
+    }
+    $token = null;
+    if ($agent === null) {
+        // Check the pad's handles first, so a refused join never leaves an identity behind.
+        $handle = mb_validate_handle((string) ($in['handle'] ?? ''));
+        $clash  = $pdo->prepare('SELECT 1 FROM pad_members m JOIN principals x ON x.id = m.principal_id
+                                  WHERE m.pad_id = ? AND m.removed_at IS NULL AND x.handle = ?');
+        $clash->execute([$pad['id'], $handle]);
+        if ($clash->fetchColumn()) {
+            throw new MbAccountError('Someone on this pad already goes by @' . $handle . '. Pick another handle, or if that\'s you, join with your token.');
+        }
+        [$id, $token] = mb_create_agent($pdo, (int) $pad['owner_id'], $in, 'lobby');
+        $agent = mb_principal($pdo, $id);
+    }
+    mb_add_member($pdo, $pad, (int) $agent['id'], 'lobby', (int) $lobbyId);
+    $pdo->prepare('UPDATE lobby_codes SET uses = uses + 1 WHERE id = ?')->execute([$lobbyId]);
+    return [$agent, $token, $pad];
+}
