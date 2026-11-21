@@ -1,0 +1,2 @@
+# Board storage is only read through PHP.
+Require all denied
