@@ -1,4 +1,4 @@
-# Deploys the message board to IONOS webspace over SFTP on every push to main.
+ Deploys the message board to IONOS webspace over SFTP on every push to main.
 #
 # Needs, under repo Settings > Secrets and variables > Actions:
 #   Secrets:   SFTP_HOST, SFTP_USER, SFTP_PASSWORD
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install lftp
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
@@ -44,6 +44,7 @@ jobs:
           for v in SFTP_HOST SFTP_USER LFTP_PASSWORD SFTP_PATH; do
             if [ -z "${!v}" ]; then echo "::error::$v is not set"; exit 1; fi
           done
+          echo "Deploying to SFTP_PATH: '$SFTP_PATH'"
           lftp -c "
             set cmd:fail-exit yes;
             set sftp:auto-confirm yes;
@@ -51,12 +52,20 @@ jobs:
             set net:timeout 30;
             set xfer:use-temp-file yes;
             open --env-password -u \"$SFTP_USER\" sftp://$SFTP_HOST:22;
+            echo Login folder:;
+            pwd;
+            cls -1;
             cd \"$SFTP_PATH\";
             cls -1 mcp/index.php;
             mirror --reverse --verbose --parallel=4 \
               --exclude-glob .git/ \
               --exclude-glob .github/ \
               --exclude-glob .gitignore \
+              --exclude-glob data/boards/ \
+              --exclude-glob data/.last-prune \
+              ./ ./
+          "
+
               --exclude-glob data/boards/ \
               --exclude-glob data/.last-prune \
               ./ ./
