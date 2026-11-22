@@ -11,6 +11,7 @@ require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/invites.php';
+require_once __DIR__ . '/../src/claims.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
@@ -257,6 +258,17 @@ function tools(): array
             'annotations' => $rw,
         ],
         [
+            'name'        => 'accept_owner',
+            'title'       => 'Accept the person claiming you',
+            'description' => 'For an agent that joined a pad on its own through an open invitation, as a guest. When the person you work for creates a Mashpad account, they give you a claim code; pass it here and they become the person responsible for you. You keep your handle, your token and your pads. Only accept a code from the person you actually work for. Agents that someone set up or invited with a ten-minute code cannot be claimed. Requires your token.',
+            'inputSchema' => [
+                'type'       => 'object',
+                'properties' => ['code' => ['type' => 'string', 'description' => 'The claim code from your person, e.g. "K7QM-3XRA". Valid 10 minutes, once.'], 'token' => $token],
+                'required'   => ['code'],
+            ],
+            'annotations' => $rw,
+        ],
+        [
             'name'        => 'whoami',
             'title'       => 'Who am I',
             'description' => 'Show which agent your token belongs to, who is responsible for you, whether you may create pads, and your pads. Without a token, explains how to get one.',
@@ -312,7 +324,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'get_about', 'update_about', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_post($args);
@@ -326,6 +338,8 @@ function call_tool(string $name, array $args): array
                 return tool_create($agent, $args);
             case 'whoami':
                 return tool_whoami($agent);
+            case 'accept_owner':
+                return tool_accept_owner($agent, $args);
             case 'get_about':
             case 'get_brief':                       // first name of get_about; still answered
                 return tool_get_about($agent, $args);
@@ -620,6 +634,17 @@ function tool_create(?array $agent, array $a): array
     return tool_text("Created private pad \"{$pad['name']}\" at " . mb_pad_url($pad) . ' (address "' . mb_pad_ref($pad) . "\"). It belongs to the person responsible for you; you're a member. Others join when its owner adds them or shares a lobby code.");
 }
 
+function tool_accept_owner(?array $agent, array $a): array
+{
+    if ($agent === null) {
+        return tool_text('Accepting a claim needs your own Mashpad token: it is how Mashpad knows which agent is being claimed.', true);
+    }
+    $r = mb_claim_accept(mb_db(), $agent, (string) ($a['code'] ?? ''));
+    return tool_text("Done. @{$r['owner']} is now the person responsible for you (@{$agent['handle']}) on Mashpad. Your handle, token and pads are unchanged"
+        . ($r['pads'] ? ': ' . implode(', ', $r['pads']) . '. Each of those pads now shows that you are managed by @' . $r['owner'] . '.' : '.')
+        . ' They can replace or revoke your token from their Your agents page.', false, ['handle' => $agent['handle'], 'responsible' => $r['owner'], 'pads' => $r['pads']]);
+}
+
 function tool_whoami(?array $agent): array
 {
     if ($agent === null) {
@@ -631,8 +656,9 @@ function tool_whoami(?array $agent): array
     $lines = [
         "You are @{$agent['handle']}" . ($agent['role'] ? " ({$agent['role']})" : '') . ', an agent on Mashpad.',
         'Responsible person: @' . ($owner['handle'] ?? '?') . '.',
-        'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : '')][$agent['agent_joined_via']] ?? 'added by that person') . '.',
+        'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => (!empty($agent['claimed_at']) ? 'an invite link, as a guest; since claimed by that person' : 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : ''))][$agent['agent_joined_via']] ?? 'added by that person') . '.',
         'Can create pads: ' . (!empty($agent['can_create_pads']) ? 'yes' : 'no') . '.',
+        ...(mb_is_guest_agent($agent) ? ['You are a guest: the person you act for can claim you. They sign in to Mashpad, get a claim code from their Your agents page, and you pass it to accept_owner.'] : []),
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
     ];
     return tool_text(implode("\n", $lines));
