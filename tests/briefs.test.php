@@ -41,17 +41,21 @@ require "$root/src/briefs.php";
 
 $dylanId = mb_create_human($pdo, 'Dylan', 'dylan', 'd@example.com', 'correct horse battery', true);
 $dylan   = mb_principal($pdo, $dylanId);
-$pad     = mb_create_pad($pdo, $dylan, 'Launch');
-[$museId] = mb_create_agent($pdo, $dylanId, ['handle' => 'muse']);
+// The pad is created by an agent for its person: both are "the creator" and may write the About text.
+[$museId] = mb_create_agent($pdo, $dylanId, ['handle' => 'muse'], 'owner', true);
 $muse    = mb_principal($pdo, $museId);
-mb_add_member($pdo, $pad, $museId, 'added');
+$pad     = mb_create_pad($pdo, $muse, 'Launch');
+[$helperId] = mb_create_agent($pdo, $dylanId, ['handle' => 'helper']);
+$eveId   = mb_create_human($pdo, 'Eve', 'eve', 'e@example.com', 'correct horse battery');
+mb_add_member($pdo, $pad, $helperId, 'added');
+mb_add_member($pdo, $pad, $eveId, 'added');
 $padId   = (int) $pad['id'];
 
 check('a new pad has no brief', mb_brief($pdo, $padId) === null && mb_brief_history($pdo, $padId) === []);
 $v1 = mb_brief_save($pdo, $pad, $dylan, "## Objective\r\nShip it.\n\n", 0);
 check('first save is version 1 with its author; line endings normalised, trailing space trimmed', $v1['version'] === 1 && $v1['author'] === 'dylan' && $v1['body'] === "## Objective\nShip it." && $v1['ts'] > 0);
 $v2 = mb_brief_save($pdo, $pad, $muse, "## Objective\nShip it.\n\n## Decisions\n- Free plan first (#4)", 1);
-check('an agent member saves version 2', $v2['version'] === 2 && $v2['author'] === 'muse' && $v2['author_kind'] === 'agent');
+check('the agent that created the pad saves version 2', $v2['version'] === 2 && $v2['author'] === 'muse' && $v2['author_kind'] === 'agent');
 check('the current brief is the newest version', mb_brief($pdo, $padId)['version'] === 2);
 check('earlier versions stay readable', mb_brief($pdo, $padId, 1)['body'] === "## Objective\nShip it." && mb_brief($pdo, $padId, 9) === null);
 
@@ -62,6 +66,12 @@ check('the refusal says what happened and returns the current brief', $c && str_
       && str_contains($c->getMessage(), 'Your text was not saved') && $c->current['version'] === 2 && str_contains($c->current['body'], 'Free plan first'));
 check('a save with no base on a pad that has a brief is refused too', str_contains(err(fn () => mb_brief_save($pdo, $pad, $dylan, 'x', 0)), 'changed while you were editing'));
 
+foreach (['helper' => $helperId, 'eve' => $eveId] as $name => $id) {
+    $msg = err(fn () => mb_brief_save($pdo, $pad, mb_principal($pdo, $id), 'Mine now.', 2));
+    check("a member who didn't create the pad (@$name) can't change the About text", str_contains($msg, 'only the pad\'s creator can change its About text'), $msg);
+}
+check('nothing was saved by them, and they can still read it', mb_brief($pdo, $padId)['version'] === 2 && mb_can_edit_about($pad, mb_principal($pdo, $eveId)) === false
+      && mb_can_edit_about($pad, $dylan) && mb_can_edit_about($pad, $muse) && !mb_can_edit_about($pad, []));
 $same = mb_brief_save($pdo, $pad, $dylan, $v2['body'] . "\n", 2);
 check('saving unchanged text makes no new version', $same['version'] === 2 && count(mb_brief_history($pdo, $padId)) === 2);
 check('the size limit is enforced with the numbers', str_contains(err(fn () => mb_brief_save($pdo, $pad, $dylan, str_repeat('a', MB_BRIEF_MAX + 1), 2)), (MB_BRIEF_MAX + 1) . ' bytes and the limit is ' . MB_BRIEF_MAX));
@@ -83,8 +93,8 @@ check('only the latest ' . MB_BRIEF_KEEP . ' versions are kept', count($h) === M
 
 $r  = mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/launch', $dylanId), null, 50) + ['brief' => mb_brief($pdo, $padId)];
 $md = mb_export_markdown($r);
-check('the export carries the brief above the messages', (bool) preg_match('/## Brief \(version \d+, saved by @dylan, \d{4}-\d\d-\d\d \d\d:\d\d UTC\)\n\nRevision \d+\n\n---\n\n## #1 from @muse/', $md), substr($md, 0, 300));
-check('a pad with no brief exports as before', !str_contains(mb_export_markdown(mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/launch', $dylanId), null, 50)), '## Brief'));
+check('the export carries the brief above the messages', (bool) preg_match('/## About this pad \(written by @dylan, \d{4}-\d\d-\d\d \d\d:\d\d UTC\)\n\nRevision \d+\n\n---\n\n## #1 from @muse/', $md), substr($md, 0, 300));
+check('a pad with no brief exports as before', !str_contains(mb_export_markdown(mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/launch', $dylanId), null, 50)), '## About this pad'));
 
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$padId]);
 check('deleting a pad deletes its brief versions', (int) $pdo->query('SELECT COUNT(*) FROM pad_briefs')->fetchColumn() === 0);

@@ -19,6 +19,9 @@ RewriteRule ^mcp$ %{ENV:BASE}mcp/index.php [L]
 # /pads/<owner>/<pad> and /manage/<owner>/<pad> are served by pads/ and manage/.
 RewriteRule ^(pads|manage)/[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_-]*/?$ %{ENV:BASE}$1/index.php [L]
 
+# /join/<token> is a pad's invite link, served by join/.
+RewriteRule ^join/[A-Za-z0-9]+/?$ %{ENV:BASE}join/index.php [L]
+
 # Any other folder asked for without its trailing slash gets the slash added.
 # (This is what DirectorySlash does; it is switched off below so the /mcp rule can work.)
 RewriteCond %{REQUEST_FILENAME} -d

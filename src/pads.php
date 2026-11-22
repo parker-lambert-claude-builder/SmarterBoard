@@ -28,7 +28,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  * pages that may later sit under a pad's own address. One list, used at creation.
  */
 const MB_RESERVED_PAD_NAMES = [
-    'admin', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'manage', 'mcp',
+    'admin', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
     'members', 'migrations', 'new', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
@@ -56,7 +56,7 @@ class MbThrottled extends MbAccountError
 
 function mb_principal(PDO $pdo, int $id): ?array
 {
-    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
+    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
                                a.self_described, a.last_active_at
                           FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
     $q->execute([$id]);
@@ -201,7 +201,7 @@ function mb_pads_for(PDO $pdo, int $principalId): array
 function mb_pad_members(PDO $pdo, int $padId): array
 {
     $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
-                               a.role AS agent_role, a.doing, a.platform, a.self_described, a.last_active_at, a.can_create_pads
+                               a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described, a.last_active_at, a.can_create_pads
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
                          WHERE m.pad_id = ? AND m.removed_at IS NULL
@@ -288,7 +288,7 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
 /** Messages in the same shape as the file-based pads: id (the per-pad #), author, body, ts. */
 function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
 {
-    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind
+    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind, m.kind
                FROM messages m JOIN principals p ON p.id = m.author_id WHERE m.pad_id = ?';
     if ($sinceId !== null) {
         $q = $pdo->prepare("$cols AND m.seq > ? ORDER BY m.seq");
@@ -348,7 +348,7 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
 
         $interval = (int) ($pad['post_interval_seconds'] ?? 0);
         if ($interval > 0) {
-            $q = $pdo->prepare('SELECT UNIX_TIMESTAMP(MAX(created_at)) FROM messages WHERE pad_id = ? AND author_id = ?');
+            $q = $pdo->prepare("SELECT UNIX_TIMESTAMP(MAX(created_at)) FROM messages WHERE pad_id = ? AND author_id = ? AND kind = 'post'");
             $q->execute([$pad['id'], $author['id']]);
             $lastTs = $q->fetchColumn();
             $since  = $lastTs ? time() - (int) $lastTs : PHP_INT_MAX;
@@ -374,6 +374,31 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
         throw $e;
     }
     return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time()];
+}
+
+/**
+ * Record something that happened on the pad ("@sam joined through the invite
+ * link") in the conversation itself, so every member sees it. An event takes
+ * the next message number but is not a post: it is never throttled, doesn't
+ * count against the actor's post allowance, and doesn't extend retention.
+ */
+function mb_pad_event(PDO $pdo, array $pad, int $actorId, string $text): int
+{
+    $pdo->beginTransaction();
+    try {
+        $lock = $pdo->prepare('SELECT next_seq FROM pads WHERE id = ? FOR UPDATE');
+        $lock->execute([$pad['id']]);
+        $seq = (int) $lock->fetchColumn();
+        $pdo->prepare("INSERT INTO messages (pad_id, seq, author_id, body, kind) VALUES (?, ?, ?, ?, 'event')")->execute([$pad['id'], $seq, $actorId, $text]);
+        $pdo->prepare('UPDATE pads SET next_seq = next_seq + 1 WHERE id = ?')->execute([$pad['id']]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+    return $seq;
 }
 
 /** Delete owned pads past their owner's plan retention. Throttled; safe to call on every request. */
@@ -480,9 +505,9 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
         $pdo->prepare('INSERT INTO agent_profiles (principal_id, role, doing, platform, webhook_url, webhook_secret, can_create_pads, joined_via, self_described)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
             ->execute([$id, $prof['role'], $prof['doing'], $prof['platform'], $prof['webhook_url'],
-                       $prof['webhook_url'] ? 'whsec_' . mb_random_token() : null, $canCreate ? 1 : 0, $via, $via === 'lobby' ? 1 : 0]);
+                       $prof['webhook_url'] ? 'whsec_' . mb_random_token() : null, $canCreate ? 1 : 0, $via, $via === 'owner' ? 0 : 1]);
         $token = mb_issue_agent_token($pdo, $id);
-        mb_audit($pdo, $via === 'lobby' ? $id : $ownerId, 'agent.create', 'principal:' . $id, $via);
+        mb_audit($pdo, $via === 'owner' ? $ownerId : $id, 'agent.create', 'principal:' . $id, $via);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -531,7 +556,7 @@ function mb_agent_by_token(PDO $pdo, string $token): ?array
 /** Agents a human is responsible for. */
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
-    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.webhook_url, a.webhook_secret,
+    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.webhook_url, a.webhook_secret,
                                a.can_create_pads, a.joined_via, a.self_described, a.last_active_at,
                                (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
                                (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used

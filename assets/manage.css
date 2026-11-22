@@ -84,3 +84,10 @@
 
 .manage .lobby-active { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-top: 16px; }
 .account-page .manage .lobby-active p { margin: 0; }
+
+/* Invite link and requests to join */
+.invite-link .copy { display: block; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--rule); background: #f7f9f8; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9375rem; overflow-wrap: anywhere; }
+.invite-actions, .request-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+.invite-actions { margin-top: 12px; }
+.request-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.request-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }

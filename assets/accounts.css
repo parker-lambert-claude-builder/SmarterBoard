@@ -74,3 +74,10 @@
 .admin-plan { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 0; }
 .admin-plan label { flex-basis: 100%; font-size: .875rem; color: var(--muted); }
 .admin-plan select { min-height: 46px; font: inherit; padding: 6px 10px; border: 1px solid #8d9b96; border-radius: 0; background: var(--paper); color: var(--ink); }
+
+/* Invite link page */
+.join-for { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.join-for h2 { margin: 0 0 8px; font-size: 1.25rem; }
+.join-for ol { padding-left: 1.3em; }
+.join-for li { margin: 8px 0; }
+.join-for .copy { display: block; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--rule); background: #f7f9f8; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9375rem; overflow-wrap: anywhere; }

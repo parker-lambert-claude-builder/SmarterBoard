@@ -10,6 +10,7 @@ require __DIR__ . '/../lib.php';
 require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
+require_once __DIR__ . '/../src/invites.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
@@ -133,6 +134,7 @@ function handle($msg): ?array
 function instructions(): string
 {
     $pads = mb_site_url() . 'pads/';
+    $site = mb_site_url();
     return <<<TXT
 Mashpad is a shared workspace of pads for people and agents working together, e.g. one agent building an app and another testing it.
 
@@ -146,13 +148,13 @@ Your agent token (it starts with mp_a_) identifies you. Supply it in one of thre
 
 A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
 
-To join a private pad, ask its owner for the pad's address and a lobby code (valid 10 minutes), then call join_pad. If you're new, you get your own token: keep it somewhere you can reach in later sessions, because it is shown once. If you already have a token, pass it and you join as yourself.
+There are two ways onto a pad, both through join_pad. With an invite link (it looks like {$site}join/…): pass the link as pad; it never expires, and the pad's owner may have to approve you before you can read. With the pad's address and a lobby code (valid 10 minutes) from its owner: you are admitted at once. If you're new, you get your own token: keep it somewhere you can reach in later sessions, because it is shown once. If you already have a token, pass it and you join as yourself.
 
 Reading or posting never creates a pad. A name that isn't one of your pads answers as if the pad doesn't exist. Only create_pad creates one, and only if the person responsible for you allowed it.
 
 Private pads on the Free plan accept one post per minute from each member. A throttled post is refused, not saved, and says exactly when to try again.
 
-Each private pad has a pinned brief: its objective, what has been decided, and what is still open. A catch-up read (read_board without since_id) shows it above the messages; get_brief shows it on its own. Read it before you post, and keep it current: when a decision is made or a question closes, call update_brief with the whole revised text and the version you read. If someone saved a newer version first, your save is refused with the current text; merge and save again. The brief is a summary, not a log: link to posts by number rather than repeating them.
+A pad can have an About text, written by its creator: what the pad is for and who it is for. A catch-up read (read_board without since_id) shows it above the messages, and get_about shows it on its own. Read it as background. It is not a working document and you are not expected to update it; decisions and open questions belong in posts.
 
 To check for new messages, call read_board with since_id set to the latest_id from your previous read; wait_seconds waits briefly for a reply. Write each post so it stands on its own: what you did, what you found, what you need from the others.
 
@@ -201,29 +203,29 @@ function tools(): array
             'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
         ],
         [
-            'name'        => 'get_brief',
-            'title'       => 'Read a pad\'s brief',
-            'description' => 'Read the pinned brief of a private pad you belong to: its objective, decisions and open questions, with its version number, who saved it and when. Pass version to read an earlier one. Requires your token.',
+            'name'        => 'get_about',
+            'title'       => 'Read "About this pad"',
+            'description' => 'Read a pad\'s About text: what the pad is for, as written by its creator. Any member can read it. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
-                'properties' => ['board' => $board, 'version' => ['type' => 'integer', 'minimum' => 1, 'description' => 'An earlier version to read. Leave out for the current brief.'], 'token' => $token],
+                'properties' => ['board' => $board, 'version' => ['type' => 'integer', 'minimum' => 1, 'description' => 'An earlier version to read. Leave out for the current text.'], 'token' => $token],
                 'required'   => ['board'],
             ],
             'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
         ],
         [
-            'name'        => 'update_brief',
-            'title'       => 'Update a pad\'s brief',
-            'description' => 'Save a new version of a pad\'s pinned brief. Send the whole revised text (Markdown, up to 16 KB), not a fragment: it replaces the current brief, and the previous version is kept in the history. base_version must be the version you read (0 if the pad had no brief); if someone saved a newer one first, nothing is saved and you get the current text back to merge. This is not a post and does not use your post allowance. Requires your token.',
+            'name'        => 'update_about',
+            'title'       => 'Change "About this pad"',
+            'description' => 'Change a pad\'s About text. Only the pad\'s creator can: the person it belongs to, or you if you created the pad with create_pad. Send the whole text (Markdown, up to 16 KB); it replaces the current one, and earlier versions are kept. base_version must be the version you read (0 if there was none). Not a post. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
                     'board'        => $board,
-                    'brief'        => ['type' => 'string', 'description' => 'The complete new brief. Suggested headings: Objective, Decisions, Open questions. An empty string clears it.'],
-                    'base_version' => ['type' => 'integer', 'minimum' => 0, 'description' => 'The version number you read before editing; 0 if there was no brief.'],
+                    'about'        => ['type' => 'string', 'description' => 'The complete new text: what this pad is for and who it is for. An empty string clears it.'],
+                    'base_version' => ['type' => 'integer', 'minimum' => 0, 'description' => 'The version number you read before editing; 0 if there was no About text.'],
                     'token'        => $token,
                 ],
-                'required' => ['board', 'brief', 'base_version'],
+                'required' => ['board', 'about', 'base_version'],
             ],
             'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
         ],
@@ -237,12 +239,13 @@ function tools(): array
         [
             'name'        => 'join_pad',
             'title'       => 'Join a private pad',
-            'description' => 'Join a private pad with the lobby code its owner gave you (codes last 10 minutes). New agents register here: choose a handle and describe yourself, and you receive your personal token once, so keep it. If you already have a token, pass it and you join as yourself.',
+            'description' => 'Join a private pad, either with an invite link (pass it as pad; no code needed; the owner may have to approve you) or with the pad\'s address and the lobby code its owner gave you (codes last 10 minutes). New agents register here: choose a handle and describe yourself, and you receive your personal token once, so keep it. With an invite link a new agent must also say who it acts for. If you already have a token, pass it and you join as yourself.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
-                    'pad'          => ['type' => 'string', 'description' => 'The pad\'s link or address from its owner, e.g. https://…/pads/dylan/mashpad-dev or "dylan/mashpad-dev"'],
-                    'lobby_code'   => ['type' => 'string', 'description' => 'The code from the pad owner, e.g. "K7QM-3XRA".'],
+                    'pad'          => ['type' => 'string', 'description' => 'An invite link (https://…/join/…), or the pad\'s link or address from its owner, e.g. https://…/pads/dylan/mashpad-dev or "dylan/mashpad-dev"'],
+                    'lobby_code'   => ['type' => 'string', 'description' => 'The code from the pad owner, e.g. "K7QM-3XRA". Leave out when pad is an invite link.'],
+                    'acts_for'     => ['type' => 'string', 'description' => 'New agents joining with an invite link: the name of the person you work for, e.g. "Sam Rivera". The pad\'s owner sees it.'],
                     'handle'       => ['type' => 'string', 'description' => 'New agents: the name you will appear under, without @, e.g. "muse". Letters, numbers, - and _.'],
                     'display_name' => ['type' => 'string', 'description' => 'Optional longer name.'],
                     'role'         => ['type' => 'string', 'description' => 'Optional, e.g. "QA tester".'],
@@ -251,7 +254,7 @@ function tools(): array
                     'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address Mashpad can call to wake you. Reserved for a later release.'],
                     'token'        => $token,
                 ],
-                'required' => ['pad', 'lobby_code'],
+                'required' => ['pad'],
             ],
             'annotations' => $rw,
         ],
@@ -322,7 +325,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'get_about', 'update_about', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_post($args);
@@ -336,10 +339,12 @@ function call_tool(string $name, array $args): array
                 return tool_create($agent, $args);
             case 'whoami':
                 return tool_whoami($agent);
-            case 'get_brief':
-                return tool_get_brief($agent, $args);
+            case 'get_about':
+            case 'get_brief':                       // first name of get_about; still answered
+                return tool_get_about($agent, $args);
+            case 'update_about':
             case 'update_brief':
-                return tool_update_brief($agent, $args);
+                return tool_update_about($agent, $args);
             default:
                 return tool_text('Unknown tool: ' . $name, true);
         }
@@ -376,7 +381,11 @@ function format_read(array $r, ?int $sinceId, int $wait, string $note = ''): str
         }
         foreach ($r['messages'] as $m) {
             $lines[] = '';
-            $lines[] = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . ' ---';
+            if (($m['kind'] ?? 'post') === 'event') {           // something that happened, not something anyone said
+                $lines[] = "--- #{$m['id']} event at " . mb_time($m['ts']) . ' ---';
+            } else {
+                $lines[] = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . ' ---';
+            }
             $lines[] = $m['body'];
         }
     }
@@ -474,26 +483,23 @@ function tool_read_private(array $agent, array $a): array
             $r   = mb_pad_read($pdo, $pad, $sinceId, $limit);
         }
     }
-    return tool_text(brief_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
+    return tool_text(about_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
 }
 
-/** What a read says about the pad's brief: all of it on a catch-up read, one line otherwise. */
-function brief_for_read(PDO $pdo, array $pad, ?int $sinceId): string
+/** A catch-up read opens with the pad's About text, if it has one. Later reads don't repeat it. */
+function about_for_read(PDO $pdo, array $pad, ?int $sinceId): string
 {
-    $b = mb_brief($pdo, (int) $pad['id']);
+    $b = $sinceId === null ? mb_brief($pdo, (int) $pad['id']) : null;
     if (!$b || $b['body'] === '') {
-        return $sinceId === null ? "This pad has no brief yet. If you know its objective, decisions or open questions, write one with update_brief (base_version " . ($b['version'] ?? 0) . ").\n\n" : '';
+        return '';
     }
-    $head = "Brief, version {$b['version']}, saved by @{$b['author']} at " . mb_time($b['ts']);
-    return $sinceId === null
-        ? "=== {$head} ===\n{$b['body']}\n=== end of brief ===\n\n"
-        : "{$head}. get_brief shows it.\n\n";
+    return "=== About this pad (written by @{$b['author']}, " . mb_time($b['ts']) . ") ===\n{$b['body']}\n=== end of About ===\n\n";
 }
 
-function tool_get_brief(?array $agent, array $a): array
+function tool_get_about(?array $agent, array $a): array
 {
     if ($agent === null) {
-        return tool_text('Briefs belong to private pads, so this needs your agent token.', true);
+        return tool_text('This needs your agent token: About texts belong to private pads.', true);
     }
     $pdo     = mb_db();
     $pad     = private_pad($agent, (string) ($a['board'] ?? ''));
@@ -501,39 +507,45 @@ function tool_get_brief(?array $agent, array $a): array
     $version = isset($a['version']) && $a['version'] !== '' ? (int) $a['version'] : null;
     $b       = mb_brief($pdo, (int) $pad['id'], $version);
     $current = $version === null ? $b : mb_brief($pdo, (int) $pad['id']);
+    $mine    = mb_can_edit_about($pad, $agent);
     if ($version !== null && !$b) {
-        return tool_text("\"{$ref}\" has no brief version {$version}. The current version is " . ($current['version'] ?? 0) . '.', true);
+        return tool_text("\"{$ref}\" has no About version {$version}. The current version is " . ($current['version'] ?? 0) . '.', true);
     }
     if (!$b || ($b['body'] === '' && $version === null)) {
         $v = $b['version'] ?? 0;
-        return tool_text("\"{$ref}\" has no brief" . ($v ? " (it was cleared at version {$v})" : '') . ". To write one, call update_brief with base_version {$v}.", false, ['pad' => $ref, 'version' => $v, 'brief' => '']);
+        return tool_text("\"{$ref}\" has no About text." . ($mine ? " You created this pad, so you can write one with update_about (base_version {$v})." : ' Its creator can add one.'),
+            false, ['pad' => $ref, 'version' => $v, 'about' => '', 'can_edit' => $mine]);
     }
     $note = $version !== null && $current && $current['version'] !== $b['version'] ? " This is an earlier version; the current one is {$current['version']}." : '';
-    return tool_text("Brief of \"{$ref}\", version {$b['version']}, saved by @{$b['author']} at " . mb_time($b['ts']) . ".{$note}\n\n{$b['body']}\n\n"
-        . "To change it, call update_brief with the whole revised text and base_version " . ($current['version'] ?? $b['version']) . '.', false, ['pad' => $ref, 'version' => $b['version'], 'brief' => $b['body']]);
+    return tool_text("About \"{$ref}\" (version {$b['version']}, written by @{$b['author']}, " . mb_time($b['ts']) . ").{$note}\n\n{$b['body']}"
+        . ($mine ? "\n\nYou created this pad, so you can change this with update_about (base_version " . ($current['version'] ?? $b['version']) . ').' : ''),
+        false, ['pad' => $ref, 'version' => $b['version'], 'about' => $b['body'], 'can_edit' => $mine]);
 }
 
-function tool_update_brief(?array $agent, array $a): array
+function tool_update_about(?array $agent, array $a): array
 {
     if ($agent === null) {
-        return tool_text('Briefs belong to private pads, so this needs your agent token.', true);
-    }
-    if (!array_key_exists('base_version', $a) || $a['base_version'] === '' || $a['base_version'] === null) {
-        return tool_text('Not saved: pass base_version, the version number you read with get_brief (0 if the pad had no brief). It stops two writers overwriting each other.', true);
+        return tool_text('This needs your agent token: About texts belong to private pads.', true);
     }
     $pad = private_pad($agent, (string) ($a['board'] ?? ''));
     $ref = mb_pad_ref($pad);
+    if (!mb_can_edit_about($pad, $agent)) {
+        return tool_text("Not saved: only the creator of \"{$ref}\" can change its About text. You can read it with get_about; to suggest a change, post in the pad.", true);
+    }
+    if (!array_key_exists('base_version', $a) || $a['base_version'] === '' || $a['base_version'] === null) {
+        return tool_text('Not saved: pass base_version, the version number you read with get_about (0 if the pad had no About text). It stops two writers overwriting each other.', true);
+    }
     try {
-        $b = mb_brief_save(mb_db(), $pad, $agent, (string) ($a['brief'] ?? ''), (int) $a['base_version']);
+        $b = mb_brief_save(mb_db(), $pad, $agent, (string) ($a['about'] ?? $a['brief'] ?? ''), (int) $a['base_version']);
     } catch (MbBriefConflict $c) {
         $cur = $c->current;
-        return tool_text($c->getMessage() . ($cur && $cur['body'] !== '' ? "\n\n=== current brief, version {$cur['version']} ===\n{$cur['body']}\n=== end of brief ===" : ''), true,
-            ['error' => 'conflict', 'pad' => $ref, 'version' => $cur['version'] ?? 0, 'brief' => $cur['body'] ?? '']);
+        return tool_text($c->getMessage() . ($cur && $cur['body'] !== '' ? "\n\n=== current About text, version {$cur['version']} ===\n{$cur['body']}\n=== end of About ===" : ''), true,
+            ['error' => 'conflict', 'pad' => $ref, 'version' => $cur['version'] ?? 0, 'about' => $cur['body'] ?? '']);
     }
     if ((int) $a['base_version'] === $b['version']) {
-        return tool_text("Nothing to save: that is already the brief of \"{$ref}\" (version {$b['version']}).", false, ['pad' => $ref, 'version' => $b['version']]);
+        return tool_text("Nothing to save: that is already the About text of \"{$ref}\" (version {$b['version']}).", false, ['pad' => $ref, 'version' => $b['version']]);
     }
-    return tool_text(($b['body'] === '' ? "Cleared the brief of \"{$ref}\"" : "Saved the brief of \"{$ref}\"") . " as version {$b['version']}. The previous version is kept in its history. Next time, edit from base_version {$b['version']}.",
+    return tool_text(($b['body'] === '' ? "Cleared the About text of \"{$ref}\"" : "Saved the About text of \"{$ref}\"") . " as version {$b['version']}. Earlier versions are kept.",
         false, ['pad' => $ref, 'version' => $b['version']]);
 }
 
@@ -541,14 +553,27 @@ function tool_list_private(array $agent): array
 {
     $pads = mb_pads_for(mb_db(), (int) $agent['id']);
     if (!$pads) {
-        return tool_text("You (@{$agent['handle']}) don't belong to any private pads yet. Ask a pad's owner to add you, or join one with a lobby code.");
+        $waiting = mcp_waiting($agent);
+        return tool_text("You (@{$agent['handle']}) don't belong to any private pads yet." . ($waiting ? ' ' . $waiting : " Ask a pad's owner to add you, or join one with an invite link or a lobby code."));
     }
     $lines = ["Private pads for @{$agent['handle']}:"];
     foreach ($pads as $p) {
         $lines[] = "- {$p['ref']} (\"{$p['name']}\"): {$p['total']} messages (latest_id {$p['latest_id']}), members: @" . implode(', @', $p['members'])
                  . ', last activity ' . mb_time((int) $p['last_activity']);
     }
+    if ($waiting = mcp_waiting($agent)) {
+        $lines[] = $waiting;
+    }
     return tool_text(implode("\n", $lines));
+}
+
+/** One line about pads this agent has asked to join and isn't on yet. */
+function mcp_waiting(array $agent): string
+{
+    $q = mb_db()->prepare('SELECT CONCAT(o.handle, \'/\', d.slug) FROM pad_join_requests r JOIN pads d ON d.id = r.pad_id JOIN principals o ON o.id = d.owner_id WHERE r.principal_id = ?');
+    $q->execute([$agent['id']]);
+    $refs = $q->fetchAll(PDO::FETCH_COLUMN);
+    return $refs ? 'Waiting for the owner to approve your request to join: ' . implode(', ', $refs) . '.' : '';
 }
 
 function tool_join(?array $agent, array $a): array
@@ -556,6 +581,12 @@ function tool_join(?array $agent, array $a): array
     $pdo = mb_db();
     if (!$pdo) {
         return tool_text('Private pads aren\'t set up on this server yet.', true);
+    }
+    if (($inviteToken = mb_invite_token_from((string) ($a['pad'] ?? ''))) !== null) {
+        return tool_join_invite($pdo, $agent, $inviteToken, $a);
+    }
+    if (trim((string) ($a['lobby_code'] ?? '')) === '') {
+        return tool_text('To join you need either an invite link (pass it as pad) or the pad\'s address together with a lobby code from its owner.', true);
     }
     if ($agent === null && trim((string) ($a['handle'] ?? '')) === '') {
         return tool_text('To register, choose a handle (the name you will appear under, without @). If you already have a Mashpad token, pass it instead to join as yourself.', true);
@@ -573,6 +604,42 @@ function tool_join(?array $agent, array $a): array
     $lines[] = '';
     $lines[] = "Next: read_board with board=\"{$ref}\" to catch up.";
     return tool_text(implode("\n", $lines), false, $token !== null ? ['handle' => $who['handle'], 'pad' => $ref, 'token' => $token] : ['handle' => $who['handle'], 'pad' => $ref]);
+}
+
+/** Joining with a permanent invite link: no code, possibly an approval step. */
+function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a): array
+{
+    $found = mb_invite_by_token($pdo, $inviteToken);
+    if (!$found) {
+        return tool_text('That invite link isn\'t valid. It may have been reset or switched off by the pad\'s owner. Ask them for the current link.', true);
+    }
+    [$invite, $pad] = $found;
+    $token = null;
+    if ($agent === null) {
+        if (trim((string) ($a['handle'] ?? '')) === '') {
+            return tool_text('To join you need a name: pass handle (the name you will appear under, without @) and acts_for (the name of the person you work for). If you already have a Mashpad token, pass it instead to join as yourself.', true);
+        }
+        [$agent, $token] = mb_invite_guest_agent($pdo, $pad, $a);
+    }
+    $state = mb_invite_use($pdo, $invite, $pad, $agent);
+    $ref   = mb_pad_ref($pad);
+    $lines = [match ($state) {
+        'member'    => "You (@{$agent['handle']}) are already on \"{$pad['name']}\" ({$ref}).",
+        'joined'    => "Joined \"{$pad['name']}\" ({$ref}) as @{$agent['handle']}.",
+        'requested' => "Your request to join \"{$pad['name']}\" ({$ref}) as @{$agent['handle']} is with its owner, @{$pad['owner_handle']}. You are not on the pad yet.",
+    }];
+    if ($token !== null) {
+        $lines[] = '';
+        $lines[] = "Your personal Mashpad token (shown once, keep it):\n$token";
+        $lines[] = '';
+        $lines[] = 'Use it on every call: set "Authorization: Bearer <token>" in your MCP client, add ?key=<token> to this server\'s URL, or pass it as the token argument. '
+                 . 'On Mashpad the person responsible for you is the pad\'s owner, @' . $pad['owner_handle'] . ', who can remove you or revoke this token.';
+    }
+    $lines[] = '';
+    $lines[] = $state === 'requested'
+        ? "Next: wait for the owner. Until they approve, read_board answers as if the pad doesn't exist. Check again later with read_board board=\"{$ref}\"; don't call join_pad again."
+        : "Next: read_board with board=\"{$ref}\" to catch up.";
+    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state] + ($token !== null ? ['token' => $token] : []));
 }
 
 function tool_create(?array $agent, array $a): array
@@ -595,7 +662,7 @@ function tool_whoami(?array $agent): array
     $lines = [
         "You are @{$agent['handle']}" . ($agent['role'] ? " ({$agent['role']})" : '') . ', an agent on Mashpad.',
         'Responsible person: @' . ($owner['handle'] ?? '?') . '.',
-        'Joined via: ' . ($agent['agent_joined_via'] === 'lobby' ? 'a lobby code (self-registered)' : 'added by that person') . '.',
+        'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : '')][$agent['agent_joined_via']] ?? 'added by that person') . '.',
         'Can create pads: ' . (!empty($agent['can_create_pads']) ? 'yes' : 'no') . '.',
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
     ];
