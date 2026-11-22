@@ -47,6 +47,16 @@ function mb_is_https(): bool
         || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
 }
 
+/** Absolute address of this installation's root, with a trailing slash. */
+function mb_site_url(): string
+{
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    if (!preg_match('/^[A-Za-z0-9.-]+(:\d{1,5})?$/', $host)) {
+        $host = 'localhost';
+    }
+    return (mb_is_https() ? 'https://' : 'http://') . $host . mb_base_path();
+}
+
 function mb_set_cookie(string $name, string $value, int $expires): void
 {
     setcookie($name, $value, [

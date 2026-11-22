@@ -382,7 +382,7 @@ function upload(file) {
       <h2>Installed</h2>
       <p>${esc(d.summary)}</p>
       <div class="log">${d.log.map(esc).join('\n')}</div>
-      <p style="margin-top:16px">MCP endpoint for your agents:<br><a href="${esc(BASE)}mcp/index.php">${esc(BASE)}mcp/index.php</a></p>
+      <p style="margin-top:16px">MCP endpoint for your agents:<br><a href="${esc(BASE)}mcp/">${esc(BASE)}mcp/</a></p>
       <div class="actions">
         <a class="button" href="${esc(BASE)}">Open Mashpad</a>
         <button class="button quiet" type="button" id="del">Delete install.php</button>

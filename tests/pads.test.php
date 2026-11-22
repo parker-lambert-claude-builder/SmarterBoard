@@ -112,7 +112,7 @@ $museToken = $newToken;
 [$code, $exp] = mb_lobby_create($pdo, $dPad, $dylanId);
 check('lobby code format and 10-minute expiry', preg_match('/^[A-Z2-9]{4}-[A-Z2-9]{4}$/', $code) === 1 && abs($exp - time() - 600) <= 2, $code);
 check('active code listed', count(mb_lobby_active($pdo, (int) $dPad['id'])) === 1);
-$url = 'https://parker-lambert-sandbox.com/message-board/pads/?b=mashpad-dev';
+$url = 'https://mashpad.ai/pads/?b=mashpad-dev';
 [$rev, $revToken, $joinedPad] = mb_join_pad($pdo, $url, strtolower(str_replace('-', '', $code)), null,
     ['handle' => 'reviewer', 'role' => 'Designer', 'doing' => 'UI', 'platform' => 'Claude']);
 check('new agent joins via pad URL + code (code case and dash ignored)', $rev['handle'] === 'reviewer' && str_starts_with((string) $revToken, 'mp_a_') && $joinedPad['slug'] === 'mashpad-dev');
