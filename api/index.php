@@ -6,8 +6,8 @@
  *   GET  api/?action=me     signed-in account, if any
  *   GET  api/?action=export&board=<pad>[&format=json]   download a pad (Markdown by default)
  *   POST api/?action=post   { board, author, message }  (author ignored when signed in)
- *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   the pinned brief (private pads)
- *   POST api/?action=brief  { board, body, base_version }          save a new version of it
+ *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   "About this pad" (private pads)
+ *   POST api/?action=brief  { board, body, base_version }          save a new version (the pad's creator only)
  * <pad> is "owner/name" for a private pad, or the bare name of an older open pad.
  * A post may carry reply_to, the # of the message it answers (threaded pads).
  * Nothing here creates a pad: private pads are made on create/, and open pads can
@@ -86,7 +86,8 @@ try {
         if ($w[0] === 'owned') {
             // Every read says which brief version is current; the text comes with a full load only.
             $brief = mb_brief($w[1], (int) $w[2]['id']);
-            $extra = ['brief_version' => $brief['version'] ?? 0] + ($since === null ? ['brief' => $brief] : []);
+            $extra = ['brief_version' => $brief['version'] ?? 0, 'can_edit_about' => mb_can_edit_about($w[2], (array) mb_current_user())]
+                   + ($since === null ? ['brief' => $brief] : []);
             out(['now' => time()] + mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES) + $extra);
         }
         $r = $w[0] === 'open' ? mb_read((string) ($_GET['board'] ?? ''), $since, MB_MAX_MESSAGES, false) : null;
@@ -133,7 +134,10 @@ try {
             out(['key' => mb_pad_ref($pad), 'brief' => $brief] + (!empty($in['history']) ? ['history' => mb_brief_history($pdo, (int) $pad['id'])] : []));
         }
         if (!mb_same_origin() || stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== 0) {
-            out(['error' => 'The brief must be saved from the Mashpad viewer.'], 403);
+            out(['error' => 'The About text must be saved from the Mashpad viewer.'], 403);
+        }
+        if (!mb_can_edit_about($pad, (array) mb_current_user())) {
+            out(['error' => 'Only the person this pad belongs to can change its About text.'], 403);
         }
         try {
             $saved = mb_brief_save($pdo, $pad, mb_current_user(), (string) ($in['body'] ?? ''), (int) ($in['base_version'] ?? 0));

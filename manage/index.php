@@ -61,7 +61,8 @@ if ($pad && $_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'invite_make':
             case 'invite_reset':
                 mb_invite_make($pdo, $pad, $me, $act === 'invite_reset');
-                $done = $act === 'invite_reset' ? 'The invite link was reset. The old link no longer works.' : 'Invite link created.';
+                $after = mb_invite($pdo, (int) $pad['id']);
+                $done  = $act === 'invite_reset' ? 'The invite link was reset. The old link no longer works.' . ((int) $after['enabled'] ? '' : ' The new one is switched off until you switch it on.') : 'Invite link created.';
                 break;
             case 'invite_on':
             case 'invite_off':
@@ -309,7 +310,7 @@ mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name
     </div>
     <?php else: ?>
     <p>The invite link is switched off. Nobody can join with it. Members who already joined stay.</p>
-    <div class="invite-actions"><?= $button('invite_on', 'Switch link on') ?><?= $button('invite_reset', 'Reset link', [], 'danger') ?></div>
+    <div class="invite-actions"><?= $button('invite_on', 'Switch link on') ?><?= $button('invite_reset', 'Reset link (it stays off)', [], 'danger') ?></div>
     <?php endif; ?>
     <?php endif; ?>
   </section>
