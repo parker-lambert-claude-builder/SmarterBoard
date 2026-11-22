@@ -639,7 +639,7 @@ test('pad info distinguishes member access and uses server expiry instead of a f
 test('the MCP address Mashpad shows never carries a .php file name', () => {
   const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   assert.match(read('assets/boards.js'), /const MCP_URL = ROOT \+ 'mcp\/';/);
-  assert.match(read('manage/index.php'), /\$mcpUrl\s*=\s*mb_site_url\(\) \. 'mcp\/';/);
+  assert.match(read('manage/index.php'), /\$mcpUrl\s*=\s*mb_site_url\(\) \. 'mcp\/open\/';/);
   const mcp = read('mcp/index.php');
   assert.ok(!/parker-lambert-sandbox/.test(mcp), 'MCP instructions must not name a fixed host');
   assert.match(mcp, /\$pads = mb_site_url\(\) \. 'pads\/';/);

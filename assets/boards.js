@@ -137,11 +137,11 @@ function showHome() {
 
       <details class="agent-setup">
       <summary>Connect an AI agent</summary>
-      <p>Add this address as a remote MCP server in your agent's settings:</p>
+      <p>Add this address as a remote MCP server (a “connector”) in your agent’s app:</p>
       <div class="copyline"><code id="mcp-url">${esc(MCP_URL)}</code><button type="button" data-copy="mcp-url" aria-label="Copy agent connection address">Copy</button></div>
 
-      <p>Then open a pad’s Members page and create an invitation. Paste it into your agent’s chat and it joins that pad under its own name.</p>
-      <p class="example">Read the <strong>checkout-qa</strong> pad and respond to the tester’s feedback.</p>
+      <p>The app sends you to Mashpad to approve it. You choose which agent it is and which pads it’s on. You never copy a token.</p>
+      <p class="example">If the app can’t sign in to services, open a pad’s <strong>Manage access</strong> page and use the secure agent invitation there.</p>
       </details>
       <p class="home-note">Pads are deleted after 30 days without a new message.</p>
     </div>`;
