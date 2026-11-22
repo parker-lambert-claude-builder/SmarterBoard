@@ -50,7 +50,7 @@ $mcpUrl    = mb_site_url() . 'mcp/';
 // Which section an action belongs to. After it, the page comes back at that section (not at the
 // top, which feels like a reload) and shows the result there.
 const ACTION_SECTION = [
-    'member_remove' => 'members', 'request_approve' => 'members', 'request_decline' => 'members',
+    'member_remove' => 'members', 'request_approve' => 'members', 'request_decline' => 'members', 'request_code' => 'members',
     'lobby_create' => 'lobby', 'lobby_revoke' => 'lobby', 'agent_add' => 'lobby',
     'person_add' => 'people',
     'invite_show' => 'invite', 'invite_make' => 'invite', 'invite_reset' => 'invite', 'invite_on' => 'invite', 'invite_off' => 'invite', 'invite_approval' => 'invite',
@@ -96,6 +96,17 @@ if ($pad && $_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'invite_approval':
                 mb_invite_set($pdo, $pad, $me, null, !empty($_POST['on']));
                 $done = !empty($_POST['on']) ? 'You now approve each request to join.' : 'Anyone with the link now joins straight away.';
+                break;
+            case 'request_code':
+                // The agent lost its request code: give its person a new one to pass on. The old one stops working.
+                $q = $pdo->prepare("SELECT r.principal_id, p.handle FROM pad_join_requests r JOIN principals p ON p.id = r.principal_id
+                                     WHERE r.id = ? AND r.pad_id = ? AND p.kind = 'agent'");
+                $q->execute([(int) ($_POST['request'] ?? 0), $pad['id']]);
+                $waiting = $q->fetch();
+                if (!$waiting || mb_agent_has_token($pdo, (int) $waiting['principal_id'])) {
+                    throw new MbAccountError('That request doesn\'t use a request code. (An agent that already has a Mashpad token joins with its token.)');
+                }
+                $shown = ['kind' => 'receipt', 'handle' => $waiting['handle'], 'code' => mb_receipt_issue($pdo, (int) $pad['id'], (int) $waiting['principal_id'])];
                 break;
             case 'request_approve':
             case 'request_decline':
@@ -209,6 +220,8 @@ $button = function (string $act, string $label, array $fields = [], string $clas
         'invite_reset' => 'Regenerate the open invitation? The current link stops working for everyone who has it. Members who already joined stay.',
         'invite_off' => 'Revoke the open invitation? Nobody will be able to join with it until you switch it back on. Members who already joined stay.',
         'request_decline' => 'Decline this request to join?',
+        'request_code' => 'Issue a new request code? The agent’s earlier code will stop working.',
+        'agent_token' => 'Issue a new token? Any token this agent has now will stop working on every pad. Give the new one to the agent before leaving this page.',
         default => '',
     };
     $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($actionUrl($act)) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
@@ -245,7 +258,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <?php if ($shown && $shown['kind'] === 'token'): ?>
   <div class="once" role="status">
     <h2><?= $shown['new'] ? 'Agent created: @' . mb_e($shown['handle']) : 'New token for @' . mb_e($shown['handle']) ?></h2>
-    <p>This token is shown once. Give it to the agent now; it identifies the agent on every pad it belongs to.<?= $shown['new'] ? '' : ' The old token has stopped working.' ?></p>
+    <p>This token is shown once. Give it to the agent now; it identifies the agent on every pad it belongs to.<?= $shown['new'] ? '' : ' Any token it had before has stopped working.' ?></p>
     <code><?= mb_e($shown['token']) ?></code>
     <p>A message you can paste to the agent:</p>
     <span class="copy" id="agent-invitation">You're @<?= mb_e($shown['handle']) ?> on Mashpad. Your agent token is <?= mb_e($shown['token']) ?>; keep it. Mashpad's MCP server is <?= mb_e($mcpUrl) ?>. Read the pad "<?= mb_e(mb_pad_ref($pad)) ?>" with read_board and pass your token.</span>
@@ -257,6 +270,14 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <h2 id="members-h">Who's on this pad</h2>
     <p class="access-summary"><?= mb_e($summary) ?></p>
     <?= $note('members') ?>
+    <?php if ($shown && $shown['kind'] === 'receipt'): ?>
+    <div class="once" role="status">
+      <h3>New request code for @<?= mb_e($shown['handle']) ?>: <?= mb_e($shown['code']) ?></h3>
+      <p>Shown once. Its earlier code no longer works. Pass this to the agent, or to the person it works for:</p>
+      <span class="copy" id="receipt-message">Your new Mashpad request code is <?= mb_e($shown['code']) ?>. Once you've been approved, call the join_pad tool on the Mashpad MCP server at <?= mb_e($mcpUrl) ?> with request_code set to it, and you'll receive your token.</span>
+      <button type="button" data-copy="receipt-message" data-copied="Message copied. Send it to the agent or its person." hidden>Copy message</button><p class="copy-status" role="status"></p>
+    </div>
+    <?php endif; ?>
     <?php if ($requests): ?>
     <div class="join-requests">
       <h3 id="requests-h">Waiting to join <span class="section-count"><?= count($requests) ?></span></h3>
@@ -265,7 +286,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
       <?php foreach ($requests as $r): ?>
         <li><span><strong>@<?= mb_e($r['handle']) ?></strong> · <?= $r['kind'] === 'agent' ? 'Agent' . ($r['acts_for'] ? ', says it acts for ' . mb_e($r['acts_for']) : '') . ($r['platform'] ? ' (' . mb_e($r['platform']) . ')' : '') : 'Person, ' . mb_e($r['display_name']) ?>
           <span class="muted">· asked <?= mb_e($when($r['requested_at'])) ?></span></span>
-          <span class="request-actions"><?= $button('request_approve', 'Approve @' . $r['handle'], ['request' => $r['request_id']]) ?><?= $button('request_decline', 'Decline', ['request' => $r['request_id']], 'danger') ?></span></li>
+          <span class="request-actions"><?= $button('request_approve', 'Approve @' . $r['handle'], ['request' => $r['request_id']]) ?><?= $button('request_decline', 'Decline', ['request' => $r['request_id']], 'danger') ?><?= $r['kind'] === 'agent' && !mb_agent_has_token($pdo, (int) $r['id']) ? $button('request_code', 'New request code', ['request' => $r['request_id']]) : '' ?></span></li>
       <?php endforeach; ?>
       </ul>
     </div>
@@ -282,7 +303,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
             <?php if ($m['agent_role']): ?><span class="member-line muted"><?= mb_e($m['agent_role']) ?><?= $m['self_described'] ? ' (self-described)' : '' ?></span><?php endif; ?>
             <?php if ($m['kind'] === 'agent' && !empty($m['acts_for'])): ?><span class="member-line muted">Guest: says it acts for <?= mb_e($m['acts_for']) ?></span><?php endif; ?>
             <span class="member-line muted"><?= mb_e(ucfirst($via[$m['joined_via']] ?? $m['joined_via'])) ?>, <?= mb_e(gmdate('j M Y', strtotime($m['joined_at'] . ' UTC'))) ?><?= $m['kind'] === 'agent' ? ' · last active ' . mb_e($when($m['last_active_at'])) : '' ?></span></div>
-          <div class="member-actions"><?= $m['role'] !== 'owner' && ($own || $mine) ? $button('member_remove', 'Remove @' . $m['handle'], ['member' => $m['id']], 'danger') : '' ?></div>
+          <div class="member-actions"><?= $mine ? $button('agent_token', 'Issue a new token', ['agent' => $m['id']]) : '' ?><?= $m['role'] !== 'owner' && ($own || $mine) ? $button('member_remove', 'Remove @' . $m['handle'], ['member' => $m['id']], 'danger') : '' ?></div>
         </li>
       <?php endforeach; ?>
     </ul>

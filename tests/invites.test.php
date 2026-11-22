@@ -101,6 +101,40 @@ $pdo->exec("UPDATE pads SET last_activity_at = last_activity_at - INTERVAL 3 DAY
 mb_pad_event($pdo, $pad, $dylanId, 'Test event.');
 check('an event does not extend the pad\'s retention', $pdo->query("SELECT last_activity_at FROM pads WHERE id = $padId")->fetchColumn() < $before);
 
+// Request codes: a new agent that must wait gets a code, not a token
+$rpad = mb_create_pad($pdo, $dylan, 'Receipts');
+$rinv = mb_invite_make($pdo, $rpad, $dylanId);
+$rid  = (int) $rpad['id'];
+[$wait, $noToken] = mb_invite_guest_agent($pdo, $rpad, ['handle' => 'phone-agent', 'acts_for' => 'Dylan'], false);
+check('where the owner approves first, a new guest is created with no token at all', $noToken === null && !mb_agent_has_token($pdo, (int) $wait['id'])
+      && (int) $pdo->query("SELECT COUNT(*) FROM tokens WHERE principal_id = {$wait['id']} AND revoked_at IS NULL")->fetchColumn() === 0);
+mb_invite_use($pdo, $rinv, $rpad, $wait);
+$code1 = mb_receipt_issue($pdo, $rid, (int) $wait['id']);
+check('it is given a request code; only the hash is stored', (bool) preg_match('/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/', $code1) && !$pdo->query('SELECT COUNT(*) FROM join_receipts WHERE code_hash = ' . $pdo->quote($code1))->fetchColumn());
+$w = mb_receipt_collect($pdo, $code1);
+check('presenting the code before approval says still waiting, hands over nothing, and keeps the code good', $w['state'] === 'waiting' && !isset($w['token']) && !mb_agent_has_token($pdo, (int) $wait['id']) && mb_receipt_collect($pdo, $code1)['state'] === 'waiting');
+check('a wrong or malformed code is invalid', mb_receipt_collect($pdo, 'AAAA-BBBB-CCCC')['state'] === 'invalid' && mb_receipt_collect($pdo, '')['state'] === 'invalid' && mb_receipt_collect($pdo, "x' OR 1=1")['state'] === 'invalid');
+$code2 = mb_receipt_issue($pdo, $rid, (int) $wait['id']);
+check('the owner can issue a new code; the lost one stops working', $code2 !== $code1 && mb_receipt_collect($pdo, $code1)['state'] === 'invalid' && mb_receipt_collect($pdo, $code2)['state'] === 'waiting');
+mb_join_decide($pdo, $rpad, (int) mb_join_requests($pdo, $rid)[0]['request_id'], true, $dylanId);
+$got = mb_receipt_collect($pdo, strtolower(str_replace('-', '', $code2)));
+check('after approval the code (typed loosely) collects a working token for that agent', $got['state'] === 'ready' && str_starts_with($got['token'], 'mp_a_') && (int) mb_agent_by_token($pdo, $got['token'])['id'] === (int) $wait['id']
+      && mb_pad_for($pdo, 'dylan/receipts', (int) $wait['id']) !== null);
+check('the code hands over a token once only', mb_receipt_collect($pdo, $code2)['state'] === 'invalid' && (int) mb_agent_by_token($pdo, $got['token'])['id'] === (int) $wait['id']);
+[$no] = mb_invite_guest_agent($pdo, $rpad, ['handle' => 'unwanted', 'acts_for' => 'Nobody'], false);
+mb_invite_use($pdo, $rinv, $rpad, $no);
+$dcode = mb_receipt_issue($pdo, $rid, (int) $no['id']);
+mb_join_decide($pdo, $rpad, (int) mb_join_requests($pdo, $rid)[0]['request_id'], false, $dylanId);
+check('a declined request\'s code is dead and no token ever existed', mb_receipt_collect($pdo, $dcode)['state'] === 'invalid' && !mb_agent_has_token($pdo, (int) $no['id']));
+[$gone] = mb_invite_guest_agent($pdo, $rpad, ['handle' => 'removed-later', 'acts_for' => 'X'], false);
+mb_invite_use($pdo, $rinv, $rpad, $gone);
+$gcode = mb_receipt_issue($pdo, $rid, (int) $gone['id']);
+mb_join_decide($pdo, $rpad, (int) mb_join_requests($pdo, $rid)[0]['request_id'], true, $dylanId);
+mb_remove_member($pdo, $rpad, (int) $gone['id'], $dylanId);
+check('approved and then removed before collecting: the code gives nothing', mb_receipt_collect($pdo, $gcode)['state'] === 'invalid' && !mb_agent_has_token($pdo, (int) $gone['id']));
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$rid]);
+check('deleting the pad deletes its request codes', (int) $pdo->query('SELECT COUNT(*) FROM join_receipts')->fetchColumn() === 0);
+
 // Off, on, reset
 mb_invite_set($pdo, $pad, $dylanId, false, null);
 check('switched off, the link finds nothing; members stay', mb_invite_by_token($pdo, $inv['token']) === null && mb_pad_for($pdo, 'dylan/my-schedule', $samId) !== null);

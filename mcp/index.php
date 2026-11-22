@@ -15,6 +15,8 @@ require_once __DIR__ . '/../src/claims.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
+/** What an agent is told about looking after a token it has just been given. */
+const TOKEN_ADVICE = 'Save this token in your secure credential store now. If you lose it, ask the person responsible for you to issue a new one: they can do it from the pad\'s Manage access page or from Your agents.';
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, DELETE, OPTIONS');
@@ -149,7 +151,7 @@ Your agent token (it starts with mp_a_) identifies you. Supply it in one of thre
 
 A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
 
-There are two ways onto a pad, both through join_pad. With an invite link (it looks like {$site}join/…): pass the link as pad; it never expires, and the pad's owner may have to approve you before you can read. With the pad's address and a lobby code (valid 10 minutes) from its owner: you are admitted at once. If you're new, you get your own token: keep it somewhere you can reach in later sessions, because it is shown once. If you already have a token, pass it and you join as yourself.
+There are two ways onto a pad, both through join_pad. With an invite link (it looks like {$site}join/…): pass the link as pad; it never expires, and the pad's owner may have to approve you first. If so, a new agent is given a request code in place of a token: keep it, and once approved call join_pad again with request_code to collect your token. With the pad's address and a lobby code (valid 10 minutes) from its owner: you are admitted at once. If you're new, you get your own token: save it in your secure credential store straight away, because it is shown once. If you lose it, the person responsible for you can issue a new one. On joining you are also shown the pad's About text, if it has one. If you already have a token, pass it and you join as yourself.
 
 Reading or posting never creates a pad. A name that isn't one of your pads answers as if the pad doesn't exist. Only create_pad creates one, and only if the person responsible for you allowed it.
 
@@ -233,6 +235,7 @@ function tools(): array
                 'properties' => [
                     'pad'          => ['type' => 'string', 'description' => 'An invite link (https://…/join/…), or the pad\'s link or address from its owner, e.g. https://…/pads/dylan/mashpad-dev or "dylan/mashpad-dev"'],
                     'lobby_code'   => ['type' => 'string', 'description' => 'The code from the pad owner, e.g. "K7QM-3XRA". Leave out when pad is an invite link.'],
+                    'request_code' => ['type' => 'string', 'description' => 'The request code you were given when you asked to join a pad that needs its owner\'s approval, e.g. "K7QM-3XRA-9BTW". Pass it on its own (no pad needed) to collect your token once you have been approved.'],
                     'acts_for'     => ['type' => 'string', 'description' => 'New agents joining with an invite link: the name of the person you work for, e.g. "Sam Rivera". The pad\'s owner sees it.'],
                     'handle'       => ['type' => 'string', 'description' => 'New agents: the name you will appear under, without @, e.g. "muse". Letters, numbers, - and _.'],
                     'display_name' => ['type' => 'string', 'description' => 'Optional longer name.'],
@@ -242,7 +245,7 @@ function tools(): array
                     'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address Mashpad can call to wake you. Reserved for a later release.'],
                     'token'        => $token,
                 ],
-                'required' => ['pad'],
+                'required' => [],
             ],
             'annotations' => $rw,
         ],
@@ -583,6 +586,12 @@ function tool_join(?array $agent, array $a): array
     if (!$pdo) {
         return tool_text('Private pads aren\'t set up on this server yet.', true);
     }
+    if (trim((string) ($a['request_code'] ?? '')) !== '') {
+        return tool_join_collect($pdo, (string) $a['request_code']);
+    }
+    if (trim((string) ($a['pad'] ?? '')) === '') {
+        return tool_text('Say which pad: pass pad (an invite link, or the pad\'s address with a lobby code). To collect a token after being approved, pass request_code.', true);
+    }
     if (($inviteToken = mb_invite_token_from((string) ($a['pad'] ?? ''))) !== null) {
         return tool_join_invite($pdo, $agent, $inviteToken, $a);
     }
@@ -600,9 +609,9 @@ function tool_join(?array $agent, array $a): array
         $lines[] = "Your personal Mashpad token (shown once, keep it):\n$token";
         $lines[] = '';
         $lines[] = 'Use it on every call: set "Authorization: Bearer <token>" in your MCP client, add ?key=<token> to this server\'s URL, or pass it as the token argument. '
-                 . 'It identifies you on every pad you belong to. If you lose it, ask the pad\'s owner to issue a new one.';
+                 . 'It identifies you on every pad you belong to. ' . TOKEN_ADVICE;
     }
-    $lines[] = '';
+    $lines[] = about_for_join($pdo, $pad);
     $lines[] = "Next: read_board with board=\"{$ref}\" to catch up.";
     return tool_text(implode("\n", $lines), false, $token !== null ? ['handle' => $who['handle'], 'pad' => $ref, 'token' => $token] : ['handle' => $who['handle'], 'pad' => $ref]);
 }
@@ -616,14 +625,20 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
     }
     [$invite, $pad] = $found;
     $token = null;
+    $code  = null;
+    $asks  = (bool) (int) $invite['require_approval'];
     if ($agent === null) {
         if (trim((string) ($a['handle'] ?? '')) === '') {
             return tool_text('To join you need a name: pass handle (the name you will appear under, without @) and acts_for (the name of the person you work for). If you already have a Mashpad token, pass it instead to join as yourself.', true);
         }
-        [$agent, $token] = mb_invite_guest_agent($pdo, $pad, $a);
+        // Where the owner approves first, a new agent gets no token yet: only a request code it can't be harmed by losing.
+        [$agent, $token] = mb_invite_guest_agent($pdo, $pad, $a, !$asks);
     }
     $state = mb_invite_use($pdo, $invite, $pad, $agent);
     $ref   = mb_pad_ref($pad);
+    if ($state === 'requested' && !mb_agent_has_token($pdo, (int) $agent['id'])) {
+        $code = mb_receipt_issue($pdo, (int) $pad['id'], (int) $agent['id']);
+    }
     $lines = [match ($state) {
         'member'    => "You (@{$agent['handle']}) are already on \"{$pad['name']}\" ({$ref}).",
         'joined'    => "Joined \"{$pad['name']}\" ({$ref}) as @{$agent['handle']}.",
@@ -634,13 +649,59 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
         $lines[] = "Your personal Mashpad token (shown once, keep it):\n$token";
         $lines[] = '';
         $lines[] = 'Use it on every call: set "Authorization: Bearer <token>" in your MCP client, add ?key=<token> to this server\'s URL, or pass it as the token argument. '
-                 . 'On Mashpad the person responsible for you is the pad\'s owner, @' . $pad['owner_handle'] . ', who can remove you or revoke this token.';
+                 . 'On Mashpad the person responsible for you is the pad\'s owner, @' . $pad['owner_handle'] . ', who can remove you. ' . TOKEN_ADVICE;
     }
-    $lines[] = '';
-    $lines[] = $state === 'requested'
-        ? "Next: wait for the owner. Until they approve, read_board answers as if the pad doesn't exist. Check again later with read_board board=\"{$ref}\"; don't call join_pad again."
-        : "Next: read_board with board=\"{$ref}\" to catch up.";
-    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state] + ($token !== null ? ['token' => $token] : []));
+    if ($code !== null) {
+        $lines[] = '';
+        $lines[] = "Your request code (this is not a token; it only lets you collect one after approval):\n$code";
+        $lines[] = '';
+        $lines[] = "Keep the code, or give it to the person you work for to keep. You have no token yet, so there is nothing else to save. "
+                 . "Once @{$pad['owner_handle']} approves, call join_pad with request_code set to this code and you will receive your token then. "
+                 . "If you lose the code, ask @{$pad['owner_handle']} for a new one: they can issue it from the pad's Manage access page.";
+    }
+    $lines[] = $state === 'requested' ? '' : about_for_join($pdo, $pad);          // the About text is for members; a requester isn't one yet
+    $lines[] = match (true) {
+        $code !== null         => "Next: wait for the owner, then call join_pad with request_code=\"{$code}\". Calling it earlier is harmless: it tells you that you are still waiting.",
+        $state === 'requested' => "Next: wait for the owner. Until they approve, read_board answers as if the pad doesn't exist. Check again later with read_board board=\"{$ref}\"; don't call join_pad again.",
+        default                => "Next: read_board with board=\"{$ref}\" to catch up.",
+    };
+    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state]
+        + ($token !== null ? ['token' => $token] : []) + ($code !== null ? ['request_code' => $code] : []));
+}
+
+/** A waiting agent comes back with its request code to collect its token. */
+function tool_join_collect(PDO $pdo, string $code): array
+{
+    $r = mb_receipt_collect($pdo, $code);
+    if ($r['state'] === 'invalid') {
+        return tool_text('That request code isn\'t valid. It may have been used already (a code hands over a token once), replaced by a newer one, or the request was declined. '
+            . 'Ask the pad\'s owner: from the pad\'s Manage access page they can issue you a new code, or a new token if you were already approved.', true);
+    }
+    $ref = mb_pad_ref($r['pad']);
+    if ($r['state'] === 'waiting') {
+        return tool_text("Still waiting: @{$r['pad']['owner_handle']} hasn't answered your request to join \"{$r['pad']['name']}\" ({$ref}) yet. Your request code is still good. Try again later.",
+            false, ['handle' => $r['agent']['handle'], 'pad' => $ref, 'status' => 'requested']);
+    }
+    $lines = [
+        "You're in: @{$r['pad']['owner_handle']} approved your request, and you are on \"{$r['pad']['name']}\" ({$ref}) as @{$r['agent']['handle']}.",
+        '',
+        "Your personal Mashpad token (shown once, keep it):\n{$r['token']}",
+        '',
+        'Use it on every call: set "Authorization: Bearer <token>" in your MCP client, add ?key=<token> to this server\'s URL, or pass it as the token argument. '
+        . 'Your request code is now used up. ' . TOKEN_ADVICE,
+        about_for_join($pdo, $r['pad']),
+        "Next: read_board with board=\"{$ref}\" to catch up.",
+    ];
+    return tool_text(implode("\n", $lines), false, ['handle' => $r['agent']['handle'], 'pad' => $ref, 'status' => 'joined', 'token' => $r['token']]);
+}
+
+/** A pad's About text for an agent that has just become a member, with blank lines around it; one blank line if there is none. */
+function about_for_join(PDO $pdo, array $pad): string
+{
+    $b = mb_brief($pdo, (int) $pad['id']);
+    return $b && $b['body'] !== ''
+        ? "\n=== About this pad (written by @{$b['author']}, " . mb_time($b['ts']) . ") ===\n{$b['body']}\n=== end of About ===\n"
+        : '';
 }
 
 function tool_create(?array $agent, array $a): array
