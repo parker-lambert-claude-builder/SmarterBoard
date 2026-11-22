@@ -32,7 +32,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, unseenMessages, accountHTML, applyAccount, loadMe};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, openReply, closeReply, unseenMessages, accountHTML, applyAccount, loadMe};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -267,7 +267,68 @@ test('signed in: account shown, composer name fixed to the handle, handle escape
   assert.match(api.accountHTML(), /signout\//);
   context.location.search = '?b=launch-review';
   await api.route();
-  assert.match(element('main').innerHTML, /id="c-author"[^>]*value="@dy&lt;lan" readonly/);
+  api.openReply('top');
+  assert.match(element('reply-top').innerHTML, /id="c-author"[^>]*value="@dy&lt;lan" readonly/);
+});
+
+test('Reply buttons at the top and bottom open one reply box beside the button pressed; the sticky composer is gone', async () => {
+  const { api, context, element, listeners } = await app();
+  context.fetch = async () => reply(pad());
+  context.location.search = '?b=launch-review';
+  await api.route();
+  const main = element('main').innerHTML;
+  assert.match(main, /<button type="button" class="reply-button" data-reply="top">Reply<\/button>/);
+  assert.match(main, /<button type="button" class="reply-button" data-reply="bottom">Reply<\/button>/);
+  assert.ok(main.indexOf('id="reply-top"') < main.indexOf('id="transcript"') && main.indexOf('id="transcript"') < main.indexOf('id="reply-bottom"'));
+  assert.doesNotMatch(main, /class="composer"|href="#composer"|<form/);
+  const press = which => listeners.click({ target: { closest: s => s === '[data-reply]' ? { dataset: { reply: which } } : null } });
+  press('top');
+  assert.match(element('reply-top').innerHTML, /<form id="composer" class="reply-box"/);
+  assert.equal(element('reply-bottom').innerHTML, '');
+  element('c-body').value = 'half a thought';
+  press('bottom');
+  assert.equal(element('reply-top').innerHTML, '');
+  assert.match(element('reply-bottom').innerHTML, /<form id="composer"/);
+  assert.equal(element('c-body').value, 'half a thought');
+  press('close');
+  assert.equal(element('reply-bottom').innerHTML, '');
+  press('bottom'); press('bottom');
+  assert.equal(element('reply-bottom').innerHTML, '', 'pressing the same button again closes the box');
+});
+
+test('posting closes the reply box and clears the draft', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async (url, opts) => /action=post/.test(url) ? reply({ ok: true }) : reply(pad());
+  context.location.search = '?b=launch-review';
+  await api.route();
+  api.openReply('bottom');
+  element('c-body').value = 'done';
+  await element('composer').handlers.submit({ preventDefault() {} });
+  assert.equal(element('reply-bottom').innerHTML, '');
+  api.openReply('top');
+  assert.equal(element('c-body').value, '');
+});
+
+test('the pad list no longer marks pads Private; mentions of people on the pad link to their info page', async () => {
+  const { api, context, element } = await app();
+  api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true }];
+  assert.doesNotMatch(api.boardListHTML(), /pad-private|Private/);
+  assert.match(api.boardListHTML(), /<span class="pad-address">dylan\/dev<\/span>/);
+  const seen = [];
+  context.renderMessage = (text, opts) => { seen.push(['muse', 'Reviewer', 'stranger'].map(h => opts.mention(h))); return ''; };
+  context.fetch = async () => reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, members: ['dylan', 'muse', 'reviewer'],
+    total: 1, latest_id: 1, messages: [{ id: 1, author: 'dylan', body: '@muse and @Reviewer, not @stranger', ts: 1700000000 }] });
+  context.location.pathname = '/mashpad/pads/dylan/dev';
+  const transcript = element('transcript'); transcript.querySelector = () => null; transcript.lastElementChild = null;
+  context.document.createElement = () => ({ dataset: {}, style: { setProperty() {} }, insertAdjacentHTML() {} });
+  transcript.appendChild = node => { transcript.lastElementChild = node; };
+  await api.route();
+  assert.equal(seen.length, 1);
+  const [muse, reviewer, stranger] = seen[0];
+  assert.equal(muse.href, 'https://example.test/mashpad/pads/dylan/dev?view=agent&agent=muse');
+  assert.equal(muse.nav, 'dylan/dev');
+  assert.equal(reviewer.href, 'https://example.test/mashpad/pads/dylan/dev?view=agent&agent=reviewer', 'a member who has not posted, any capitalisation');
+  assert.equal(stranger, null);
 });
 
 test('signed-in posts send no author name', async () => {
@@ -298,11 +359,11 @@ test('pad settings offer Markdown and JSON export of the whole pad', async () =>
   assert.match(html, /action=export&amp;board=launch-review&amp;format=json" download>Download JSON/);
 });
 
-test('private pads are marked, credit an agent creator, and link to member management', async () => {
+test('private pads show their address, credit an agent creator, and link to member management', async () => {
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true, created_by: 'muse' }];
   const html = api.boardListHTML();
-  assert.match(html, /<span class="pad-private">Private<\/span> <span class="pad-address">dylan\/dev<\/span>/);
+  assert.match(html, /<div class="meta"><span class="pad-address">dylan\/dev<\/span> · 2 messages/);
   assert.match(html, /created by @muse/);
   context.fetch = async () => reply({ ...pad(), slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', owned: true, is_owner: true });
   context.location.pathname = '/mashpad/pads/dylan/dev';
