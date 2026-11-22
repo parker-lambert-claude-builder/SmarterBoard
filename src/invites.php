@@ -44,7 +44,7 @@ function mb_invite_new_token(): string
     return $t;
 }
 
-/** Create the pad's link if it has none, or replace its token ($reset). Returns the row. */
+/** Create the pad's link if it has none, or replace its token ($reset; on or off, it stays as it was). Returns the row. */
 function mb_invite_make(PDO $pdo, array $pad, int $actorId, bool $reset = false): array
 {
     $existing = mb_invite($pdo, (int) $pad['id']);
@@ -52,8 +52,9 @@ function mb_invite_make(PDO $pdo, array $pad, int $actorId, bool $reset = false)
         return $existing;
     }
     $token = mb_invite_new_token();
+    // A reset only replaces the token. A link that was switched off stays off until its owner switches it on.
     $pdo->prepare('INSERT INTO pad_invites (pad_id, token, created_by) VALUES (?, ?, ?)
-                   ON DUPLICATE KEY UPDATE token = VALUES(token), enabled = 1')->execute([$pad['id'], $token, $actorId]);
+                   ON DUPLICATE KEY UPDATE token = VALUES(token)')->execute([$pad['id'], $token, $actorId]);
     mb_audit($pdo, $actorId, $existing ? 'invite.reset' : 'invite.create', 'pad:' . $pad['id']);
     return mb_invite($pdo, (int) $pad['id']);
 }

@@ -136,7 +136,7 @@ try {
             out(['error' => 'The About text must be saved from the Mashpad viewer.'], 403);
         }
         if (!mb_can_edit_about($pad, (array) mb_current_user())) {
-            out(['error' => 'Only the pad\'s creator can change its About text.'], 403);
+            out(['error' => 'Only the person this pad belongs to can change its About text.'], 403);
         }
         try {
             $saved = mb_brief_save($pdo, $pad, mb_current_user(), (string) ($in['body'] ?? ''), (int) ($in['base_version'] ?? 0));

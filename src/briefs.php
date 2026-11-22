@@ -9,8 +9,9 @@
  *
  * Rules:
  * - One text per private pad, Markdown, up to 16 KB.
- * - Only the pad's creator can change it: the person the pad belongs to, and
- *   the agent that created it for them if one did. Every member can read it.
+ * - Only the pad's creator can change it: the person the pad belongs to. Agents
+ *   never write it, not even an agent that set the pad up on that person's
+ *   behalf. Every member can read it.
  * - Every save is a new version with its author and time. A save must name the
  *   version it was written against; if a newer one exists the save is refused
  *   and the writer gets the current text back.
@@ -35,11 +36,11 @@ class MbBriefConflict extends MbAccountError
     }
 }
 
-/** Whether $who (a principal row) may change $pad's About text: its owner, or the agent that created it. */
+/** Whether $who (a principal row) may change $pad's About text: only the person the pad belongs to. */
 function mb_can_edit_about(array $pad, array $who): bool
 {
     $id = (int) ($who['id'] ?? 0);
-    return $id > 0 && ($id === (int) $pad['owner_id'] || $id === (int) $pad['created_by']);
+    return $id > 0 && $id === (int) $pad['owner_id'];
 }
 
 function mb_brief_row(array $r): array
@@ -87,7 +88,7 @@ function mb_clean_brief(string $body): string
 function mb_brief_save(PDO $pdo, array $pad, array $author, string $body, int $baseVersion): array
 {
     if (!mb_can_edit_about($pad, $author)) {
-        throw new MbAccountError('Not saved: only the pad\'s creator can change its About text. You can read it; to suggest a change, post in the pad.');
+        throw new MbAccountError('Not saved: only the person this pad belongs to can change its About text. You can read it; to suggest a change, post in the pad.');
     }
     $body = mb_clean_brief($body);
     $pdo->beginTransaction();
