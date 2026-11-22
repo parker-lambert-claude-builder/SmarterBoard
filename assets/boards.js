@@ -160,9 +160,23 @@ function headMeta(d) {
 function messageHTML(m, fresh) {
   return `<div class="msg${fresh ? ' fresh' : ''}" id="m${m.id}">
       <div class="msg-meta"><a class="msg-id" href="#m${m.id}" aria-label="Link to message ${m.id}">#${m.id}</a>
-      <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></div>
+      <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time>${m.reply_to ? ` <a class="in-reply" href="#m${m.reply_to}">in reply to #${m.reply_to}</a>` : ''}</div>
       <div class="body">${render(m.body)}</div>
     </div>`;
+}
+
+/* On a pad with threaded replies each message stands on its own, carries a Reply
+   link, and holds the replies to it underneath, indented. */
+function threadHTML(m, fresh) {
+  return `<article class="tmsg${fresh ? ' fresh' : ''}" id="m${m.id}" style="--h:${hue(m.author)}" aria-label="Message ${m.id} from ${esc(displayName(m.author))}">
+      <div class="tmsg-head"><span class="author">${esc(displayName(m.author))}</span>
+        <a class="msg-id" href="#m${m.id}" aria-label="Link to message ${m.id}">#${m.id}</a>
+        <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></div>
+      <div class="body">${render(m.body)}</div>
+      <div class="tmsg-actions"><button type="button" class="reply-link" data-reply-to="${m.id}" data-reply-name="${esc(displayName(m.author))}" aria-expanded="false">Reply</button></div>
+      <div class="reply-slot reply-inline" id="reply-m${m.id}" hidden></div>
+      <div class="replies" id="replies-m${m.id}"></div>
+    </article>`;
 }
 
 /* Rendering is idempotent per message id: overlapping polls, a poll racing the
@@ -189,6 +203,11 @@ function appendMessages(msgs, fresh) {
   for (const m of msgs) {
     if (m.kind === 'event') {          // something that happened on the pad (a join, a request): a line, not a post
       t.insertAdjacentHTML('beforeend', `<p class="pad-event${fresh ? ' fresh' : ''}" id="m${m.id}" data-author=""><span class="event-text">${esc(m.body)}</span> <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></p>`);
+      continue;
+    }
+    if (state.threaded) {              // under the message it answers, or at the end if that one isn't on the page
+      const under = m.reply_to ? document.getElementById(`replies-m${m.reply_to}`) : null;
+      (under || t).insertAdjacentHTML('beforeend', threadHTML(m, fresh));
       continue;
     }
     let g = t.lastElementChild;
@@ -240,12 +259,13 @@ async function showBoard(slug, navigation) {
     loadBoards();
   }
   document.title = `${d.name || d.slug} · Mashpad`;
+  state.threaded = !!d.threaded;
   main.innerHTML = `
     <div class="inner board-head">
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
     ${d.owned ? '<div class="inner pad-brief" id="brief"></div>' : ''}
     <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
@@ -298,7 +318,7 @@ function renderBrief(mode = 'view', extra = {}) {
       <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back</button></div></section>`;
     return;
   }
-  const mine = !!state.canEditAbout;      // only the pad's creator sees Edit; the server enforces it
+  const mine = !!state.canEditAbout;      // only the person the pad belongs to sees Edit; the server enforces it
   box.hidden = !b && !mine;                // nothing written and you can't write it: show nothing
   box.innerHTML = b
     ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">About this pad</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
@@ -397,30 +417,56 @@ async function pollBoard() {
    conversation") and opens when you click or tab into it, showing Cancel and
    Post. Each box is its own form (ids carry its place), so the same code can
    later put a box under a single message for threaded replies. */
-function replyBoxHTML(where) {
+function replyBoxHTML(where, prompt = 'Join the conversation') {
   const id = `reply-${where}`;
   return `<form class="reply-box" id="${id}-form" aria-label="Reply">
       ${state.user ? '' : `<div class="reply-who"><label for="${id}-author">Reply as</label><input id="${id}-author" autocomplete="off" maxlength="40"></div>`}
-      <textarea id="${id}-body" rows="1" aria-label="Your reply" placeholder="Join the conversation"></textarea>
+      <textarea id="${id}-body" rows="1" aria-label="Your reply" placeholder="${esc(prompt)}"></textarea>
       <div class="reply-actions"><span class="composer-hint">⌘ / Ctrl + Enter to post</span><button type="button" class="quiet" data-reply-cancel="${where}">Cancel</button><button type="submit">Post</button></div>
     </form>`;
 }
+
+const isInlineReply = where => /^m\d+$/.test(where);
 
 function setReplyOpen(where, open) {
   const form = document.getElementById(`reply-${where}-form`);
   const body = document.getElementById(`reply-${where}-body`);
   if (!form || !body) return;
+  if (!open && isInlineReply(where)) {           // a box under one message is removed, and focus goes back to its Reply link
+    const slot = document.getElementById(`reply-${where}`);
+    if (slot) { slot.innerHTML = ''; slot.hidden = true; }
+    const link = document.querySelector?.(`[data-reply-to="${where.slice(1)}"]`);
+    link?.setAttribute('aria-expanded', 'false'); link?.focus?.();
+    return;
+  }
   form.classList?.toggle('is-open', open);
   if (!open) {
     body.value = ''; body.style.height = '';
     form.querySelector('.form-error')?.remove();
-    body.blur?.();
+    // Keep the keyboard where it was: back in the box, resting. Typing opens it again.
+    state.replyResting = where;
+    body.focus?.();
+    state.replyResting = null;
   }
 }
 
-const replyInProgress = () => ['top', 'bottom'].some(w => document.getElementById(`reply-${w}-body`)?.value);
+/* The Reply link under a message (threaded pads) opens a box right there; pressing it again closes the box. */
+function toggleInlineReply(id, name) {
+  const where = `m${id}`;
+  const slot = document.getElementById(`reply-${where}`);
+  if (!slot || !state.slug) return;
+  if (slot.innerHTML) return setReplyOpen(where, false);
+  slot.innerHTML = replyBoxHTML(where, `Reply to ${name}`);
+  slot.hidden = false;
+  document.querySelector?.(`[data-reply-to="${id}"]`)?.setAttribute('aria-expanded', 'true');
+  bindReply(where, state.slug, Number(id));
+  setReplyOpen(where, true);
+  document.getElementById(`reply-${where}-body`)?.focus?.();
+}
 
-function bindReply(where, slug) {
+const replyInProgress = () => [...(document.querySelectorAll?.('.reply-box textarea') || [])].some(t => t.value);
+
+function bindReply(where, slug, replyTo = null) {
   const navigation = state.navigation;
   const form = document.getElementById(`reply-${where}-form`);
   const body = document.getElementById(`reply-${where}-body`);
@@ -431,8 +477,9 @@ function bindReply(where, slug) {
   }
   const submit = () => form.querySelector('button[type="submit"]');
 
-  body.addEventListener('focus', () => setReplyOpen(where, true));
-  body.addEventListener('input', () => { body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
+  body.addEventListener('focus', () => { if (state.replyResting !== where) setReplyOpen(where, true); });
+  body.addEventListener('click', () => setReplyOpen(where, true));
+  body.addEventListener('input', () => { setReplyOpen(where, true); body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
   body.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!submit().disabled) form.requestSubmit(); }
     if (e.key === 'Escape' && !body.value) setReplyOpen(where, false);
@@ -445,16 +492,19 @@ function bindReply(where, slug) {
     form.querySelector('.form-error')?.remove();
     btn.disabled = true;
     try {
-      await getJSON(`${API}?action=post`, {
+      const sent = await getJSON(`${API}?action=post`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: slug, author: author ? author.value : '', message: body.value }),
+        body: JSON.stringify({ board: slug, author: author ? author.value : '', message: body.value, ...(replyTo ? { reply_to: replyTo } : {}) }),
       });
       if (author) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
       if (navigation !== state.navigation) return;
       setReplyOpen(where, false);
+      if (!isInlineReply(where)) body.blur?.();
       await pollBoard();
       if (navigation !== state.navigation) return;
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      const posted = replyTo && sent.message ? document.getElementById(`m${sent.message.id}`) : null;
+      if (posted?.scrollIntoView) posted.scrollIntoView({ block: 'center', behavior: 'smooth' });      // a threaded reply: show it where it landed
+      else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     } catch (err) {
       form.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
       if (navigation === state.navigation) body.focus();
@@ -496,12 +546,12 @@ async function showSettings(slug, navigation) {
     <p class="settings-name">${esc(name)}</p>
     <nav class="info-actions" aria-label="Pad actions">
       <a class="action-link" href="${esc(here)}" data-nav="${esc(key)}">Open conversation</a>
-      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">${d.is_owner ? 'Manage settings' : 'View members'}</a>` : ''}
+      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">Manage access</a>` : ''}
     </nav>
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">About this pad</h2>
       <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
-      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage settings to invite people and agents or change their access.' : 'The pad owner manages invitations and access. You can view the member list.'}</p>` : ''}
+      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage access to invite agents and people or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
     </section>
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Save a copy</h2>
@@ -592,6 +642,8 @@ function route() {
 document.addEventListener('click', e => {
   const cancel = e.target.closest('[data-reply-cancel]');
   if (cancel) return setReplyOpen(cancel.dataset.replyCancel, false);
+  const replyTo = e.target.closest('[data-reply-to]');
+  if (replyTo) return toggleInlineReply(replyTo.dataset.replyTo, replyTo.dataset.replyName);
   const copy = e.target.closest('[data-copy]');
   if (copy) {
     const text = document.getElementById(copy.dataset.copy).textContent;
@@ -628,7 +680,7 @@ document.addEventListener('visibilitychange', () => {
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a><a href="${ROOT}agents/">Your agents</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
   }
   return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
 }

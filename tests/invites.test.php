@@ -109,6 +109,11 @@ check('switched back on, the same link works', mb_invite_by_token($pdo, $inv['to
 $new = mb_invite_make($pdo, $pad, $dylanId, true);
 check('reset gives a new link and kills the old one', $new['token'] !== $inv['token'] && mb_invite_by_token($pdo, $inv['token']) === null && mb_invite_by_token($pdo, $new['token']) !== null
       && (int) $new['require_approval'] === 0);
+mb_invite_set($pdo, $pad, $dylanId, false, null);
+$offReset = mb_invite_make($pdo, $pad, $dylanId, true);
+check('resetting a link that is switched off leaves the new one off', (int) $offReset['enabled'] === 0 && $offReset['token'] !== $new['token'] && mb_invite_by_token($pdo, $offReset['token']) === null);
+mb_invite_set($pdo, $pad, $dylanId, true, null);
+check('and it works once switched on', mb_invite_by_token($pdo, $offReset['token']) !== null);
 $actions = $pdo->query("SELECT action FROM audit_log WHERE action LIKE 'invite.%' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
 check('link changes and decisions are in the audit log', array_intersect(['invite.create', 'invite.request', 'invite.approve', 'invite.decline', 'invite.approval', 'invite.disable', 'invite.enable', 'invite.reset'], $actions)
       == ['invite.create', 'invite.request', 'invite.approve', 'invite.decline', 'invite.approval', 'invite.disable', 'invite.enable', 'invite.reset'], implode(',', $actions));

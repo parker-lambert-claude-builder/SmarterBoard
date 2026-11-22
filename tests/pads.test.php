@@ -173,6 +173,23 @@ $pdo->exec("UPDATE plans SET max_owned_pads = 3 WHERE code = 'free'");
 check('plan pad limit enforced', str_contains(err(fn () => mb_create_pad($pdo, $dylan, 'Fourth')), 'allows 3 pads'));
 $pdo->exec("UPDATE plans SET max_owned_pads = NULL WHERE code = 'free'");
 
+// A code's new agent belongs to whoever made the code
+$evePad2 = mb_create_pad($pdo, $eve, 'Code Owners');
+mb_add_member($pdo, $evePad2, $dylanId, 'added');
+[$ownerCode]  = mb_lobby_create($pdo, $evePad2, $eveId);
+[$memberCode] = mb_lobby_create($pdo, $evePad2, $dylanId);
+[$a1] = mb_join_pad($pdo, 'eve/code-owners', $ownerCode, null, ['handle' => 'eves-bot']);
+[$a2] = mb_join_pad($pdo, 'eve/code-owners', $memberCode, null, ['handle' => 'dylans-bot']);
+check('an agent that joins with the owner\'s code belongs to the owner', (int) $a1['owner_id'] === $eveId);
+check('an agent that joins with a member\'s code belongs to that member, not the pad\'s owner', (int) $a2['owner_id'] === $dylanId && mb_owned_agent($pdo, $dylanId, (int) $a2['id']) !== null && mb_owned_agent($pdo, $eveId, (int) $a2['id']) === null);
+check('both are on the pad', mb_pad_for($pdo, 'eve/code-owners', (int) $a1['id']) !== null && mb_pad_for($pdo, 'eve/code-owners', (int) $a2['id']) !== null);
+check('a member sees only the codes they made; the owner sees all', count(mb_lobby_active($pdo, (int) $evePad2['id'], $dylanId)) === 1 && count(mb_lobby_active($pdo, (int) $evePad2['id'])) === 2);
+[$deadCode] = mb_lobby_create($pdo, $evePad2, $dylanId);
+mb_remove_member($pdo, $evePad2, $dylanId, $eveId);
+check('a code stops working the moment its maker is removed from the pad', str_contains(err(fn () => mb_join_pad($pdo, 'eve/code-owners', $deadCode, null, ['handle' => 'too-late'])), 'isn\'t valid')
+      && (int) $pdo->query("SELECT COUNT(*) FROM principals WHERE handle = 'too-late'")->fetchColumn() === 0);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$evePad2['id']]);
+
 // Removal
 mb_remove_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), (int) $meta['id'], $dylanId);
 check('participant: someone removed is still described, as no longer on the pad', (mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), $meta['handle'])['on_pad'] ?? null) === false);
@@ -233,6 +250,36 @@ check('a name that merely contains a slash is still one pad', $slash['slug'] ===
 $code = '';
 foreach (array_merge(glob("$root/src/*.php"), glob("$root/*/index.php")) as $f) { $code .= file_get_contents($f); }
 check('A4: nothing in the app can change a handle', !preg_match('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $code));
+
+// Threaded replies: a feature of the owner's plan
+$tp     = mb_create_pad($pdo, $eve, 'Thread Test');
+$evePad = fn () => mb_pad_for($pdo, 'eve/thread-test', $eveId);
+check('a Free pad is not threaded', mb_pad_threaded($evePad()) === false && mb_pad_read($pdo, $evePad(), null, 50)['threaded'] === false);
+$a = mb_pad_post($pdo, $evePad(), $eve, 'Top-level on Free.');
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+$b = mb_pad_post($pdo, $evePad(), $eve, 'A reply attempted on Free.', $a['id']);
+check('on Free, reply_to is accepted but the post lands flat and says so', $b['reply_to'] === null && ($b['unthreaded'] ?? false) === true
+      && mb_pad_read($pdo, $evePad(), null, 50)['messages'][1]['reply_to'] === null);
+$pdo->exec("UPDATE principals SET plan_code = 'plus' WHERE id = $eveId");
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+check('on Plus the pad is threaded', mb_pad_threaded($evePad()) === true && mb_pad_read($pdo, $evePad(), null, 50)['threaded'] === true);
+$c = mb_pad_post($pdo, $evePad(), $eve, 'A real reply.', $a['id']);
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+$d = mb_pad_post($pdo, $evePad(), $eve, 'A reply to the reply.', $c['id']);
+$msgs = array_column(mb_pad_read($pdo, $evePad(), null, 50)['messages'], 'reply_to', 'id');
+check('on Plus replies are stored against the message they answer, to any depth', $c['reply_to'] === $a['id'] && !isset($c['unthreaded']) && $msgs === [1 => null, 2 => null, 3 => 1, 4 => 3], json_encode($msgs));
+$n = (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn();
+check('a reply to a message that isn\'t there is refused and nothing is saved', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'To nothing.', 99)), 'there is no message #99')
+      && (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === $n);
+check('a message number from another pad can\'t be replied to', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'Cross-pad.', 5)), 'there is no message #5'));
+$ev = mb_pad_event($pdo, $evePad(), $eveId, 'An event.');
+check('an event can\'t be replied to', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'To an event.', $ev)), "there is no message #$ev"));
+$md = mb_export_markdown(mb_pad_read($pdo, $evePad(), null, 50));
+check('the export notes which message a reply answers', (bool) preg_match('/^## #3 from @eve, .* UTC \(reply to #1\)$/m', $md) && (bool) preg_match('/^## #1 from @eve, [^()]*$/m', $md));
+$pdo->exec("UPDATE principals SET plan_code = 'free' WHERE id = $eveId");
+$back = mb_pad_read($pdo, $evePad(), null, 50);
+check('back on Free the pad shows flat again but keeps what each reply answered', $back['threaded'] === false && $back['messages'][2]['reply_to'] === 1);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$tp['id']]);
 
 // A13: open pads can still be used while they last, but never created
 @mkdir("$root/data/boards", 0775, true);

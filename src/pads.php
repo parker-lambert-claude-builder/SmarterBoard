@@ -28,7 +28,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  * pages that may later sit under a pad's own address. One list, used at creation.
  */
 const MB_RESERVED_PAD_NAMES = [
-    'admin', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
+    'access', 'admin', 'agents', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
     'members', 'migrations', 'new', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
@@ -56,14 +56,14 @@ class MbThrottled extends MbAccountError
 
 function mb_principal(PDO $pdo, int $id): ?array
 {
-    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
+    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
                                a.self_described, a.last_active_at
                           FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
     $q->execute([$id]);
     return $q->fetch() ?: null;
 }
 
-const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds
+const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds, pl.threading
                          FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code';
 
 function mb_pad_by_id(PDO $pdo, int $id): ?array
@@ -288,8 +288,8 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
 /** Messages in the same shape as the file-based pads: id (the per-pad #), author, body, ts. */
 function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
 {
-    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind, m.kind
-               FROM messages m JOIN principals p ON p.id = m.author_id WHERE m.pad_id = ?';
+    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind, m.kind, pm.seq AS reply_to
+               FROM messages m JOIN principals p ON p.id = m.author_id LEFT JOIN messages pm ON pm.id = m.parent_id WHERE m.pad_id = ?';
     if ($sinceId !== null) {
         $q = $pdo->prepare("$cols AND m.seq > ? ORDER BY m.seq");
         $q->execute([$pad['id'], $sinceId]);
@@ -302,6 +302,7 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
     foreach ($msgs as &$m) {
         $m['id'] = (int) $m['id'];
         $m['ts'] = (int) $m['ts'];
+        $m['reply_to'] = $m['reply_to'] === null ? null : (int) $m['reply_to'];
     }
     $total = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE pad_id = ?');
     $total->execute([$pad['id']]);
@@ -315,6 +316,7 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
         'owner'         => $pad['owner_handle'],
         'key'           => mb_pad_ref($pad),
         'owned'         => true,
+        'threaded'      => mb_pad_threaded($pad),
         'members'       => $who->fetchAll(PDO::FETCH_COLUMN),      // handles; lets the viewer link @mentions
         'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
         'created'       => strtotime($pad['created_at'] . ' UTC'),
@@ -336,10 +338,37 @@ function mb_interval_phrase(int $seconds): string
     };
 }
 
-/** Append a message. Enforces the owner's plan post interval per author (#43, #50). */
-function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
+/** Whether replies on this pad are threaded: a feature of its owner's plan. */
+function mb_pad_threaded(array $pad): bool
 {
-    $body = mb_clean_body($body);
+    return !empty($pad['threading']);
+}
+
+/**
+ * Append a message. Enforces the owner's plan post interval per author (#43, #50).
+ * $replyTo is the #number of the message being answered. On a pad whose plan has
+ * threaded replies it is stored and the post appears under that message. On a
+ * pad without them the post still goes through, at the end of the conversation,
+ * and the returned message has 'unthreaded' => true so the caller can say so.
+ */
+function mb_pad_post(PDO $pdo, array $pad, array $author, string $body, ?int $replyTo = null): array
+{
+    $body     = mb_clean_body($body);
+    $parentId = null;
+    $flat     = false;
+    if ($replyTo !== null) {
+        $q = $pdo->prepare("SELECT id FROM messages WHERE pad_id = ? AND seq = ? AND kind = 'post'");
+        $q->execute([$pad['id'], $replyTo]);
+        $found = $q->fetchColumn();
+        if (!$found) {
+            throw new MbAccountError('Not posted: there is no message #' . $replyTo . ' on this pad to reply to. Your text was not saved.');
+        }
+        if (mb_pad_threaded($pad)) {
+            $parentId = (int) $found;
+        } else {
+            $flat = true;
+        }
+    }
     $pdo->beginTransaction();
     try {
         $lock = $pdo->prepare('SELECT next_seq FROM pads WHERE id = ? FOR UPDATE');
@@ -362,8 +391,8 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
             }
         }
 
-        $pdo->prepare('INSERT INTO messages (pad_id, seq, author_id, body) VALUES (?, ?, ?, ?)')
-            ->execute([$pad['id'], $seq, $author['id'], $body]);
+        $pdo->prepare('INSERT INTO messages (pad_id, seq, author_id, body, parent_id) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$pad['id'], $seq, $author['id'], $body, $parentId]);
         $pdo->prepare('UPDATE pads SET next_seq = next_seq + 1, last_activity_at = UTC_TIMESTAMP() WHERE id = ?')
             ->execute([$pad['id']]);
         $pdo->commit();
@@ -373,7 +402,7 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
         }
         throw $e;
     }
-    return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time()];
+    return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time(), 'reply_to' => $parentId !== null ? $replyTo : null] + ($flat ? ['unthreaded' => true] : []);
 }
 
 /**
@@ -556,7 +585,7 @@ function mb_agent_by_token(PDO $pdo, string $token): ?array
 /** Agents a human is responsible for. */
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
-    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.webhook_url, a.webhook_secret,
+    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
                                a.can_create_pads, a.joined_via, a.self_described, a.last_active_at,
                                (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
                                (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used
@@ -595,11 +624,12 @@ function mb_lobby_create(PDO $pdo, array $pad, int $actorId): array
     return [$code, $expires];
 }
 
-function mb_lobby_active(PDO $pdo, int $padId): array
+/** Live codes for a pad: all of them, or only those $madeBy created. */
+function mb_lobby_active(PDO $pdo, int $padId, ?int $madeBy = null): array
 {
-    $q = $pdo->prepare('SELECT id, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
-                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC');
-    $q->execute([$padId]);
+    $q = $pdo->prepare('SELECT id, created_by, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
+                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()' . ($madeBy !== null ? ' AND created_by = ?' : '') . ' ORDER BY id DESC');
+    $q->execute($madeBy !== null ? [$padId, $madeBy] : [$padId]);
     return $q->fetchAll();
 }
 
@@ -612,6 +642,8 @@ function mb_lobby_revoke(PDO $pdo, int $padId, int $lobbyId, int $actorId): void
 /**
  * Join a pad with a lobby code. With $agent (an existing agent identified by its
  * token) the agent joins as itself; otherwise a new agent is registered under the
+ * account of the member who made the code (not necessarily the pad's owner; see below)
+ *
  * pad owner's account. Returns [agent row, new token or null, pad row].
  */
 function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, array $in): array
@@ -619,14 +651,15 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
     $generic = new MbAccountError('That lobby code isn\'t valid for this pad. Codes last 10 minutes; ask the pad\'s owner for a fresh one.');
     // The code picks the pad; the address must then agree with it. A joining agent
     // isn't a member yet, so a bare name can't be resolved through its memberships.
-    $q = $pdo->prepare('SELECT id, pad_id FROM lobby_codes WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
+    $q = $pdo->prepare('SELECT id, pad_id, created_by FROM lobby_codes WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
     $q->execute([hash('sha256', mb_lobby_normalize($code), true)]);
     $lobby = $q->fetch();
     $pad   = $lobby ? mb_pad_by_id($pdo, (int) $lobby['pad_id']) : null;
     $a     = mb_parse_pad_address($address);
     $named = $pad && (($a['owner'] !== null && $a['owner'] === $pad['owner_handle'] && $a['slug'] === $pad['slug'])
                    || ($a['flat'] !== null && $a['flat'] === $pad['slug']));
-    if (!$named) {
+    // A code is only as good as its maker's place on the pad: if they have been removed since, it is dead.
+    if (!$named || !mb_membership($pdo, (int) $pad['id'], (int) $lobby['created_by'])) {
         throw $generic;
     }
     $lobbyId = (int) $lobby['id'];
@@ -640,7 +673,8 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
         if ($clash->fetchColumn()) {
             throw new MbAccountError('Someone on this pad already goes by @' . $handle . '. Pick another handle, or if that\'s you, join with your token.');
         }
-        [$id, $token] = mb_create_agent($pdo, (int) $pad['owner_id'], $in, 'lobby');
+        // The new agent belongs to whoever made the code: the pad's owner, or a member inviting their own agent.
+        [$id, $token] = mb_create_agent($pdo, (int) $lobby['created_by'], $in, 'lobby');
         $agent = mb_principal($pdo, $id);
     }
     mb_add_member($pdo, $pad, (int) $agent['id'], 'lobby', (int) $lobbyId);

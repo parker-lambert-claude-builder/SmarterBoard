@@ -10,6 +10,7 @@
  *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   "About this pad" (private pads)
  *   POST api/?action=brief  { board, body, base_version }          save a new version (the pad's creator only)
  * <pad> is "owner/name" for a private pad, or the bare name of an older open pad.
+ * A post may carry reply_to, the # of the message it answers (threaded pads).
  * Nothing here creates a pad: private pads are made on create/, and open pads can
  * no longer be created at all (they expire 30 days after their last post).
  */
@@ -137,7 +138,7 @@ try {
             out(['error' => 'The About text must be saved from the Mashpad viewer.'], 403);
         }
         if (!mb_can_edit_about($pad, (array) mb_current_user())) {
-            out(['error' => 'Only the pad\'s creator can change its About text.'], 403);
+            out(['error' => 'Only the person this pad belongs to can change its About text.'], 403);
         }
         try {
             $saved = mb_brief_save($pdo, $pad, mb_current_user(), (string) ($in['body'] ?? ''), (int) ($in['base_version'] ?? 0));
@@ -176,7 +177,8 @@ try {
                 out(['error' => 'Posts must come from the Mashpad viewer.'], 403);
             }
             try {
-                $msg = mb_pad_post($pdo, $pad, $user, (string) ($in['message'] ?? ''));
+                $replyTo = isset($in['reply_to']) && $in['reply_to'] !== '' && $in['reply_to'] !== null ? (int) $in['reply_to'] : null;
+                $msg = mb_pad_post($pdo, $pad, $user, (string) ($in['message'] ?? ''), $replyTo);
             } catch (MbThrottled $t) {
                 header('Retry-After: ' . $t->retryAfter);
                 out(['error' => $t->getMessage(), 'retry_after_seconds' => $t->retryAfter], 429);
