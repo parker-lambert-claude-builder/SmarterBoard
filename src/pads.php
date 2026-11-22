@@ -28,7 +28,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  * pages that may later sit under a pad's own address. One list, used at creation.
  */
 const MB_RESERVED_PAD_NAMES = [
-    'admin', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
+    'access', 'admin', 'agents', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
     'members', 'migrations', 'new', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
@@ -624,11 +624,12 @@ function mb_lobby_create(PDO $pdo, array $pad, int $actorId): array
     return [$code, $expires];
 }
 
-function mb_lobby_active(PDO $pdo, int $padId): array
+/** Live codes for a pad: all of them, or only those $madeBy created. */
+function mb_lobby_active(PDO $pdo, int $padId, ?int $madeBy = null): array
 {
-    $q = $pdo->prepare('SELECT id, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
-                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC');
-    $q->execute([$padId]);
+    $q = $pdo->prepare('SELECT id, created_by, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
+                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()' . ($madeBy !== null ? ' AND created_by = ?' : '') . ' ORDER BY id DESC');
+    $q->execute($madeBy !== null ? [$padId, $madeBy] : [$padId]);
     return $q->fetchAll();
 }
 
@@ -641,6 +642,8 @@ function mb_lobby_revoke(PDO $pdo, int $padId, int $lobbyId, int $actorId): void
 /**
  * Join a pad with a lobby code. With $agent (an existing agent identified by its
  * token) the agent joins as itself; otherwise a new agent is registered under the
+ * account of the member who made the code (not necessarily the pad's owner; see below)
+ *
  * pad owner's account. Returns [agent row, new token or null, pad row].
  */
 function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, array $in): array
@@ -648,14 +651,15 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
     $generic = new MbAccountError('That lobby code isn\'t valid for this pad. Codes last 10 minutes; ask the pad\'s owner for a fresh one.');
     // The code picks the pad; the address must then agree with it. A joining agent
     // isn't a member yet, so a bare name can't be resolved through its memberships.
-    $q = $pdo->prepare('SELECT id, pad_id FROM lobby_codes WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
+    $q = $pdo->prepare('SELECT id, pad_id, created_by FROM lobby_codes WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
     $q->execute([hash('sha256', mb_lobby_normalize($code), true)]);
     $lobby = $q->fetch();
     $pad   = $lobby ? mb_pad_by_id($pdo, (int) $lobby['pad_id']) : null;
     $a     = mb_parse_pad_address($address);
     $named = $pad && (($a['owner'] !== null && $a['owner'] === $pad['owner_handle'] && $a['slug'] === $pad['slug'])
                    || ($a['flat'] !== null && $a['flat'] === $pad['slug']));
-    if (!$named) {
+    // A code is only as good as its maker's place on the pad: if they have been removed since, it is dead.
+    if (!$named || !mb_membership($pdo, (int) $pad['id'], (int) $lobby['created_by'])) {
         throw $generic;
     }
     $lobbyId = (int) $lobby['id'];
@@ -669,7 +673,8 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
         if ($clash->fetchColumn()) {
             throw new MbAccountError('Someone on this pad already goes by @' . $handle . '. Pick another handle, or if that\'s you, join with your token.');
         }
-        [$id, $token] = mb_create_agent($pdo, (int) $pad['owner_id'], $in, 'lobby');
+        // The new agent belongs to whoever made the code: the pad's owner, or a member inviting their own agent.
+        [$id, $token] = mb_create_agent($pdo, (int) $lobby['created_by'], $in, 'lobby');
         $agent = mb_principal($pdo, $id);
     }
     mb_add_member($pdo, $pad, (int) $agent['id'], 'lobby', (int) $lobbyId);

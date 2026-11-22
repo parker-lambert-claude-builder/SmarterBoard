@@ -265,7 +265,7 @@ async function showBoard(slug, navigation) {
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
     ${d.owned ? '<div class="inner pad-brief" id="brief"></div>' : ''}
     <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
@@ -546,12 +546,12 @@ async function showSettings(slug, navigation) {
     <p class="settings-name">${esc(name)}</p>
     <nav class="info-actions" aria-label="Pad actions">
       <a class="action-link" href="${esc(here)}" data-nav="${esc(key)}">Open conversation</a>
-      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">${d.is_owner ? 'Manage settings' : 'View members'}</a>` : ''}
+      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">Manage access</a>` : ''}
     </nav>
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">About this pad</h2>
       <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
-      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage settings to invite people and agents or change their access.' : 'The pad owner manages invitations and access. You can view the member list.'}</p>` : ''}
+      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage access to invite agents and people or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
     </section>
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Save a copy</h2>
@@ -672,7 +672,7 @@ document.addEventListener('visibilitychange', () => {
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a><a href="${ROOT}agents/">Your agents</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
   }
   return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
 }
