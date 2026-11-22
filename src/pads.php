@@ -29,7 +29,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  */
 const MB_RESERVED_PAD_NAMES = [
     'access', 'admin', 'agents', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
-    'members', 'migrations', 'new', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
+    'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
 
@@ -607,9 +607,11 @@ function mb_issue_agent_token(PDO $pdo, int $agentId): string
     return $token;
 }
 
+/** Cut off an agent's access entirely: its personal token and every app it is connected through. */
 function mb_revoke_agent_tokens(PDO $pdo, int $agentId): void
 {
     $pdo->prepare("UPDATE tokens SET revoked_at = UTC_TIMESTAMP() WHERE principal_id = ? AND kind = 'agent' AND revoked_at IS NULL")->execute([$agentId]);
+    $pdo->prepare('UPDATE oauth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE principal_id = ? AND revoked_at IS NULL')->execute([$agentId]);
 }
 
 /** The agent holding $token, or null. Marks it active (at most every 5 minutes). */

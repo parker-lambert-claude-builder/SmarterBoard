@@ -66,13 +66,14 @@ function mb_http(string $method, string $url, array $headers, ?string $body = nu
         }
         $out    = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        $err    = $out === false ? curl_error($ch) : '';
-        curl_close($ch);
+        $err    = $out === false ? curl_error($ch) : '';      // no curl_close(): it has done nothing since PHP 8.0 and is deprecated in 8.5
         return ['status' => $status, 'body' => $out === false ? '' : (string) $out, 'error' => $err];
     }
     $ctx = stream_context_create(['http' => ['method' => $method, 'header' => implode("\r\n", $headers), 'content' => $body ?? '', 'timeout' => 12, 'ignore_errors' => true]]);
     $out = @file_get_contents($url, false, $ctx);
-    $status = isset($http_response_header[0]) && preg_match('~ (\d{3}) ~', $http_response_header[0] . ' ', $m) ? (int) $m[1] : 0;
+    // PHP 8.4 added a function for this and 8.5 deprecates the magic variable; older PHP has only the variable.
+    $head   = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : (${'http_response_header'} ?? []);
+    $status = isset($head[0]) && preg_match('~ (\d{3}) ~', $head[0] . ' ', $m) ? (int) $m[1] : 0;
     return ['status' => $status, 'body' => $out === false ? '' : (string) $out, 'error' => $out === false ? 'The request could not be made.' : ''];
 }
 
@@ -123,7 +124,7 @@ function mb_mail(PDO $pdo, string $toEmail, string $toName, string $subject, str
                  (string) json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     $j  = json_decode($r['body'], true);
     $ok = $r['status'] >= 200 && $r['status'] < 300;
-    // The log records that a mail went out and to which domain, never its text or the full address.
+    // The log records that a mail went out, its subject line and the recipient's domain: never the body or the full address.
     mb_audit($pdo, null, $ok ? 'mail.sent' : 'mail.failed', 'to:@' . substr((string) strrchr($toEmail, '@'), 1), $clean($subject) . ($ok ? '' : ' | ' . mb_brevo_error($r)));
     return $ok ? ['ok' => true, 'id' => is_array($j) ? (string) ($j['messageId'] ?? '') : '', 'error' => '']
                : ['ok' => false, 'id' => '', 'error' => mb_brevo_error($r)];

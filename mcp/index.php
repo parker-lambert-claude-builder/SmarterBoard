@@ -12,6 +12,7 @@ require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/claims.php';
+require_once __DIR__ . '/../src/oauth.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
@@ -39,7 +40,8 @@ switch ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
             header('Content-Type: text/plain; charset=utf-8');
             echo "Mashpad MCP server " . MB_VERSION . " is running.\n\n"
                . "This URL is for MCP clients, which talk to it with POST requests.\n"
-               . "Add it as a remote MCP server (Streamable HTTP). Agents identify themselves with a Mashpad agent token.\n"
+               . "Add it as a remote MCP server (Streamable HTTP). Your agent's app will ask you to sign in to Mashpad and approve it.\n"
+               . "An app that can't sign in can use " . mb_site_url() . "mcp/open/ with a personal agent token.\n"
                . "To watch the pads, open the folder above this one.\n";
             exit;
         }
@@ -48,6 +50,42 @@ switch ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
         header('Allow: POST, OPTIONS');
         http_response_code(405);
         exit;
+}
+
+/**
+ * Who is calling, at the HTTP level. mcp/ needs a credential on the request:
+ * an OAuth access token or a personal token in the Authorization header, or a
+ * personal token as ?key=. Without one it answers 401 and says where to sign in,
+ * which is what makes an agent's app start the Mashpad sign-in on its own.
+ * mcp/open/ (MB_MCP_OPEN) skips this, for apps that can only get a token by
+ * calling join_pad first.
+ */
+function mcp_challenge(string $error = '', string $description = ''): void
+{
+    $meta = mb_site_url() . '.well-known/oauth-protected-resource/mcp';
+    header('WWW-Authenticate: Bearer resource_metadata="' . $meta . '", scope="' . MB_OAUTH_SCOPE . '"'
+        . ($error !== '' ? ', error="' . $error . '", error_description="' . str_replace('"', "'", $description) . '"' : ''));
+    header('Content-Type: application/json');
+    http_response_code(401);
+    echo json_encode(['error' => $error !== '' ? $error : 'unauthorized',
+        'error_description' => $description !== '' ? $description : 'Sign in to Mashpad to use this MCP server. Apps that cannot sign in can use ' . mb_site_url() . 'mcp/open/ with a personal agent token.',
+        'resource_metadata' => $meta], JSON_UNESCAPED_SLASHES);
+    exit;
+}
+$mcpBearer = preg_match('/^Bearer\s+(\S+)$/i', trim((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '')), $mm) ? $mm[1] : '';
+try {
+    $authDb = mb_db();
+} catch (Throwable $e) {
+    $authDb = null;
+}
+if ($authDb) {                                   // before accounts are set up there is nothing to sign in to
+    if (!defined('MB_MCP_OPEN') && $mcpBearer === '' && empty($_GET['key'])) {
+        mcp_challenge();
+    }
+    // An OAuth token that has expired or been withdrawn must be answered 401, on either address, so the app renews it.
+    if (str_starts_with($mcpBearer, MB_OAUTH_PREFIX) && !mb_oauth_agent($authDb, $mcpBearer)) {
+        mcp_challenge('invalid_token', 'The access token has expired or was revoked.');
+    }
 }
 
 try {
@@ -147,7 +185,7 @@ Pads are private. Each belongs to a person, and only its members can see it. You
 
 A pad's address is its owner's handle and the pad's name: "dylan/launch", shown to people as {$pads}dylan/launch. Give the board argument that address or the full link. The name alone ("launch") also works while only one of your pads has it; if two do, the call is refused and lists both addresses.
 
-Your agent token (it starts with mp_a_) identifies you. Supply it in one of three ways: an "Authorization: Bearer <token>" header set in your MCP client, a ?key=<token> on this server's URL, or the token argument on each tool call.
+How you are identified: if your app signed in to Mashpad for you (it sent its person to a Mashpad page to approve), you are already identified on every call and never handle a token. Otherwise you have a personal agent token (it starts with mp_a_). Supply it in one of three ways: an "Authorization: Bearer <token>" header set in your MCP client, a ?key=<token> on this server's URL, or the token argument on each tool call.
 
 A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
 
@@ -332,7 +370,7 @@ function mcp_agent(array $args): ?array
         return null;
     }
     $pdo = mb_db();
-    $agent = $pdo ? mb_agent_by_token($pdo, $token) : null;
+    $agent = $pdo ? (mb_agent_by_token($pdo, $token) ?? mb_oauth_agent($pdo, $token)) : null;
     if (!$agent) {
         throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been replaced or revoked, the agent it belonged to may have been removed, or it may be mistyped. '
             . 'Ask the person responsible for you to issue you a new token (they can, from the pad\'s Manage access page or their Your agents page). '

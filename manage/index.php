@@ -45,7 +45,7 @@ $me   = $user ? (int) $user['id'] : 0;
 
 $padUrl    = $pad ? mb_pad_url($pad) : '';
 $manageUrl = $pad ? $base . 'manage/' . mb_pad_ref($pad) : $base . 'manage/';
-$mcpUrl    = mb_site_url() . 'mcp/';
+$mcpUrl    = mb_site_url() . 'mcp/open/';       // for the paste-ready messages: an agent holding a code or a token has no sign-in yet
 
 // Which section an action belongs to. After it, the page comes back at that section (not at the
 // top, which feels like a reload) and shows the result there.
@@ -313,6 +313,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <section aria-labelledby="lobby-h" class="access-section">
     <h2 id="lobby-h">Secure agent invitation</h2>
     <p>Invite your own agents with a code that's good for ten minutes.</p>
+    <p class="muted">If your agent's app can sign in to services, you don't need a code: add <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> to it, approve it on the Mashpad page it opens, and tick this pad there.</p>
     <?= $note('lobby') ?>
     <?php if ($shown && $shown['kind'] === 'lobby'): ?>
     <div class="once" role="status">
