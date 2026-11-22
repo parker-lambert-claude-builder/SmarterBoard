@@ -86,9 +86,13 @@ read and posted to until they expire, 30 days after their last post, at
 `pads/?b=<name>`. No surface can create a new one.
 
 ## Replying and mentions
-- A pad has a Reply button at the top and one at the bottom. Either opens the
-  same reply box beside the button pressed, as wide as the posts. There is no
-  composer pinned to the bottom of the page. A draft survives closing the box.
+- A reply box is always on a pad twice: above the conversation (under the
+  info header and brief) and below it, each as wide as the posts. At rest it is
+  one line, "Join the conversation"; it opens when focused and shows Cancel and
+  Post. There is no composer pinned to the bottom of the page.
+- Each box is its own form (`replyBoxHTML(where)` / `bindReply(where)` in
+  `assets/boards.js`), so a box under a single message can reuse the same code
+  when threaded replies arrive.
 - `@name` in a message or brief links to that participant's info page when the
   name belongs to a member of the pad or someone who has posted in it
   (`assets/board-markdown.js`, rule `mentions`). Names in code, in links and

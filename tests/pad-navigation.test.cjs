@@ -15,7 +15,8 @@ async function app() {
     if (!elements.has(id)) elements.set(id, {
       innerHTML: '', value: '', style: {}, handlers: {}, disabled: false,
       contains: () => false, matches: () => false,
-      querySelector: selector => selector === 'button' ? element('post-button') : null,
+      querySelector: selector => selector.startsWith('button') ? element('post-button') : null,
+      classList: { toggle(name, on) { elements.get(id)[name] = on; } }, blur() {},
       addEventListener(type, handler) { this.handlers[type] = handler; },
       focus() {}, requestSubmit() {}, setAttribute(name, value) { this[name] = value; },
     });
@@ -32,7 +33,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, openReply, closeReply, unseenMessages, accountHTML, applyAccount, loadMe};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -118,12 +119,12 @@ test('sidebar refresh preserves a focused settings link', async () => {
 test('keyboard posting prevents a newline and does not submit again while pending', async () => {
   const { api, element } = await app();
   let submissions = 0, prevented = 0;
-  element('composer').requestSubmit = () => submissions++;
+  element('reply-bottom-form').requestSubmit = () => submissions++;
   api.bindComposer('launch-review');
   const event = { key: 'Enter', ctrlKey: true, preventDefault: () => prevented++ };
-  element('c-body').handlers.keydown(event);
+  element('reply-bottom-body').handlers.keydown(event);
   element('post-button').disabled = true;
-  element('c-body').handlers.keydown(event);
+  element('reply-bottom-body').handlers.keydown(event);
   assert.equal(submissions, 1);
   assert.equal(prevented, 2);
 });
@@ -267,46 +268,59 @@ test('signed in: account shown, composer name fixed to the handle, handle escape
   assert.match(api.accountHTML(), /signout\//);
   context.location.search = '?b=launch-review';
   await api.route();
-  api.openReply('top');
-  assert.match(element('reply-top').innerHTML, /id="c-author"[^>]*value="@dy&lt;lan" readonly/);
+  assert.doesNotMatch(element('main').innerHTML, /Reply as|reply-(top|bottom)-author/, 'signed in, a reply needs no name field');
 });
 
-test('Reply buttons at the top and bottom open one reply box beside the button pressed; the sticky composer is gone', async () => {
+test('a reply box is always present above and below the conversation; nothing is pinned to the page bottom', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true });
+  context.location.pathname = '/mashpad/pads/alice/launch';
+  await api.route();
+  const main = element('main').innerHTML;
+  const at = id => main.indexOf(`id="${id}"`);
+  assert.ok(at('head-meta') < at('brief') && at('brief') < at('reply-top-form') && at('reply-top-form') < at('transcript') && at('transcript') < at('reply-bottom-form'),
+    'order: info header, brief, reply box, messages, reply box');
+  assert.equal((main.match(/<form class="reply-box"/g) || []).length, 2);
+  assert.equal((main.match(/placeholder="Join the conversation"/g) || []).length, 2);
+  assert.equal((main.match(/data-reply-cancel="(top|bottom)">Cancel<\/button><button type="submit">Post</g) || []).length, 2);
+  assert.doesNotMatch(main, /class="composer"|href="#composer"|data-reply="/);
+  assert.doesNotMatch(main, /class="reply-button"/, 'no separate Reply buttons: the boxes are already there');
+});
+
+test('a reply box opens when focused, and Cancel empties and closes it without touching the other box', async () => {
   const { api, context, element, listeners } = await app();
   context.fetch = async () => reply(pad());
   context.location.search = '?b=launch-review';
   await api.route();
-  const main = element('main').innerHTML;
-  assert.match(main, /<button type="button" class="reply-button" data-reply="top">Reply<\/button>/);
-  assert.match(main, /<button type="button" class="reply-button" data-reply="bottom">Reply<\/button>/);
-  assert.ok(main.indexOf('id="reply-top"') < main.indexOf('id="transcript"') && main.indexOf('id="transcript"') < main.indexOf('id="reply-bottom"'));
-  assert.doesNotMatch(main, /class="composer"|href="#composer"|<form/);
-  const press = which => listeners.click({ target: { closest: s => s === '[data-reply]' ? { dataset: { reply: which } } : null } });
-  press('top');
-  assert.match(element('reply-top').innerHTML, /<form id="composer" class="reply-box"/);
-  assert.equal(element('reply-bottom').innerHTML, '');
-  element('c-body').value = 'half a thought';
-  press('bottom');
-  assert.equal(element('reply-top').innerHTML, '');
-  assert.match(element('reply-bottom').innerHTML, /<form id="composer"/);
-  assert.equal(element('c-body').value, 'half a thought');
-  press('close');
-  assert.equal(element('reply-bottom').innerHTML, '');
-  press('bottom'); press('bottom');
-  assert.equal(element('reply-bottom').innerHTML, '', 'pressing the same button again closes the box');
+  element('reply-top-body').handlers.focus();
+  assert.equal(element('reply-top-form')['is-open'], true);
+  assert.notEqual(element('reply-bottom-form')['is-open'], true);
+  element('reply-top-body').value = 'never mind';
+  element('reply-bottom-body').value = 'keep this';
+  listeners.click({ target: { closest: s => s === '[data-reply-cancel]' ? { dataset: { replyCancel: 'top' } } : null } });
+  assert.equal(element('reply-top-form')['is-open'], false);
+  assert.equal(element('reply-top-body').value, '');
+  assert.equal(element('reply-bottom-body').value, 'keep this');
+  element('reply-bottom-body').handlers.focus();
+  element('reply-bottom-body').handlers.keydown({ key: 'Escape' });
+  assert.equal(element('reply-bottom-form')['is-open'], true, 'Escape never throws away typed text');
 });
 
-test('posting closes the reply box and clears the draft', async () => {
+test('posting from either box sends that box\'s text, then empties and closes it', async () => {
   const { api, context, element } = await app();
-  context.fetch = async (url, opts) => /action=post/.test(url) ? reply({ ok: true }) : reply(pad());
+  const posts = [];
+  context.fetch = async (url, opts) => { if (/action=post/.test(url)) { posts.push(JSON.parse(opts.body)); return reply({ ok: true }); } return reply(pad()); };
   context.location.search = '?b=launch-review';
   await api.route();
-  api.openReply('bottom');
-  element('c-body').value = 'done';
-  await element('composer').handlers.submit({ preventDefault() {} });
-  assert.equal(element('reply-bottom').innerHTML, '');
-  api.openReply('top');
-  assert.equal(element('c-body').value, '');
+  for (const where of ['top', 'bottom']) {
+    element(`reply-${where}-body`).handlers.focus();
+    element(`reply-${where}-author`).value = 'visitor';
+    element(`reply-${where}-body`).value = `from the ${where}`;
+    await element(`reply-${where}-form`).handlers.submit({ preventDefault() {} });
+    assert.equal(element(`reply-${where}-body`).value, '');
+    assert.equal(element(`reply-${where}-form`)['is-open'], false);
+  }
+  assert.deepEqual(posts.map(p => [p.board, p.author, p.message]), [['launch-review', 'visitor', 'from the top'], ['launch-review', 'visitor', 'from the bottom']]);
 });
 
 test('the pad list no longer marks pads Private; mentions of people on the pad link to their info page', async () => {
@@ -341,9 +355,9 @@ test('signed-in posts send no author name', async () => {
   };
   await api.loadMe();
   api.bindComposer('launch-review');
-  element('c-author').value = 'someone-else';
-  element('c-body').value = 'hello';
-  await element('composer').handlers.submit({ preventDefault() {} });
+  element('reply-top-author').value = 'someone-else';
+  element('reply-top-body').value = 'hello';
+  await element('reply-top-form').handlers.submit({ preventDefault() {} });
   assert.equal(posts.length, 1);
   assert.equal(posts[0].author, '');
   assert.equal(posts[0].message, 'hello');
