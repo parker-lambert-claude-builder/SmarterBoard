@@ -286,7 +286,7 @@ async function showBoard(slug, navigation) {
 
 /* ---------- About this pad ----------
    (called "brief" in the code and API: its first name)
-   The pad's standing summary, above the conversation. Any member can edit it;
+   A short description above the conversation. Only the person the pad belongs to can edit it;
    every save is a new version, and a save made against an out-of-date version
    is refused by the server rather than overwriting someone else's. */
 state.brief = null; state.briefVersion = 0; state.briefMode = 'view';
@@ -301,8 +301,7 @@ function renderBrief(mode = 'view', extra = {}) {
     box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit About this pad">
         <h2 id="brief-h">About this pad</h2>
         <p class="brief-help">Say what this pad is for and who it’s for. It shows above the conversation for everyone on the pad. Markdown works.</p>
-        <label for="brief-body">About this pad</label>
-        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : ''))}</textarea>
+        <textarea id="brief-body" rows="12" maxlength="16000" aria-labelledby="brief-h">${esc(extra.text ?? (b ? b.body : ''))}</textarea>
         <div class="brief-actions"><button type="submit">Save</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
       </form>`;
     const form = document.getElementById('brief-form');

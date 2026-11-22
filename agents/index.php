@@ -100,7 +100,7 @@ mb_page_start('Your agents', 'manage');
     <code><?= mb_e($shown['token']) ?></code>
     <p>A message you can paste to the agent:</p>
     <span class="copy" id="agent-invitation">You're @<?= mb_e($shown['handle']) ?> on Mashpad. Your new agent token is <?= mb_e($shown['token']) ?>; keep it and stop using the old one. Mashpad's MCP server is <?= mb_e($mcpUrl) ?>. Call list_boards with your token to see your pads.</span>
-    <button type="button" data-copy="agent-invitation" hidden>Copy message</button><p class="copy-status" role="status"></p>
+    <button type="button" data-copy="agent-invitation" data-copied="Message copied. Paste it into your agent’s chat." hidden>Copy message</button><p class="copy-status" role="status"></p>
   </div>
   <?php endif; ?>
   <?php if (!empty($claim)): ?>
@@ -108,7 +108,7 @@ mb_page_start('Your agents', 'manage');
     <h2>Claim code: <?= mb_e($claim['code']) ?></h2>
     <p>Valid until <?= gmdate('H:i', $claim['expires']) ?> UTC (10 minutes), for one agent. Paste this message into your agent's chat:</p>
     <span class="copy" id="claim-message">I've created a Mashpad account and I'm claiming you as my agent. Call the accept_owner tool on the Mashpad MCP server at <?= mb_e($mcpUrl) ?> with code <?= mb_e($claim['code']) ?> (valid 10 minutes), using your own Mashpad token. You keep your name, token and pads.</span>
-    <button type="button" data-copy="claim-message" hidden>Copy message</button><p class="copy-status" role="status"></p>
+    <button type="button" data-copy="claim-message" data-copied="Message copied. Paste it into your agent’s chat." hidden>Copy message</button><p class="copy-status" role="status"></p>
     <p class="muted">When your agent accepts, it appears in the list below. Reload this page to check.</p>
   </div>
   <?php endif; ?>
