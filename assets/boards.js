@@ -250,7 +250,7 @@ async function showBoard(slug, navigation) {
     </div>
     <div class="inner reply-slot" id="reply-bottom">${replyBoxHTML('bottom')}
     </div>`;
-  state.brief = d.brief || null; state.briefVersion = d.brief_version || 0;
+  state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
   renderBrief();
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
@@ -260,13 +260,13 @@ async function showBoard(slug, navigation) {
   else window.scrollTo(0, document.body.scrollHeight);
 }
 
-/* ---------- pinned brief ----------
+/* ---------- About this pad ----------
+   (called "brief" in the code and API: its first name)
    The pad's standing summary, above the conversation. Any member can edit it;
    every save is a new version, and a save made against an out-of-date version
    is refused by the server rather than overwriting someone else's. */
 state.brief = null; state.briefVersion = 0; state.briefMode = 'view';
-const BRIEF_TEMPLATE = '## Objective\n\n\n## Decisions\n\n\n## Open questions\n\n';
-const briefMeta = b => `Version ${b.version} · saved by ${esc(displayName(b.author))} <time datetime="${new Date(b.ts * 1000).toISOString()}" title="${esc(fullTime(b.ts))}">${ago(b.ts)}</time>`;
+const briefMeta = b => `Written by ${esc(displayName(b.author))} <time datetime="${new Date(b.ts * 1000).toISOString()}" title="${esc(fullTime(b.ts))}">${ago(b.ts)}</time>`;
 
 function renderBrief(mode = 'view', extra = {}) {
   const box = document.getElementById('brief');
@@ -274,12 +274,12 @@ function renderBrief(mode = 'view', extra = {}) {
   const b = state.brief && state.brief.body ? state.brief : null;
   state.briefMode = mode;
   if (mode === 'edit') {
-    box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit the brief">
-        <h2 id="brief-h">Edit the brief</h2>
-        <p class="brief-help">Keep it short: what this pad is for, what has been decided, what is still open. Markdown works. Link to messages by number, like #12.</p>
-        <label for="brief-body">Brief</label>
-        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : BRIEF_TEMPLATE))}</textarea>
-        <div class="brief-actions"><button type="submit">Save brief</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
+    box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit About this pad">
+        <h2 id="brief-h">About this pad</h2>
+        <p class="brief-help">Say what this pad is for and who it’s for. It shows above the conversation for everyone on the pad. Markdown works.</p>
+        <label for="brief-body">About this pad</label>
+        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : ''))}</textarea>
+        <div class="brief-actions"><button type="submit">Save</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
       </form>`;
     const form = document.getElementById('brief-form');
     form.addEventListener('submit', saveBrief);
@@ -288,18 +288,20 @@ function renderBrief(mode = 'view', extra = {}) {
   }
   if (mode === 'history') {
     const rows = (extra.history || []).map(h => `<li><button type="button" class="quiet" data-brief="version" data-version="${h.version}">Version ${h.version}</button> <span class="brief-meta">saved by ${esc(displayName(h.author))}, ${esc(fullTime(h.ts))}${h.bytes ? '' : ', cleared'}</span></li>`).join('');
-    box.innerHTML = `<section class="brief-box" aria-labelledby="brief-h"><h2 id="brief-h">Brief history</h2>
+    box.innerHTML = `<section class="brief-box" aria-labelledby="brief-h"><h2 id="brief-h">About this pad: earlier versions</h2>
       ${rows ? `<ol class="brief-history" reversed>${rows}</ol>` : '<p class="brief-meta">No versions saved yet.</p>'}
-      ${extra.shown ? `<p class="brief-meta">${briefMeta(extra.shown)}${extra.shown.version === state.briefVersion ? ' (current)' : ''}</p><div class="body">${extra.shown.body ? render(extra.shown.body) : '<p class="brief-meta">This version cleared the brief.</p>'}</div>` : ''}
-      <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back to the current brief</button></div></section>`;
+      ${extra.shown ? `<p class="brief-meta">Version ${extra.shown.version}${extra.shown.version === state.briefVersion ? ' (current)' : ''} · ${briefMeta(extra.shown)}</p><div class="body">${extra.shown.body ? render(extra.shown.body) : '<p class="brief-meta">This version cleared the brief.</p>'}</div>` : ''}
+      <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back</button></div></section>`;
     return;
   }
+  const mine = !!state.canEditAbout;      // only the pad's creator sees Edit; the server enforces it
+  box.hidden = !b && !mine;                // nothing written and you can't write it: show nothing
   box.innerHTML = b
-    ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">Brief</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
+    ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">About this pad</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
         <div class="body">${render(b.body)}</div>
-        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit brief</button><button type="button" class="quiet" data-brief="history">History</button></div></details>`
-    : `<div class="brief-box brief-empty"><p><strong id="brief-h">No brief yet.</strong> A brief keeps this pad’s objective, decisions and open questions in one place, above the conversation.</p>
-        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write the brief</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">History</button>' : ''}</div></div>`;
+        ${mine ? '<div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit</button><button type="button" class="quiet" data-brief="history">Earlier versions</button></div>' : ''}</details>`
+    : mine ? `<div class="brief-box brief-empty"><p><strong id="brief-h">About this pad.</strong> Say what this pad is for and who it’s for. It shows here, above the conversation, for everyone on the pad.</p>
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write it</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">Earlier versions</button>' : ''}</div></div>` : '';
   if (extra.note) box.insertAdjacentHTML('afterbegin', `<p class="brief-note" role="status">${esc(extra.note)}</p>`);
 }
 
@@ -317,7 +319,7 @@ async function saveBrief(e) {
     if (navigation !== state.navigation) return;
     state.brief = d.brief; state.briefVersion = d.brief ? d.brief.version : state.briefVersion;
     if (!d.brief) await loadBrief();
-    renderBrief('view', { note: 'Brief saved.' });
+    renderBrief('view', { note: 'Saved.' });
   } catch (err) {
     if (navigation !== state.navigation) return;
     btn.disabled = false;
@@ -325,7 +327,7 @@ async function saveBrief(e) {
     if (err.status === 409 && err.brief) {
       // Someone saved first. Show theirs beside the unsaved text; the next save is made against it.
       state.brief = err.brief; state.briefVersion = err.brief.version;
-      form.insertAdjacentHTML('beforeend', `<details class="brief-current" open><summary>Current brief (${briefMeta(err.brief)})</summary><div class="body">${render(err.brief.body || '')}</div></details>`);
+      form.insertAdjacentHTML('beforeend', `<details class="brief-current" open><summary>Current text (${briefMeta(err.brief)})</summary><div class="body">${render(err.brief.body || '')}</div></details>`);
     }
   }
 }
@@ -371,10 +373,10 @@ async function pollBoard() {
       if (state.briefMode === 'edit') {
         // Don't touch what is being typed; the save will be refused and show the newer version.
         const form = document.getElementById('brief-form');
-        if (form && !form.querySelector('.brief-note')) form.insertAdjacentHTML('afterbegin', '<p class="brief-note" role="status">Someone else has just saved a newer brief. Saving will show you theirs so you can merge.</p>');
+        if (form && !form.querySelector('.brief-note')) form.insertAdjacentHTML('afterbegin', '<p class="brief-note" role="status">A newer version has just been saved. Saving will show you it so you can merge.</p>');
       } else {
         await loadBrief();
-        if (navigation === state.navigation && state.briefMode !== 'history') renderBrief('view', { note: 'The brief was updated.' });
+        if (navigation === state.navigation && state.briefMode !== 'history') renderBrief('view', { note: 'This was just updated.' });
       }
     }
   } catch (e) {
