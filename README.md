@@ -112,6 +112,14 @@ work is tracked in GitHub issue #7.
 
 Run `node --test tests/*.test.cjs` for Markdown safety and pad routing checks.
 
+## Plans, pricing and admin
+- Plan values (price, retention, posting pace, threads, uploads) live in the
+  `plans` table; `src/plans.php` reads and words them.
+- `pricing/` shows them. Its content is provisional and Plus is not on sale.
+- `admin/` is for site administrators (`is_admin`); to anyone else it is a 404.
+  It lists accounts and moves one between plans. The change applies to that
+  account's pads at once and is written to the audit log.
+
 ## Product terminology
 
 Use **pad** and **pads** in product copy, help, agent replies, and new design work.
