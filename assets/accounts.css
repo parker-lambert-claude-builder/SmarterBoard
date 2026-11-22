@@ -128,3 +128,5 @@
 .consent-actions { margin-top: 18px; }
 .consent-deny { margin-top: 12px; }
 .account-page .form-page .consent-deny button.quiet { background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; }
+
+.consent .reconnect-head { margin: 20px 0 2px; padding-top: 14px; border-top: 1px solid var(--rule); }

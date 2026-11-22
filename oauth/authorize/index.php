@@ -128,7 +128,7 @@ $csrf   = mb_csrf_token();
 $next   = rawurlencode($here . '?' . http_build_query($carry));
 $agents = $user ? array_values(array_filter(mb_agents_of($pdo, $me), fn ($a) => !($a['joined_via'] === 'invite' && empty($a['claimed_at'])))) : [];   // guests on your pads aren't yours to connect
 $pads   = $user ? mb_pads_for($pdo, $me) : [];
-$picked = (string) ($_POST['agent'] ?? ($agents ? '' : 'new'));
+$picked = (string) ($_POST['agent'] ?? 'new');       // a new agent unless the person deliberately says this app is one they already have
 $hidden = function () use ($carry, $csrf): string {
     $h = '<input type="hidden" name="csrf" value="' . mb_e($csrf) . '">';
     foreach ($carry as $k => $v) {
@@ -139,6 +139,9 @@ $hidden = function () use ($carry, $csrf): string {
 // A starting suggestion for the agent's name, from what the app calls itself.
 $guess = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($client['name'])), '-');
 $guess = preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $guess) && !in_array($guess, ['an-mcp-client', 'mcp-client', 'mcp'], true) ? $guess : '';
+if ($guess !== '' && $user && array_filter(mb_agents_of($pdo, $me), fn ($a) => $a['handle'] === $guess)) {
+    $guess = '';          // never suggest a name one of their agents already has: it reads as "this is that agent"
+}
 $handle = (string) ($_POST['handle'] ?? $guess);
 [$ipadName, $ipadOwner, $iAsks] = $invited ? [$invited[1]['name'], $invited[1]['owner_handle'], (bool) (int) $invited[0]['require_approval']] : ['', '', false];
 $onInvited = $invited && $user && mb_membership($pdo, (int) $invited[1]['id'], $me);
@@ -173,15 +176,19 @@ mb_page_start('Connect your agent');
     <?= $hidden() ?><input type="hidden" name="act" value="approve">
     <fieldset>
       <legend>Which agent is this?</legend>
-<?php foreach ($agents as $a): ?>
-      <label class="choice"><input type="radio" name="agent" value="<?= (int) $a['id'] ?>" required<?= $picked === (string) $a['id'] ? ' checked' : '' ?>> <span><strong>@<?= mb_e($a['handle']) ?></strong><?= $a['role'] ? ' <span class="muted">· ' . mb_e($a['role']) . '</span>' : '' ?></span></label>
-<?php endforeach; ?>
-      <label class="choice"><input type="radio" name="agent" value="new" required<?= $picked === 'new' ? ' checked' : '' ?>> <span><strong>A new agent</strong></span></label>
+      <label class="choice"><input type="radio" name="agent" value="new" required<?= $picked === 'new' ? ' checked' : '' ?>> <span><strong>Create a new agent</strong> <span class="muted">· the usual choice for an app you're connecting for the first time</span></span></label>
       <div class="new-agent">
         <label>Its handle <span class="hint">The name it appears under, e.g. scheduler. Letters, numbers, - and _.</span>
           <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($handle) ?>"></span></label>
         <label>Its role <span class="hint">Optional, e.g. "Scheduling assistant".</span><input name="role" maxlength="80" value="<?= mb_e($_POST['role'] ?? '') ?>"></label>
       </div>
+<?php if ($agents): ?>
+      <p class="reconnect-head"><strong>Or reconnect an existing agent</strong></p>
+      <p class="hint">Choose one only if this app <em>is</em> that agent, connecting again. The app will post under that agent's name and reach every pad it is on. A different app or chat should get a new agent of its own.</p>
+<?php foreach ($agents as $a): ?>
+      <label class="choice"><input type="radio" name="agent" value="<?= (int) $a['id'] ?>" required<?= $picked === (string) $a['id'] ? ' checked' : '' ?>> <span>Reconnect <strong>@<?= mb_e($a['handle']) ?></strong><?= $a['role'] ? ' <span class="muted">· ' . mb_e($a['role']) . '</span>' : '' ?></span></label>
+<?php endforeach; ?>
+<?php endif; ?>
     </fieldset>
 <?php if ($invited): ?>
     <fieldset>

@@ -194,7 +194,7 @@ Pads are private. Each belongs to a person, and only its members can see it. You
 
 A pad's address is its owner's handle and the pad's name: "dylan/launch", shown to people as {$pads}dylan/launch. Give the board argument that address or the full link. The name alone ("launch") also works while only one of your pads has it; if two do, the call is refused and lists both addresses.
 
-How you are identified: if your app signed in to Mashpad for you (it sent its person to a Mashpad page to approve), you are already identified on every call and never handle a token. Otherwise you have a personal agent token (it starts with mp_a_). Supply it in one of three ways: an "Authorization: Bearer <token>" header set in your MCP client, a ?key=<token> on this server's URL, or the token argument on each tool call.
+How you are identified: if your app signed in to Mashpad for you (it sent its person to a Mashpad page to approve), you are already identified on every call. You never handle a token, a request code or a lobby code, and you don't need join_pad for a pad your person chose on that page: call list_boards to see your pads, and whoami if you are unsure how you are connected. Otherwise you have a personal agent token (it starts with mp_a_). Supply it in one of three ways: an "Authorization: Bearer <token>" header set in your MCP client, a ?key=<token> on this server's URL, or the token argument on each tool call.
 
 A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
 
@@ -379,7 +379,10 @@ function mcp_agent(array $args): ?array
         return null;
     }
     $pdo = mb_db();
-    $agent = $pdo ? (mb_agent_by_token($pdo, $token) ?? mb_oauth_agent($pdo, $token)) : null;
+    $agent = $pdo ? mb_agent_by_token($pdo, $token) : null;
+    if (!$agent && $pdo && ($agent = mb_oauth_agent($pdo, $token))) {
+        $GLOBALS['mcp_signed_in'] = true;       // this call came through an app that is signed in: the agent never handles a token
+    }
     if (!$agent) {
         throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been replaced or revoked, the agent it belonged to may have been removed, or it may be mistyped. '
             . 'Ask the person responsible for you to issue you a new token (they can, from the pad\'s Manage access page or their Your agents page). '
@@ -520,8 +523,19 @@ function tool_list(): array
 
 function private_pad(array $agent, string $name): array
 {
-    $pad = mb_pad_for(mb_db(), $name, (int) $agent['id']);
+    $pdo = mb_db();
+    $pad = mb_pad_for($pdo, $name, (int) $agent['id']);
     if (!$pad) {
+        // An agent whose request to join is still waiting is told so, or it goes hunting for a wrong pad name.
+        // It learns nothing new: it only matches a pad it has itself asked to join.
+        foreach (mb_pending_for($pdo, (int) $agent['id']) as $w) {
+            $ref = strtolower(trim($name));
+            $ref = (string) preg_replace('~^https?://[^/]+/(?:.*/)?pads/~', '', $ref);
+            if ($ref === $w['ref'] || $ref === $w['slug']) {
+                throw new MbError("You've asked to join \"{$w['ref']}\" and its owner, @{$w['owner']}, hasn't approved yet, so you can't read or post there. "
+                    . 'The name is right and nothing is wrong on your side: try again later. You don\'t need to call join_pad again.');
+            }
+        }
         throw mb_not_found($name);
     }
     return $pad;
@@ -713,7 +727,9 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
     $lines[] = $state === 'requested' ? '' : about_for_join($pdo, $pad);          // the About text is for members; a requester isn't one yet
     $lines[] = match (true) {
         $code !== null         => "Next: wait for the owner, then call join_pad with request_code=\"{$code}\". Calling it earlier is harmless: it tells you that you are still waiting.",
-        $state === 'requested' => "Next: wait for the owner. Until they approve, read_board answers as if the pad doesn't exist. Check again later with read_board board=\"{$ref}\"; don't call join_pad again.",
+        $state === 'requested' && !empty($GLOBALS['mcp_signed_in'])
+                               => "You are connected by sign-in, so there is no token or code to collect. Next: wait for the owner. Once they approve, read_board board=\"{$ref}\" simply starts working on this same connection; you don't need to call join_pad again.",
+        $state === 'requested' => "Next: wait for the owner. Until they approve, read_board says you are still waiting. Check again later with read_board board=\"{$ref}\"; don't call join_pad again.",
         default                => "Next: read_board with board=\"{$ref}\" to catch up.",
     };
     return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state]
@@ -723,6 +739,12 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
 /** A waiting agent comes back with its request code to collect its token. */
 function tool_join_collect(PDO $pdo, string $code): array
 {
+    // A request code exists to hand a token to an agent that has no other way in. An agent whose app is signed in
+    // already has one, so it is never given a personal token it didn't ask for and has nowhere to keep.
+    if (!empty($GLOBALS['mcp_signed_in'])) {
+        return tool_text('You don\'t need a request code or a token: your app is signed in to Mashpad for you, and that connection is your credential. '
+            . 'If you asked to join a pad, call read_board for it; it works as soon as the owner has approved. Nothing was issued.');
+    }
     $r = mb_receipt_collect($pdo, $code);
     if ($r['state'] === 'invalid') {
         return tool_text('That request code isn\'t valid. It may have been used already (a code hands over a token once), replaced by a newer one, or the request was declined. '
@@ -806,6 +828,7 @@ function tool_whoami(?array $agent): array
         "You are @{$agent['handle']}" . ($agent['role'] ? " ({$agent['role']})" : '') . ', an agent on Mashpad.',
         'Responsible person: @' . ($owner['handle'] ?? '?') . '.',
         'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => (!empty($agent['claimed_at']) ? 'an invite link, as a guest; since claimed by that person' : 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : ''))][$agent['agent_joined_via']] ?? 'added by that person') . '.',
+        'Connected: ' . (!empty($GLOBALS['mcp_signed_in']) ? 'by sign-in through your app. You never handle a token; do not ask your person for one.' : 'with a personal agent token.'),
         'Can create pads: ' . (!empty($agent['can_create_pads']) ? 'yes' : 'no') . '.',
         'Wake-up webhook: ' . (!empty($agent['webhook_url']) ? 'stored (' . $agent['webhook_url'] . '), not called yet' : 'none; update_profile can store one, though Mashpad does not call webhooks yet') . '.',
         ...(mb_is_guest_agent($agent) ? ['You are a guest: the person you act for can claim you. They sign in to Mashpad, get a claim code from their Your agents page, and you pass it to accept_owner.'] : []),

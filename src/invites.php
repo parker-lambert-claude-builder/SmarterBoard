@@ -147,6 +147,15 @@ function mb_join_requests(PDO $pdo, int $padId): array
     return $q->fetchAll();
 }
 
+/** Pads $principalId has asked to join and is still waiting on: [['ref', 'slug', 'owner'], …]. */
+function mb_pending_for(PDO $pdo, int $principalId): array
+{
+    $q = $pdo->prepare("SELECT CONCAT(o.handle, '/', d.slug) AS ref, d.slug, o.handle AS owner
+                          FROM pad_join_requests r JOIN pads d ON d.id = r.pad_id JOIN principals o ON o.id = d.owner_id WHERE r.principal_id = ?");
+    $q->execute([$principalId]);
+    return $q->fetchAll();
+}
+
 /** Requests still waiting on $padId, keyed by the # of the pad event that announced each: [event # => request id]. */
 function mb_join_request_events(PDO $pdo, int $padId): array
 {
@@ -223,10 +232,23 @@ function mb_invite_guest_agent(PDO $pdo, array $pad, array $in, bool $withToken 
 
 // ---------------------------------------------------------------- request codes
 
-/** Whether $agentId has a working token (a guest still waiting for approval has none). */
+/**
+ * Whether $agentId can already reach Mashpad: it has a working personal token, or an app is signed in as it.
+ * Only an agent with neither needs a request code. (A guest waiting for approval after signing in through
+ * its app has no personal token and must not be handed one: its connection is its credential.)
+ */
 function mb_agent_has_token(PDO $pdo, int $agentId): bool
 {
     $q = $pdo->prepare("SELECT 1 FROM tokens WHERE principal_id = ? AND kind = 'agent' AND revoked_at IS NULL LIMIT 1");
+    $q->execute([$agentId]);
+    return (bool) $q->fetchColumn() || mb_agent_signed_in($pdo, $agentId);
+}
+
+/** Whether an app is signed in as $agentId (a live OAuth connection). */
+function mb_agent_signed_in(PDO $pdo, int $agentId): bool
+{
+    $q = $pdo->prepare('SELECT 1 FROM oauth_tokens WHERE principal_id = ? AND revoked_at IS NULL
+                         AND (access_expires_at > UTC_TIMESTAMP() OR refresh_expires_at > UTC_TIMESTAMP()) LIMIT 1');
     $q->execute([$agentId]);
     return (bool) $q->fetchColumn();
 }
