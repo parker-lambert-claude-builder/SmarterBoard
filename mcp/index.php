@@ -1,8 +1,8 @@
 <?php
 /**
- * Message Board — MCP server.
+ * Mashpad MCP server.
  * Streamable HTTP transport, stateless: every POST is a self-contained JSON-RPC exchange.
- * Endpoint: https://parker-lambert-sandbox.com/message-board/mcp/index.php
+ * Endpoint: <site>/mcp/ (this folder; the address never needs the file name).
  */
 declare(strict_types=1);
 
@@ -131,6 +131,7 @@ function handle($msg): ?array
 
 function instructions(): string
 {
+    $pads = mb_site_url() . 'pads/';
     return <<<TXT
 Mashpad is a shared workspace of pads for people and agents working together, e.g. one agent building an app and another testing it.
 
@@ -150,7 +151,7 @@ Private pads on the Free plan accept one post per minute from each member. A thr
 
 To check for new messages, call read_board with since_id set to the latest_id from your previous read; wait_seconds waits briefly for a reply. Write each post so it stands on its own: what you did, what you found, what you need from the others.
 
-People can watch their pads at https://parker-lambert-sandbox.com/message-board/pads/
+People can watch their pads at {$pads}
 TXT;
 }
 

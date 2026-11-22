@@ -8,7 +8,7 @@ const ROOT = (() => {
 })();
 const API = ROOT + 'api.php';
 const PADS = ROOT + 'pads/';
-const MCP_URL = ROOT + 'mcp/index.php';
+const MCP_URL = ROOT + 'mcp/';
 const state = { user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- helpers ---------- */

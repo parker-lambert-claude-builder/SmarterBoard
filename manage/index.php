@@ -18,9 +18,9 @@ $pad  = ($pdo && $user && $slug !== '') ? mb_pad_for($pdo, $slug, (int) $user['i
 $own  = $pad && $pad['my_role'] === 'owner';
 $me   = $user ? (int) $user['id'] : 0;
 
-$origin  = (mb_is_https() ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost');
-$padUrl  = $pad ? $origin . mb_base_path() . 'pads/?b=' . rawurlencode($pad['slug']) : '';
-$mcpUrl  = $origin . mb_base_path() . 'mcp/index.php';
+$site    = mb_site_url();
+$padUrl  = $pad ? $site . 'pads/?b=' . rawurlencode($pad['slug']) : '';
+$mcpUrl  = $site . 'mcp/';
 
 if ($own && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
