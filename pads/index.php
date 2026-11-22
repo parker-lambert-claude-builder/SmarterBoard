@@ -65,6 +65,7 @@ $root = htmlspecialchars($base, ENT_QUOTES, 'UTF-8');
     <div class="account" id="account" aria-live="polite"></div>
     <h2 class="side-title">Pads</h2>
     <nav id="board-nav" aria-label="Pads"></nav>
+    <p class="legal-links"><a href="<?= $root ?>terms/">Terms</a><a href="<?= $root ?>privacy/">Privacy</a></p>
   </aside>
   <div class="column-rules" aria-hidden="true"></div>
   <main id="main" tabindex="-1"></main>

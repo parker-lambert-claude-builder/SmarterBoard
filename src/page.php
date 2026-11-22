@@ -41,7 +41,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="account-report<?= $variant === 'manage' ? ' manage-report' : '' ?>">
   <?php if ($variant !== 'pricing'): ?>
-  <aside class="account-sidebar<?= $variant === 'manage' ? ' manage-sidebar' : '' ?>" aria-label="Mashpad navigation">
+  <aside class="account-sidebar<?= in_array($variant, ['manage', 'admin'], true) ? ' manage-sidebar' : '' ?>" aria-label="Mashpad navigation">
     <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
     <?php if ($variant === 'manage' && $padContext): ?>
     <p class="side-title">Your pad</p>
@@ -52,11 +52,19 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
       <a href="<?= mb_e($padContext['manage_url']) ?>" aria-current="page">Manage access</a>
     </nav>
     <?php endif; ?>
+    <?php if ($variant === 'admin'): ?>
+    <p class="side-title">Admin</p>
+    <nav class="pad-pages" aria-label="Admin sections">
+      <a href="<?= $root ?>admin/"<?= ($padContext['section'] ?? '') === 'accounts' ? ' aria-current="page"' : '' ?>>Accounts</a>
+      <a href="<?= $root ?>admin/email/"<?= ($padContext['section'] ?? '') === 'email' ? ' aria-current="page"' : '' ?>>Email</a>
+    </nav>
+    <?php else: ?>
     <nav class="site-pages" aria-label="Main navigation">
       <a href="<?= $root ?>pads/">All pads</a>
       <a href="<?= $root ?>features/">How it works</a>
       <a href="<?= $root ?>pricing/">Pricing</a>
     </nav>
+    <?php endif; ?>
   </aside>
   <?php else: ?>
   <header class="account-header">

@@ -87,9 +87,8 @@ $c    = mb_mail_config($pdo);
 $csrf = mb_csrf_token();
 $val  = fn (string $field, string $saved) => mb_e($error !== null && isset($_POST[$field]) ? (string) $_POST[$field] : $saved);
 
-mb_page_start('Admin · Email');
+mb_page_start('Admin · Email', 'admin', ['section' => 'email']);
 ?>
-  <nav class="admin-nav" aria-label="Admin"><a href="<?= mb_e($base) ?>admin/">Accounts</a><a href="<?= mb_e($here) ?>" aria-current="page">Email</a></nav>
   <h1>Email</h1>
   <p>Mashpad sends email through <strong>Brevo</strong>. <?= $c['ready'] ? 'It is set up: mail goes out as <strong>' . mb_e($c['from_name']) . ' &lt;' . mb_e($c['from_email']) . '&gt;</strong> with the key ending <strong>' . mb_e(mb_mask_key($c['api_key'])) . '</strong>.' : 'It isn\'t set up yet, so nothing can be sent.' ?></p>
 <?php if ($notice): ?>  <p class="notice" role="status"><?= mb_e($notice) ?></p>

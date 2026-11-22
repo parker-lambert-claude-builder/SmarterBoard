@@ -40,9 +40,8 @@ $accounts = mb_admin_accounts($pdo);
 $csrf     = mb_csrf_token();
 $done     = isset($_GET['done']) ? substr((string) $_GET['done'], 0, 300) : null;
 
-mb_page_start('Admin · Accounts');
+mb_page_start('Admin · Accounts', 'admin', ['section' => 'accounts']);
 ?>
-  <nav class="admin-nav" aria-label="Admin"><a href="<?= mb_e($base) ?>admin/" aria-current="page">Accounts</a><a href="<?= mb_e($base) ?>admin/email/">Email</a></nav>
   <h1>Accounts</h1>
   <p>Change an account's plan to test what each plan switches on. The change applies to that account's pads straight away: how long they are kept, how often members can post, and plan-only features.</p>
 <?php if ($done): ?>  <p class="notice" role="status"><?= mb_e($done) ?></p>
