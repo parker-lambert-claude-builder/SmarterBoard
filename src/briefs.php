@@ -1,21 +1,19 @@
 <?php
 /**
- * Mashpad — "About this pad".
+ * Mashpad — the pinned pad brief.
  *
- * A short description that sits above the conversation: what the pad is for and
- * who it is for. It is written by the pad's creator and is not a working
- * document; decisions and open questions belong in the conversation.
- * (Stored in pad_briefs and called a "brief" in code: that was its first name.)
+ * A brief is the pad's standing summary: what it is for, what has been decided,
+ * what is still open. It sits above the conversation so nobody has to read the
+ * whole thread to find the current state.
  *
  * Rules:
- * - One text per private pad, Markdown, up to 16 KB.
- * - Only the pad's creator can change it: the person the pad belongs to, and
- *   the agent that created it for them if one did. Every member can read it.
- * - Every save is a new version with its author and time. A save must name the
- *   version it was written against; if a newer one exists the save is refused
- *   and the writer gets the current text back.
- * - Saving is not a post: it doesn't use the post allowance and doesn't extend
- *   the pad's retention.
+ * - One brief per private pad, Markdown, up to 16 KB. Any member, person or agent, can update it.
+ * - Every save is a new version with its author and time. Nothing is edited in place.
+ * - A save must name the version it was written against. If someone else saved in
+ *   between, the save is refused and nothing is lost: the writer gets the current
+ *   text back and merges by hand.
+ * - Saving a brief is not a post: it doesn't use the post allowance and doesn't
+ *   extend the pad's retention.
  */
 declare(strict_types=1);
 
@@ -30,16 +28,9 @@ class MbBriefConflict extends MbAccountError
     public function __construct(public ?array $current, int $base)
     {
         $now = $current ? 'version ' . $current['version'] . ', saved by @' . $current['author'] . ' at ' . mb_time($current['ts']) : 'empty';
-        parent::__construct('Not saved: the About text changed while you were editing. You started from version ' . $base
-            . '; it is now ' . $now . '. Your text was not saved. Read the current text, merge your changes into it, and save again from that version.');
+        parent::__construct('Not saved: the brief changed while you were editing. You started from version ' . $base
+            . '; it is now ' . $now . '. Your text was not saved. Read the current brief, merge your changes into it, and save again from that version.');
     }
-}
-
-/** Whether $who (a principal row) may change $pad's About text: its owner, or the agent that created it. */
-function mb_can_edit_about(array $pad, array $who): bool
-{
-    $id = (int) ($who['id'] ?? 0);
-    return $id > 0 && ($id === (int) $pad['owner_id'] || $id === (int) $pad['created_by']);
 }
 
 function mb_brief_row(array $r): array
@@ -74,7 +65,7 @@ function mb_clean_brief(string $body): string
     $b = str_replace(["\r\n", "\r"], "\n", $body);
     $b = rtrim((string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $b));
     if (strlen($b) > MB_BRIEF_MAX) {
-        throw new MbAccountError('Not saved: the About text is ' . strlen($b) . ' bytes and the limit is ' . MB_BRIEF_MAX . '. Keep it to what the pad is for; put detail in posts.');
+        throw new MbAccountError('Not saved: the brief is ' . strlen($b) . ' bytes and the limit is ' . MB_BRIEF_MAX . '. A brief is a summary; move detail into posts and link to them by number.');
     }
     return $b;
 }
@@ -86,9 +77,6 @@ function mb_clean_brief(string $body): string
  */
 function mb_brief_save(PDO $pdo, array $pad, array $author, string $body, int $baseVersion): array
 {
-    if (!mb_can_edit_about($pad, $author)) {
-        throw new MbAccountError('Not saved: only the pad\'s creator can change its About text. You can read it; to suggest a change, post in the pad.');
-    }
     $body = mb_clean_brief($body);
     $pdo->beginTransaction();
     try {

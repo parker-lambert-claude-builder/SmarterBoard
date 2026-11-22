@@ -160,9 +160,23 @@ function headMeta(d) {
 function messageHTML(m, fresh) {
   return `<div class="msg${fresh ? ' fresh' : ''}" id="m${m.id}">
       <div class="msg-meta"><a class="msg-id" href="#m${m.id}" aria-label="Link to message ${m.id}">#${m.id}</a>
-      <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></div>
+      <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time>${m.reply_to ? ` <a class="in-reply" href="#m${m.reply_to}">in reply to #${m.reply_to}</a>` : ''}</div>
       <div class="body">${render(m.body)}</div>
     </div>`;
+}
+
+/* On a pad with threaded replies each message stands on its own, carries a Reply
+   link, and holds the replies to it underneath, indented. */
+function threadHTML(m, fresh) {
+  return `<article class="tmsg${fresh ? ' fresh' : ''}" id="m${m.id}" style="--h:${hue(m.author)}" aria-label="Message ${m.id} from ${esc(displayName(m.author))}">
+      <div class="tmsg-head"><span class="author">${esc(displayName(m.author))}</span>
+        <a class="msg-id" href="#m${m.id}" aria-label="Link to message ${m.id}">#${m.id}</a>
+        <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></div>
+      <div class="body">${render(m.body)}</div>
+      <div class="tmsg-actions"><button type="button" class="reply-link" data-reply-to="${m.id}" data-reply-name="${esc(displayName(m.author))}" aria-expanded="false">Reply</button></div>
+      <div class="reply-slot reply-inline" id="reply-m${m.id}" hidden></div>
+      <div class="replies" id="replies-m${m.id}"></div>
+    </article>`;
 }
 
 /* Rendering is idempotent per message id: overlapping polls, a poll racing the
@@ -189,6 +203,11 @@ function appendMessages(msgs, fresh) {
   for (const m of msgs) {
     if (m.kind === 'event') {          // something that happened on the pad (a join, a request): a line, not a post
       t.insertAdjacentHTML('beforeend', `<p class="pad-event${fresh ? ' fresh' : ''}" id="m${m.id}" data-author=""><span class="event-text">${esc(m.body)}</span> <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></p>`);
+      continue;
+    }
+    if (state.threaded) {              // under the message it answers, or at the end if that one isn't on the page
+      const under = m.reply_to ? document.getElementById(`replies-m${m.reply_to}`) : null;
+      (under || t).insertAdjacentHTML('beforeend', threadHTML(m, fresh));
       continue;
     }
     let g = t.lastElementChild;
@@ -240,6 +259,7 @@ async function showBoard(slug, navigation) {
     loadBoards();
   }
   document.title = `${d.name || d.slug} · Mashpad`;
+  state.threaded = !!d.threaded;
   main.innerHTML = `
     <div class="inner board-head">
       <a class="back" href="${PADS}" data-nav="">All pads</a>
@@ -254,7 +274,7 @@ async function showBoard(slug, navigation) {
     </div>
     <div class="inner reply-slot" id="reply-bottom">${replyBoxHTML('bottom')}
     </div>`;
-  state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
+  state.brief = d.brief || null; state.briefVersion = d.brief_version || 0;
   renderBrief();
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
@@ -264,13 +284,13 @@ async function showBoard(slug, navigation) {
   else window.scrollTo(0, document.body.scrollHeight);
 }
 
-/* ---------- About this pad ----------
-   (called "brief" in the code and API: its first name)
+/* ---------- pinned brief ----------
    The pad's standing summary, above the conversation. Any member can edit it;
    every save is a new version, and a save made against an out-of-date version
    is refused by the server rather than overwriting someone else's. */
 state.brief = null; state.briefVersion = 0; state.briefMode = 'view';
-const briefMeta = b => `Written by ${esc(displayName(b.author))} <time datetime="${new Date(b.ts * 1000).toISOString()}" title="${esc(fullTime(b.ts))}">${ago(b.ts)}</time>`;
+const BRIEF_TEMPLATE = '## Objective\n\n\n## Decisions\n\n\n## Open questions\n\n';
+const briefMeta = b => `Version ${b.version} · saved by ${esc(displayName(b.author))} <time datetime="${new Date(b.ts * 1000).toISOString()}" title="${esc(fullTime(b.ts))}">${ago(b.ts)}</time>`;
 
 function renderBrief(mode = 'view', extra = {}) {
   const box = document.getElementById('brief');
@@ -278,12 +298,12 @@ function renderBrief(mode = 'view', extra = {}) {
   const b = state.brief && state.brief.body ? state.brief : null;
   state.briefMode = mode;
   if (mode === 'edit') {
-    box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit About this pad">
-        <h2 id="brief-h">About this pad</h2>
-        <p class="brief-help">Say what this pad is for and who it’s for. It shows above the conversation for everyone on the pad. Markdown works.</p>
-        <label for="brief-body">About this pad</label>
-        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : ''))}</textarea>
-        <div class="brief-actions"><button type="submit">Save</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
+    box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit the brief">
+        <h2 id="brief-h">Edit the brief</h2>
+        <p class="brief-help">Keep it short: what this pad is for, what has been decided, what is still open. Markdown works. Link to messages by number, like #12.</p>
+        <label for="brief-body">Brief</label>
+        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : BRIEF_TEMPLATE))}</textarea>
+        <div class="brief-actions"><button type="submit">Save brief</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
       </form>`;
     const form = document.getElementById('brief-form');
     form.addEventListener('submit', saveBrief);
@@ -292,20 +312,18 @@ function renderBrief(mode = 'view', extra = {}) {
   }
   if (mode === 'history') {
     const rows = (extra.history || []).map(h => `<li><button type="button" class="quiet" data-brief="version" data-version="${h.version}">Version ${h.version}</button> <span class="brief-meta">saved by ${esc(displayName(h.author))}, ${esc(fullTime(h.ts))}${h.bytes ? '' : ', cleared'}</span></li>`).join('');
-    box.innerHTML = `<section class="brief-box" aria-labelledby="brief-h"><h2 id="brief-h">About this pad: earlier versions</h2>
+    box.innerHTML = `<section class="brief-box" aria-labelledby="brief-h"><h2 id="brief-h">Brief history</h2>
       ${rows ? `<ol class="brief-history" reversed>${rows}</ol>` : '<p class="brief-meta">No versions saved yet.</p>'}
-      ${extra.shown ? `<p class="brief-meta">Version ${extra.shown.version}${extra.shown.version === state.briefVersion ? ' (current)' : ''} · ${briefMeta(extra.shown)}</p><div class="body">${extra.shown.body ? render(extra.shown.body) : '<p class="brief-meta">This version cleared the brief.</p>'}</div>` : ''}
-      <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back</button></div></section>`;
+      ${extra.shown ? `<p class="brief-meta">${briefMeta(extra.shown)}${extra.shown.version === state.briefVersion ? ' (current)' : ''}</p><div class="body">${extra.shown.body ? render(extra.shown.body) : '<p class="brief-meta">This version cleared the brief.</p>'}</div>` : ''}
+      <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back to the current brief</button></div></section>`;
     return;
   }
-  const mine = !!state.canEditAbout;      // only the pad's creator sees Edit; the server enforces it
-  box.hidden = !b && !mine;                // nothing written and you can't write it: show nothing
   box.innerHTML = b
-    ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">About this pad</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
+    ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">Brief</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
         <div class="body">${render(b.body)}</div>
-        ${mine ? '<div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit</button><button type="button" class="quiet" data-brief="history">Earlier versions</button></div>' : ''}</details>`
-    : mine ? `<div class="brief-box brief-empty"><p><strong id="brief-h">About this pad.</strong> Say what this pad is for and who it’s for. It shows here, above the conversation, for everyone on the pad.</p>
-        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write it</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">Earlier versions</button>' : ''}</div></div>` : '';
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit brief</button><button type="button" class="quiet" data-brief="history">History</button></div></details>`
+    : `<div class="brief-box brief-empty"><p><strong id="brief-h">No brief yet.</strong> A brief keeps this pad’s objective, decisions and open questions in one place, above the conversation.</p>
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write the brief</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">History</button>' : ''}</div></div>`;
   if (extra.note) box.insertAdjacentHTML('afterbegin', `<p class="brief-note" role="status">${esc(extra.note)}</p>`);
 }
 
@@ -323,7 +341,7 @@ async function saveBrief(e) {
     if (navigation !== state.navigation) return;
     state.brief = d.brief; state.briefVersion = d.brief ? d.brief.version : state.briefVersion;
     if (!d.brief) await loadBrief();
-    renderBrief('view', { note: 'Saved.' });
+    renderBrief('view', { note: 'Brief saved.' });
   } catch (err) {
     if (navigation !== state.navigation) return;
     btn.disabled = false;
@@ -331,7 +349,7 @@ async function saveBrief(e) {
     if (err.status === 409 && err.brief) {
       // Someone saved first. Show theirs beside the unsaved text; the next save is made against it.
       state.brief = err.brief; state.briefVersion = err.brief.version;
-      form.insertAdjacentHTML('beforeend', `<details class="brief-current" open><summary>Current text (${briefMeta(err.brief)})</summary><div class="body">${render(err.brief.body || '')}</div></details>`);
+      form.insertAdjacentHTML('beforeend', `<details class="brief-current" open><summary>Current brief (${briefMeta(err.brief)})</summary><div class="body">${render(err.brief.body || '')}</div></details>`);
     }
   }
 }
@@ -377,10 +395,10 @@ async function pollBoard() {
       if (state.briefMode === 'edit') {
         // Don't touch what is being typed; the save will be refused and show the newer version.
         const form = document.getElementById('brief-form');
-        if (form && !form.querySelector('.brief-note')) form.insertAdjacentHTML('afterbegin', '<p class="brief-note" role="status">A newer version has just been saved. Saving will show you it so you can merge.</p>');
+        if (form && !form.querySelector('.brief-note')) form.insertAdjacentHTML('afterbegin', '<p class="brief-note" role="status">Someone else has just saved a newer brief. Saving will show you theirs so you can merge.</p>');
       } else {
         await loadBrief();
-        if (navigation === state.navigation && state.briefMode !== 'history') renderBrief('view', { note: 'This was just updated.' });
+        if (navigation === state.navigation && state.briefMode !== 'history') renderBrief('view', { note: 'The brief was updated.' });
       }
     }
   } catch (e) {
@@ -397,30 +415,56 @@ async function pollBoard() {
    conversation") and opens when you click or tab into it, showing Cancel and
    Post. Each box is its own form (ids carry its place), so the same code can
    later put a box under a single message for threaded replies. */
-function replyBoxHTML(where) {
+function replyBoxHTML(where, prompt = 'Join the conversation') {
   const id = `reply-${where}`;
   return `<form class="reply-box" id="${id}-form" aria-label="Reply">
       ${state.user ? '' : `<div class="reply-who"><label for="${id}-author">Reply as</label><input id="${id}-author" autocomplete="off" maxlength="40"></div>`}
-      <textarea id="${id}-body" rows="1" aria-label="Your reply" placeholder="Join the conversation"></textarea>
+      <textarea id="${id}-body" rows="1" aria-label="Your reply" placeholder="${esc(prompt)}"></textarea>
       <div class="reply-actions"><span class="composer-hint">⌘ / Ctrl + Enter to post</span><button type="button" class="quiet" data-reply-cancel="${where}">Cancel</button><button type="submit">Post</button></div>
     </form>`;
 }
+
+const isInlineReply = where => /^m\d+$/.test(where);
 
 function setReplyOpen(where, open) {
   const form = document.getElementById(`reply-${where}-form`);
   const body = document.getElementById(`reply-${where}-body`);
   if (!form || !body) return;
+  if (!open && isInlineReply(where)) {           // a box under one message is removed, and focus goes back to its Reply link
+    const slot = document.getElementById(`reply-${where}`);
+    if (slot) { slot.innerHTML = ''; slot.hidden = true; }
+    const link = document.querySelector?.(`[data-reply-to="${where.slice(1)}"]`);
+    link?.setAttribute('aria-expanded', 'false'); link?.focus?.();
+    return;
+  }
   form.classList?.toggle('is-open', open);
   if (!open) {
     body.value = ''; body.style.height = '';
     form.querySelector('.form-error')?.remove();
-    body.blur?.();
+    // Keep the keyboard where it was: back in the box, resting. Typing opens it again.
+    state.replyResting = where;
+    body.focus?.();
+    state.replyResting = null;
   }
 }
 
-const replyInProgress = () => ['top', 'bottom'].some(w => document.getElementById(`reply-${w}-body`)?.value);
+/* The Reply link under a message (threaded pads) opens a box right there; pressing it again closes the box. */
+function toggleInlineReply(id, name) {
+  const where = `m${id}`;
+  const slot = document.getElementById(`reply-${where}`);
+  if (!slot || !state.slug) return;
+  if (slot.innerHTML) return setReplyOpen(where, false);
+  slot.innerHTML = replyBoxHTML(where, `Reply to ${name}`);
+  slot.hidden = false;
+  document.querySelector?.(`[data-reply-to="${id}"]`)?.setAttribute('aria-expanded', 'true');
+  bindReply(where, state.slug, Number(id));
+  setReplyOpen(where, true);
+  document.getElementById(`reply-${where}-body`)?.focus?.();
+}
 
-function bindReply(where, slug) {
+const replyInProgress = () => [...(document.querySelectorAll?.('.reply-box textarea') || [])].some(t => t.value);
+
+function bindReply(where, slug, replyTo = null) {
   const navigation = state.navigation;
   const form = document.getElementById(`reply-${where}-form`);
   const body = document.getElementById(`reply-${where}-body`);
@@ -431,8 +475,9 @@ function bindReply(where, slug) {
   }
   const submit = () => form.querySelector('button[type="submit"]');
 
-  body.addEventListener('focus', () => setReplyOpen(where, true));
-  body.addEventListener('input', () => { body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
+  body.addEventListener('focus', () => { if (state.replyResting !== where) setReplyOpen(where, true); });
+  body.addEventListener('click', () => setReplyOpen(where, true));
+  body.addEventListener('input', () => { setReplyOpen(where, true); body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
   body.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!submit().disabled) form.requestSubmit(); }
     if (e.key === 'Escape' && !body.value) setReplyOpen(where, false);
@@ -445,16 +490,19 @@ function bindReply(where, slug) {
     form.querySelector('.form-error')?.remove();
     btn.disabled = true;
     try {
-      await getJSON(`${API}?action=post`, {
+      const sent = await getJSON(`${API}?action=post`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: slug, author: author ? author.value : '', message: body.value }),
+        body: JSON.stringify({ board: slug, author: author ? author.value : '', message: body.value, ...(replyTo ? { reply_to: replyTo } : {}) }),
       });
       if (author) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
       if (navigation !== state.navigation) return;
       setReplyOpen(where, false);
+      if (!isInlineReply(where)) body.blur?.();
       await pollBoard();
       if (navigation !== state.navigation) return;
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      const posted = replyTo && sent.message ? document.getElementById(`m${sent.message.id}`) : null;
+      if (posted?.scrollIntoView) posted.scrollIntoView({ block: 'center', behavior: 'smooth' });      // a threaded reply: show it where it landed
+      else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     } catch (err) {
       form.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
       if (navigation === state.navigation) body.focus();
@@ -584,6 +632,8 @@ function route() {
 document.addEventListener('click', e => {
   const cancel = e.target.closest('[data-reply-cancel]');
   if (cancel) return setReplyOpen(cancel.dataset.replyCancel, false);
+  const replyTo = e.target.closest('[data-reply-to]');
+  if (replyTo) return toggleInlineReply(replyTo.dataset.replyTo, replyTo.dataset.replyName);
   const copy = e.target.closest('[data-copy]');
   if (copy) {
     const text = document.getElementById(copy.dataset.copy).textContent;
