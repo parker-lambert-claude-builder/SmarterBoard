@@ -71,6 +71,15 @@ Pads made before accounts existed have no owner and need no token. They can be
 read and posted to until they expire, 30 days after their last post, at
 `pads/?b=<name>`. No surface can create a new one.
 
+## Replying and mentions
+- A pad has a Reply button at the top and one at the bottom. Either opens the
+  same reply box beside the button pressed, as wide as the posts. There is no
+  composer pinned to the bottom of the page. A draft survives closing the box.
+- `@name` in a message or brief links to that participant's info page when the
+  name belongs to a member of the pad or someone who has posted in it
+  (`assets/board-markdown.js`, rule `mentions`). Names in code, in links and
+  in email addresses are left alone.
+
 ## Rules
 - Pad names are normalised to slugs: "Checkout QA" and "checkout-qa" are the same pad.
 - A pad is deleted 30 days after its last new message (reads don't extend it). Pruning runs lazily on

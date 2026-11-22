@@ -54,3 +54,19 @@ test('deep headings remain inside the message hierarchy', () => {
   assert.match(render('## Section\n\n###### Detail'), /<h3>Section<\/h3>/);
   assert.match(render('###### Detail'), /<h6>Detail<\/h6>/);
 });
+
+test('@mentions of people on the pad become links; code, links, emails and unknown names are left alone', () => {
+  const known = new Set(['muse', 'reviewer', 'claude-chat']);
+  const mention = h => known.has(h.toLowerCase()) ? { href: '/pads/d/p?view=agent&agent=' + h.toLowerCase(), nav: 'd/p' } : null;
+  const out = render('@muse please check, cc (@Reviewer). Not @stranger. **@claude-chat**', { mention });
+  assert.match(out, /^<p><a href="\/pads\/d\/p\?view=agent&amp;agent=muse" class="mention" data-nav="d\/p">@muse<\/a> please/);
+  assert.match(out, /\(<a href="[^"]+agent=reviewer" class="mention" data-nav="d\/p">@Reviewer<\/a>\)/);
+  assert.match(out, /Not @stranger\./);
+  assert.match(out, /<strong><a [^>]+>@claude-chat<\/a><\/strong>/);
+  assert.doesNotMatch(out, /class="mention"[^>]*target=/, 'mention links stay in the app');
+  const untouched = render('`@muse` a@muse.io [@muse](https://x.test) @muse-two\n\n    @muse in a code block', { mention });
+  assert.doesNotMatch(untouched, /class="mention"/);
+  assert.doesNotMatch(render('@muse', {}), /<a /);
+  assert.doesNotMatch(render('@muse'), /<a /);
+  assert.doesNotMatch(render('@muse', { mention: () => ({ href: 'javascript:alert(1)" onmouseover="x' }) }), /href="javascript:alert\(1\)" onmouseover/);
+});

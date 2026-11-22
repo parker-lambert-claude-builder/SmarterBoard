@@ -60,8 +60,17 @@ function remaining(ts) {
 }
 const fullTime = ts => new Date(ts * 1000).toLocaleString();
 
-/* Shared renderer keeps message markup consistent and HTML disabled. */
-const render = text => window.renderMessage(text);
+/* Shared renderer keeps message markup consistent and HTML disabled.
+   An @name that belongs to someone on the open pad becomes a link to their info page. */
+state.people = new Set();
+const cleanHandle = a => String(a).replace(/^@+/, '').toLowerCase();
+function rememberPeople(names) { for (const n of names || []) state.people.add(cleanHandle(n)); }
+function mentionLink(handle) {
+  const h = cleanHandle(handle);
+  if (!state.slug || !state.people.has(h)) return null;
+  return { href: padURL(state.slug, { view: 'agent', agent: h }), nav: state.slug };
+}
+const render = text => window.renderMessage(text, { mention: mentionLink });
 
 async function getJSON(url, opts) {
   const r = await fetch(url, opts);
@@ -80,7 +89,7 @@ function boardListHTML() {
       <a class="board-link" href="${esc(padURL(key))}" data-nav="${esc(key)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
         <div class="name">${esc(b.name || b.slug)}</div>
-        <div class="meta">${b.private ? `<span class="pad-private">Private</span> <span class="pad-address">${esc(key)}</span> ` : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
+        <div class="meta">${b.private ? `<span class="pad-address">${esc(key)}</span> · ` : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
       </a>
       ${b.authors.length ? `<div class="who-list">${b.authors.map(a => `<a class="agent-link" href="${esc(padURL(key, { view: 'agent', agent: a }))}" data-nav="${esc(key)}">${esc(displayName(a))}</a>`).join('')}</div>` : ''}
       <a class="pad-settings-link" href="${esc(padURL(key, { view: 'settings' }))}" data-nav="${esc(key)}"
@@ -138,6 +147,7 @@ function showHome() {
 /* ---------- board ---------- */
 function headMeta(d) {
   const authors = [...new Set(d.messages.map(m => m.author))];
+  rememberPeople(authors); rememberPeople(d.members);        // who an @mention can point to
   const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || authors;
   const who = known.length ? ` · ${known.map(authorSpan).join(', ')}` : '';
   return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">Deleted in ${remaining(d.expires)} unless someone posts.</span>`;
@@ -170,6 +180,7 @@ function appendMessages(msgs, fresh) {
   if (!t) return 0;
   msgs = unseenMessages(msgs);
   if (!msgs.length) return 0;
+  rememberPeople(msgs.map(m => m.author));
   t.querySelector('.empty')?.remove();
   for (const m of msgs) {
     let g = t.lastElementChild;
@@ -190,6 +201,8 @@ function appendMessages(msgs, fresh) {
 
 async function showBoard(slug, navigation) {
   state.slug = slug; state.view = 'pad'; state.latest = 0; state.rendered = new Set(); state.loading = true;
+  state.people = new Set(); state.replyOpen = null;
+  rememberPeople((state.boards.find(b => keyOf(b) === slug) || {}).authors);
   document.getElementById('board-nav').innerHTML = boardListHTML();
   const main = document.getElementById('main');
   main.innerHTML = '<div class="inner home"><p role="status">Loading pad…</p></div>';
@@ -221,22 +234,13 @@ async function showBoard(slug, navigation) {
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
+      <nav class="reading-nav" aria-label="Conversation"><button type="button" class="reply-button" data-reply="top">Reply</button><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav><div class="reply-slot" id="reply-top" hidden></div>
     </div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
     </div>
-    <div class="composer">
-      <div class="inner">
-        <form id="composer" aria-label="Post a message">
-          <label class="author-label" for="c-author">Post as</label>
-          <input id="c-author" autocomplete="off" maxlength="40"${state.user ? ` value="@${esc(state.user.handle)}" readonly aria-readonly="true"` : ''}>
-          <label class="message-label" for="c-body">Message</label>
-          <textarea id="c-body" rows="1" placeholder="Add to the conversation"></textarea>
-          <button type="submit">Post</button>
-        </form>
-        <p class="composer-hint">⌘ / Ctrl + Enter to post</p>
-      </div>
+    <div class="inner reply-bar"><button type="button" class="reply-button" data-reply="bottom">Reply</button></div>
+    <div class="inner reply-slot" id="reply-bottom" hidden>
     </div>`;
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
@@ -271,9 +275,47 @@ async function pollBoard() {
   document.querySelectorAll('time[data-ts]').forEach(t => { t.textContent = ago(Number(t.dataset.ts)); });
 }
 
+/* ---------- reply box ----------
+   One box, opened by the Reply button at the top or the one at the bottom, and
+   shown beside the button that opened it. It is as wide as the posts. What was
+   typed is kept if the box is closed or the other button is used. */
+function replyFormHTML() {
+  return `<form id="composer" class="reply-box" aria-label="Reply">
+      <label class="author-label" for="c-author">${state.user ? 'Replying as' : 'Reply as'}</label>
+      <input id="c-author" autocomplete="off" maxlength="40"${state.user ? ` value="@${esc(state.user.handle)}" readonly aria-readonly="true"` : ''}>
+      <label class="message-label" for="c-body">Message</label>
+      <textarea id="c-body" rows="6" placeholder="Add to the conversation"></textarea>
+      <div class="reply-actions"><button type="submit">Post</button><button type="button" class="quiet" data-reply="close">Cancel</button><span class="composer-hint">⌘ / Ctrl + Enter to post</span></div>
+    </form>`;
+}
+
+function closeReply() {
+  const body = document.getElementById('c-body');
+  if (state.replyOpen && body) state.draft = body.value;
+  for (const id of ['reply-top', 'reply-bottom']) { const slot = document.getElementById(id); if (slot) { slot.innerHTML = ''; slot.hidden = true; } }
+  state.replyOpen = null;
+}
+
+function openReply(where) {
+  where = where === 'bottom' ? 'bottom' : 'top';
+  const again = state.replyOpen === where;
+  closeReply();
+  if (again) return;                               // pressing the same button again closes the box
+  const slot = document.getElementById('reply-' + where);
+  if (!slot || !state.slug) return;
+  slot.innerHTML = replyFormHTML();
+  slot.hidden = false;
+  state.replyOpen = where;
+  bindComposer(state.slug);
+  const body = document.getElementById('c-body');
+  if (body) { body.value = state.draft || ''; body.focus(); }
+  slot.scrollIntoView?.({ block: 'nearest' });
+}
+
 function bindComposer(slug) {
   const navigation = state.navigation;
   const form = document.getElementById('composer');
+  if (!form) return;
   const author = document.getElementById('c-author');
   const body = document.getElementById('c-body');
   if (!state.user) {
@@ -295,8 +337,9 @@ function bindComposer(slug) {
         body: JSON.stringify({ board: slug, author: state.user ? '' : author.value, message: body.value }),
       });
       if (!state.user) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
-      body.value = ''; body.style.height = '';
+      body.value = ''; body.style.height = ''; state.draft = '';
       if (navigation !== state.navigation) return;
+      closeReply();
       await pollBoard();
       if (navigation !== state.navigation) return;
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -304,7 +347,7 @@ function bindComposer(slug) {
       form.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
     } finally {
       btn.disabled = false;
-      if (navigation === state.navigation) body.focus();
+      if (navigation === state.navigation && state.replyOpen) body.focus();
     }
   });
 }
@@ -374,7 +417,7 @@ async function showAgent(slug, agent, navigation) {
   if (navigation !== state.navigation) return;
   const here = padURL(slug);
   // Names are currently message signatures, not verified agent identities.
-  const known = d.messages.some(m => m.author === agent);
+  const known = d.messages.some(m => cleanHandle(m.author) === cleanHandle(agent || '')) || (d.members || []).some(m => cleanHandle(m) === cleanHandle(agent || ''));
   if (!agent || !known) {
     main.innerHTML = `<div class="inner home"><a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a><h1>Agent info</h1><p role="alert">This name was not found in this pad.</p></div>`;
     return;
@@ -421,6 +464,8 @@ function route() {
 }
 
 document.addEventListener('click', e => {
+  const reply = e.target.closest('[data-reply]');
+  if (reply) return reply.dataset.reply === 'close' ? closeReply() : openReply(reply.dataset.reply);
   const copy = e.target.closest('[data-copy]');
   if (copy) {
     const text = document.getElementById(copy.dataset.copy).textContent;
