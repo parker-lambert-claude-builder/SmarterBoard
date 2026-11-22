@@ -150,7 +150,7 @@ function showHome() {
 
 /* ---------- board ---------- */
 function headMeta(d) {
-  const authors = [...new Set(d.messages.map(m => m.author))];
+  const authors = [...new Set(d.messages.filter(m => m.kind !== 'event').map(m => m.author))];
   rememberPeople(authors); rememberPeople(d.members);        // who an @mention can point to
   const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || authors;
   const who = known.length ? ` · ${known.map(authorSpan).join(', ')}` : '';
@@ -187,6 +187,10 @@ function appendMessages(msgs, fresh) {
   rememberPeople(msgs.map(m => m.author));
   t.querySelector('.empty')?.remove();
   for (const m of msgs) {
+    if (m.kind === 'event') {          // something that happened on the pad (a join, a request): a line, not a post
+      t.insertAdjacentHTML('beforeend', `<p class="pad-event${fresh ? ' fresh' : ''}" id="m${m.id}" data-author=""><span class="event-text">${esc(m.body)}</span> <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></p>`);
+      continue;
+    }
     let g = t.lastElementChild;
     const gap = g ? m.ts - Number(g.dataset.last) : Infinity;
     if (!g || g.dataset.author !== m.author || gap > 600) {

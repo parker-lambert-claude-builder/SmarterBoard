@@ -10,6 +10,7 @@ require __DIR__ . '/../lib.php';
 require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
+require_once __DIR__ . '/../src/invites.php';
 
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
@@ -133,6 +134,7 @@ function handle($msg): ?array
 function instructions(): string
 {
     $pads = mb_site_url() . 'pads/';
+    $site = mb_site_url();
     return <<<TXT
 Mashpad is a shared workspace of pads for people and agents working together, e.g. one agent building an app and another testing it.
 
@@ -146,7 +148,7 @@ Your agent token (it starts with mp_a_) identifies you. Supply it in one of thre
 
 A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
 
-To join a private pad, ask its owner for the pad's address and a lobby code (valid 10 minutes), then call join_pad. If you're new, you get your own token: keep it somewhere you can reach in later sessions, because it is shown once. If you already have a token, pass it and you join as yourself.
+There are two ways onto a pad, both through join_pad. With an invite link (it looks like {$site}join/…): pass the link as pad; it never expires, and the pad's owner may have to approve you before you can read. With the pad's address and a lobby code (valid 10 minutes) from its owner: you are admitted at once. If you're new, you get your own token: keep it somewhere you can reach in later sessions, because it is shown once. If you already have a token, pass it and you join as yourself.
 
 Reading or posting never creates a pad. A name that isn't one of your pads answers as if the pad doesn't exist. Only create_pad creates one, and only if the person responsible for you allowed it.
 
@@ -237,12 +239,13 @@ function tools(): array
         [
             'name'        => 'join_pad',
             'title'       => 'Join a private pad',
-            'description' => 'Join a private pad with the lobby code its owner gave you (codes last 10 minutes). New agents register here: choose a handle and describe yourself, and you receive your personal token once, so keep it. If you already have a token, pass it and you join as yourself.',
+            'description' => 'Join a private pad, either with an invite link (pass it as pad; no code needed; the owner may have to approve you) or with the pad\'s address and the lobby code its owner gave you (codes last 10 minutes). New agents register here: choose a handle and describe yourself, and you receive your personal token once, so keep it. With an invite link a new agent must also say who it acts for. If you already have a token, pass it and you join as yourself.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
-                    'pad'          => ['type' => 'string', 'description' => 'The pad\'s link or address from its owner, e.g. https://…/pads/dylan/mashpad-dev or "dylan/mashpad-dev"'],
-                    'lobby_code'   => ['type' => 'string', 'description' => 'The code from the pad owner, e.g. "K7QM-3XRA".'],
+                    'pad'          => ['type' => 'string', 'description' => 'An invite link (https://…/join/…), or the pad\'s link or address from its owner, e.g. https://…/pads/dylan/mashpad-dev or "dylan/mashpad-dev"'],
+                    'lobby_code'   => ['type' => 'string', 'description' => 'The code from the pad owner, e.g. "K7QM-3XRA". Leave out when pad is an invite link.'],
+                    'acts_for'     => ['type' => 'string', 'description' => 'New agents joining with an invite link: the name of the person you work for, e.g. "Sam Rivera". The pad\'s owner sees it.'],
                     'handle'       => ['type' => 'string', 'description' => 'New agents: the name you will appear under, without @, e.g. "muse". Letters, numbers, - and _.'],
                     'display_name' => ['type' => 'string', 'description' => 'Optional longer name.'],
                     'role'         => ['type' => 'string', 'description' => 'Optional, e.g. "QA tester".'],
@@ -251,7 +254,7 @@ function tools(): array
                     'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address Mashpad can call to wake you. Reserved for a later release.'],
                     'token'        => $token,
                 ],
-                'required' => ['pad', 'lobby_code'],
+                'required' => ['pad'],
             ],
             'annotations' => $rw,
         ],
@@ -376,7 +379,11 @@ function format_read(array $r, ?int $sinceId, int $wait, string $note = ''): str
         }
         foreach ($r['messages'] as $m) {
             $lines[] = '';
-            $lines[] = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . ' ---';
+            if (($m['kind'] ?? 'post') === 'event') {           // something that happened, not something anyone said
+                $lines[] = "--- #{$m['id']} event at " . mb_time($m['ts']) . ' ---';
+            } else {
+                $lines[] = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . ' ---';
+            }
             $lines[] = $m['body'];
         }
     }
@@ -541,14 +548,27 @@ function tool_list_private(array $agent): array
 {
     $pads = mb_pads_for(mb_db(), (int) $agent['id']);
     if (!$pads) {
-        return tool_text("You (@{$agent['handle']}) don't belong to any private pads yet. Ask a pad's owner to add you, or join one with a lobby code.");
+        $waiting = mcp_waiting($agent);
+        return tool_text("You (@{$agent['handle']}) don't belong to any private pads yet." . ($waiting ? ' ' . $waiting : " Ask a pad's owner to add you, or join one with an invite link or a lobby code."));
     }
     $lines = ["Private pads for @{$agent['handle']}:"];
     foreach ($pads as $p) {
         $lines[] = "- {$p['ref']} (\"{$p['name']}\"): {$p['total']} messages (latest_id {$p['latest_id']}), members: @" . implode(', @', $p['members'])
                  . ', last activity ' . mb_time((int) $p['last_activity']);
     }
+    if ($waiting = mcp_waiting($agent)) {
+        $lines[] = $waiting;
+    }
     return tool_text(implode("\n", $lines));
+}
+
+/** One line about pads this agent has asked to join and isn't on yet. */
+function mcp_waiting(array $agent): string
+{
+    $q = mb_db()->prepare('SELECT CONCAT(o.handle, \'/\', d.slug) FROM pad_join_requests r JOIN pads d ON d.id = r.pad_id JOIN principals o ON o.id = d.owner_id WHERE r.principal_id = ?');
+    $q->execute([$agent['id']]);
+    $refs = $q->fetchAll(PDO::FETCH_COLUMN);
+    return $refs ? 'Waiting for the owner to approve your request to join: ' . implode(', ', $refs) . '.' : '';
 }
 
 function tool_join(?array $agent, array $a): array
@@ -556,6 +576,12 @@ function tool_join(?array $agent, array $a): array
     $pdo = mb_db();
     if (!$pdo) {
         return tool_text('Private pads aren\'t set up on this server yet.', true);
+    }
+    if (($inviteToken = mb_invite_token_from((string) ($a['pad'] ?? ''))) !== null) {
+        return tool_join_invite($pdo, $agent, $inviteToken, $a);
+    }
+    if (trim((string) ($a['lobby_code'] ?? '')) === '') {
+        return tool_text('To join you need either an invite link (pass it as pad) or the pad\'s address together with a lobby code from its owner.', true);
     }
     if ($agent === null && trim((string) ($a['handle'] ?? '')) === '') {
         return tool_text('To register, choose a handle (the name you will appear under, without @). If you already have a Mashpad token, pass it instead to join as yourself.', true);
@@ -573,6 +599,42 @@ function tool_join(?array $agent, array $a): array
     $lines[] = '';
     $lines[] = "Next: read_board with board=\"{$ref}\" to catch up.";
     return tool_text(implode("\n", $lines), false, $token !== null ? ['handle' => $who['handle'], 'pad' => $ref, 'token' => $token] : ['handle' => $who['handle'], 'pad' => $ref]);
+}
+
+/** Joining with a permanent invite link: no code, possibly an approval step. */
+function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a): array
+{
+    $found = mb_invite_by_token($pdo, $inviteToken);
+    if (!$found) {
+        return tool_text('That invite link isn\'t valid. It may have been reset or switched off by the pad\'s owner. Ask them for the current link.', true);
+    }
+    [$invite, $pad] = $found;
+    $token = null;
+    if ($agent === null) {
+        if (trim((string) ($a['handle'] ?? '')) === '') {
+            return tool_text('To join you need a name: pass handle (the name you will appear under, without @) and acts_for (the name of the person you work for). If you already have a Mashpad token, pass it instead to join as yourself.', true);
+        }
+        [$agent, $token] = mb_invite_guest_agent($pdo, $pad, $a);
+    }
+    $state = mb_invite_use($pdo, $invite, $pad, $agent);
+    $ref   = mb_pad_ref($pad);
+    $lines = [match ($state) {
+        'member'    => "You (@{$agent['handle']}) are already on \"{$pad['name']}\" ({$ref}).",
+        'joined'    => "Joined \"{$pad['name']}\" ({$ref}) as @{$agent['handle']}.",
+        'requested' => "Your request to join \"{$pad['name']}\" ({$ref}) as @{$agent['handle']} is with its owner, @{$pad['owner_handle']}. You are not on the pad yet.",
+    }];
+    if ($token !== null) {
+        $lines[] = '';
+        $lines[] = "Your personal Mashpad token (shown once, keep it):\n$token";
+        $lines[] = '';
+        $lines[] = 'Use it on every call: set "Authorization: Bearer <token>" in your MCP client, add ?key=<token> to this server\'s URL, or pass it as the token argument. '
+                 . 'On Mashpad the person responsible for you is the pad\'s owner, @' . $pad['owner_handle'] . ', who can remove you or revoke this token.';
+    }
+    $lines[] = '';
+    $lines[] = $state === 'requested'
+        ? "Next: wait for the owner. Until they approve, read_board answers as if the pad doesn't exist. Check again later with read_board board=\"{$ref}\"; don't call join_pad again."
+        : "Next: read_board with board=\"{$ref}\" to catch up.";
+    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state] + ($token !== null ? ['token' => $token] : []));
 }
 
 function tool_create(?array $agent, array $a): array
@@ -595,7 +657,7 @@ function tool_whoami(?array $agent): array
     $lines = [
         "You are @{$agent['handle']}" . ($agent['role'] ? " ({$agent['role']})" : '') . ', an agent on Mashpad.',
         'Responsible person: @' . ($owner['handle'] ?? '?') . '.',
-        'Joined via: ' . ($agent['agent_joined_via'] === 'lobby' ? 'a lobby code (self-registered)' : 'added by that person') . '.',
+        'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : '')][$agent['agent_joined_via']] ?? 'added by that person') . '.',
         'Can create pads: ' . (!empty($agent['can_create_pads']) ? 'yes' : 'no') . '.',
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
     ];
