@@ -205,7 +205,7 @@ function appendMessages(msgs, fresh) {
 
 async function showBoard(slug, navigation) {
   state.slug = slug; state.view = 'pad'; state.latest = 0; state.rendered = new Set(); state.loading = true;
-  state.people = new Set(); state.replyOpen = null;
+  state.people = new Set();
   rememberPeople((state.boards.find(b => keyOf(b) === slug) || {}).authors);
   document.getElementById('board-nav').innerHTML = boardListHTML();
   const main = document.getElementById('main');
@@ -241,14 +241,14 @@ async function showBoard(slug, navigation) {
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><button type="button" class="reply-button" data-reply="top">Reply</button><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav><div class="reply-slot" id="reply-top" hidden></div>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
     </div>
     ${d.owned ? '<div class="inner pad-brief" id="brief"></div>' : ''}
+    <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
     </div>
-    <div class="inner reply-bar"><button type="button" class="reply-button" data-reply="bottom">Reply</button></div>
-    <div class="inner reply-slot" id="reply-bottom" hidden>
+    <div class="inner reply-slot" id="reply-bottom">${replyBoxHTML('bottom')}
     </div>`;
   state.brief = d.brief || null; state.briefVersion = d.brief_version || 0;
   renderBrief();
@@ -385,81 +385,83 @@ async function pollBoard() {
   document.querySelectorAll('time[data-ts]').forEach(t => { t.textContent = ago(Number(t.dataset.ts)); });
 }
 
-/* ---------- reply box ----------
-   One box, opened by the Reply button at the top or the one at the bottom, and
-   shown beside the button that opened it. It is as wide as the posts. What was
-   typed is kept if the box is closed or the other button is used. */
-function replyFormHTML() {
-  return `<form id="composer" class="reply-box" aria-label="Reply">
-      <label class="author-label" for="c-author">${state.user ? 'Replying as' : 'Reply as'}</label>
-      <input id="c-author" autocomplete="off" maxlength="40"${state.user ? ` value="@${esc(state.user.handle)}" readonly aria-readonly="true"` : ''}>
-      <label class="message-label" for="c-body">Message</label>
-      <textarea id="c-body" rows="6" placeholder="Add to the conversation"></textarea>
-      <div class="reply-actions"><button type="submit">Post</button><button type="button" class="quiet" data-reply="close">Cancel</button><span class="composer-hint">⌘ / Ctrl + Enter to post</span></div>
+/* ---------- reply boxes ----------
+   A reply box is always on the page, once above the conversation and once below
+   it, each as wide as the posts. It rests as a single line ("Join the
+   conversation") and opens when you click or tab into it, showing Cancel and
+   Post. Each box is its own form (ids carry its place), so the same code can
+   later put a box under a single message for threaded replies. */
+function replyBoxHTML(where) {
+  const id = `reply-${where}`;
+  return `<form class="reply-box" id="${id}-form" aria-label="Reply">
+      ${state.user ? '' : `<div class="reply-who"><label for="${id}-author">Reply as</label><input id="${id}-author" autocomplete="off" maxlength="40"></div>`}
+      <textarea id="${id}-body" rows="1" aria-label="Your reply" placeholder="Join the conversation"></textarea>
+      <div class="reply-actions"><span class="composer-hint">⌘ / Ctrl + Enter to post</span><button type="button" class="quiet" data-reply-cancel="${where}">Cancel</button><button type="submit">Post</button></div>
     </form>`;
 }
 
-function closeReply() {
-  const body = document.getElementById('c-body');
-  if (state.replyOpen && body) state.draft = body.value;
-  for (const id of ['reply-top', 'reply-bottom']) { const slot = document.getElementById(id); if (slot) { slot.innerHTML = ''; slot.hidden = true; } }
-  state.replyOpen = null;
+function setReplyOpen(where, open) {
+  const form = document.getElementById(`reply-${where}-form`);
+  const body = document.getElementById(`reply-${where}-body`);
+  if (!form || !body) return;
+  form.classList?.toggle('is-open', open);
+  if (!open) {
+    body.value = ''; body.style.height = '';
+    form.querySelector('.form-error')?.remove();
+    body.blur?.();
+  }
 }
 
-function openReply(where) {
-  where = where === 'bottom' ? 'bottom' : 'top';
-  const again = state.replyOpen === where;
-  closeReply();
-  if (again) return;                               // pressing the same button again closes the box
-  const slot = document.getElementById('reply-' + where);
-  if (!slot || !state.slug) return;
-  slot.innerHTML = replyFormHTML();
-  slot.hidden = false;
-  state.replyOpen = where;
-  bindComposer(state.slug);
-  const body = document.getElementById('c-body');
-  if (body) { body.value = state.draft || ''; body.focus(); }
-  slot.scrollIntoView?.({ block: 'nearest' });
-}
+const replyInProgress = () => ['top', 'bottom'].some(w => document.getElementById(`reply-${w}-body`)?.value);
 
-function bindComposer(slug) {
+function bindReply(where, slug) {
   const navigation = state.navigation;
-  const form = document.getElementById('composer');
-  if (!form) return;
-  const author = document.getElementById('c-author');
-  const body = document.getElementById('c-body');
-  if (!state.user) {
+  const form = document.getElementById(`reply-${where}-form`);
+  const body = document.getElementById(`reply-${where}-body`);
+  if (!form || !body) return;
+  const author = state.user ? null : document.getElementById(`reply-${where}-author`);
+  if (author) {
     try { author.value = localStorage.getItem('mb-author') || 'operator'; } catch { author.value = 'operator'; }
   }
+  const submit = () => form.querySelector('button[type="submit"]');
 
+  body.addEventListener('focus', () => setReplyOpen(where, true));
   body.addEventListener('input', () => { body.style.height = 'auto'; body.style.height = body.scrollHeight + 2 + 'px'; });
-  body.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!form.querySelector('button').disabled) form.requestSubmit(); } });
+  body.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!submit().disabled) form.requestSubmit(); }
+    if (e.key === 'Escape' && !body.value) setReplyOpen(where, false);
+  });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
-    if (form.querySelector('button').disabled) return;
+    const btn = submit();
+    if (btn.disabled) return;
     form.querySelector('.form-error')?.remove();
-    const btn = form.querySelector('button');
     btn.disabled = true;
     try {
       await getJSON(`${API}?action=post`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: slug, author: state.user ? '' : author.value, message: body.value }),
+        body: JSON.stringify({ board: slug, author: author ? author.value : '', message: body.value }),
       });
-      if (!state.user) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
-      body.value = ''; body.style.height = ''; state.draft = '';
+      if (author) { try { localStorage.setItem('mb-author', author.value.trim()); } catch {} }
       if (navigation !== state.navigation) return;
-      closeReply();
+      setReplyOpen(where, false);
       await pollBoard();
       if (navigation !== state.navigation) return;
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     } catch (err) {
       form.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
+      if (navigation === state.navigation) body.focus();
     } finally {
       btn.disabled = false;
-      if (navigation === state.navigation && state.replyOpen) body.focus();
     }
   });
+}
+
+/** Wire up both reply boxes of the pad that is showing. */
+function bindComposer(slug) {
+  bindReply('top', slug);
+  bindReply('bottom', slug);
 }
 
 /* ---------- pad info (legacy settings route retained) ---------- */
@@ -574,8 +576,8 @@ function route() {
 }
 
 document.addEventListener('click', e => {
-  const reply = e.target.closest('[data-reply]');
-  if (reply) return reply.dataset.reply === 'close' ? closeReply() : openReply(reply.dataset.reply);
+  const cancel = e.target.closest('[data-reply-cancel]');
+  if (cancel) return setReplyOpen(cancel.dataset.replyCancel, false);
   const copy = e.target.closest('[data-copy]');
   if (copy) {
     const text = document.getElementById(copy.dataset.copy).textContent;
@@ -604,7 +606,7 @@ window.addEventListener('popstate', route);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   // Coming back to a tab that predates a deploy: reload it, unless a message is being written.
-  if (state.stale && !document.getElementById('c-body')?.value) return location.reload();
+  if (state.stale && !replyInProgress() && state.briefMode !== 'edit') return location.reload();
   loadBoards(); pollBoard();
 });
 
@@ -620,12 +622,8 @@ function accountHTML() {
 function applyAccount() {
   const box = document.getElementById('account');
   if (box) box.innerHTML = accountHTML();
-  const author = document.getElementById('c-author');
-  if (author && state.user) {
-    author.value = '@' + state.user.handle;
-    author.readOnly = true;
-    author.setAttribute('aria-readonly', 'true');
-  }
+  // Signed in: replies go out under the account, so the "Reply as" name field goes away.
+  if (state.user) document.querySelectorAll?.('.reply-who').forEach(el => { el.hidden = true; });
 }
 
 async function loadMe() {
