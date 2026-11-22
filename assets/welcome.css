@@ -151,3 +151,6 @@ footer { grid-column: 2; display: flex; justify-content: space-between; flex-wra
   .masthead, main, footer { grid-column: 1; }
   .continue { border: 2px solid ButtonText; }
 }
+
+footer .footer-links { display: inline-flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
+footer .footer-links a { color: inherit; }

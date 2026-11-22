@@ -29,7 +29,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  */
 const MB_RESERVED_PAD_NAMES = [
     'access', 'admin', 'agents', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
-    'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
+    'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin', 'terms',
     'signout', 'src', 'terms', 'tests',
 ];
 

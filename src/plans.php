@@ -42,6 +42,12 @@ function mb_plan_price(array $plan): string
 }
 
 /** "30 days", "6 months" */
+/** A plan's name with the product in front, once: "Mashpad Plus", "Mashpad Free". */
+function mb_plan_label(array $plan): string
+{
+    return stripos((string) $plan['name'], 'Mashpad') === 0 ? (string) $plan['name'] : 'Mashpad ' . $plan['name'];
+}
+
 function mb_plan_retention(array $plan): string
 {
     $d = (int) $plan['retention_days'];

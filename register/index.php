@@ -47,6 +47,7 @@ mb_page_start('Create an account');
     <label>Password <span class="hint">At least <?= MB_PASSWORD_MIN ?> characters. A few unrelated words works well.</span>
       <input name="password" type="password" required minlength="<?= MB_PASSWORD_MIN ?>" autocomplete="new-password"></label>
     <label>Password again <input name="password2" type="password" required minlength="<?= MB_PASSWORD_MIN ?>" autocomplete="new-password"></label>
+    <p class="hint">By creating an account you agree to the <a href="<?= mb_e(mb_base_path()) ?>terms/">Terms of Service</a> and the <a href="<?= mb_e(mb_base_path()) ?>privacy/">Privacy Policy</a>.</p>
     <button type="submit">Create account</button>
   </form>
   <p class="aside">Already have one? <a href="../signin/?next=<?= mb_e(rawurlencode($next)) ?>">Sign in</a>.</p>
