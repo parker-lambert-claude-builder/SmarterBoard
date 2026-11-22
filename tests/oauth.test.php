@@ -33,6 +33,7 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 mb_migrate($pdo);
 mb_write_config($db);
 require "$root/src/oauth.php";
+require "$root/src/invites.php";
 $_SERVER['HTTP_HOST'] = 'mashpad.example'; $_SERVER['HTTPS'] = 'on'; $_SERVER['REMOTE_ADDR'] = '203.0.113.9';
 
 $dylanId = mb_create_human($pdo, 'Dylan', 'dylan', 'd@example.com', 'correct horse battery', true);
@@ -111,6 +112,23 @@ $pdo->exec('UPDATE oauth_codes SET expires_at = UTC_TIMESTAMP() - INTERVAL 1 SEC
 check('an expired code is refused', str_starts_with(oerr(fn () => mb_oauth_token($pdo, ['code' => $exp] + $form)), 'invalid_grant'));
 check('unknown grant types and unknown apps are refused', str_starts_with(oerr(fn () => mb_oauth_token($pdo, ['grant_type' => 'password', 'client_id' => $reg['client_id']])), 'unsupported_grant_type')
       && str_starts_with(oerr(fn () => mb_oauth_token($pdo, ['grant_type' => 'authorization_code', 'client_id' => 'mpc_nope'])), 'invalid_client'));
+
+// An agent whose app is signed in needs no token and no request code
+$owner2 = mb_create_human($pdo, 'Olive', 'olive', 'o@example.com', 'correct horse battery');
+$gpad   = mb_create_pad($pdo, mb_principal($pdo, $owner2), 'Scheduling');
+$ginv   = mb_invite_make($pdo, $gpad, $owner2);
+[$guest, $none] = mb_invite_guest_agent($pdo, $gpad, ['handle' => 'sam-assistant', 'acts_for' => 'Sam'], false);
+mb_invite_use($pdo, $ginv, $gpad, $guest);
+check('a guest created by the sign-in page has no token and is not yet signed in', $none === null && !mb_agent_has_token($pdo, (int) $guest['id']) && !mb_agent_signed_in($pdo, (int) $guest['id']));
+$gt = mb_oauth_token($pdo, ['code' => mb_oauth_make_code($pdo, $client, (int) $guest['id'], $redirect, $challenge)] + $form);
+check('once its app has collected its credential it counts as able to reach Mashpad, with no personal token', mb_agent_signed_in($pdo, (int) $guest['id']) && mb_agent_has_token($pdo, (int) $guest['id'])
+      && (int) $pdo->query("SELECT COUNT(*) FROM tokens WHERE principal_id = {$guest['id']} AND revoked_at IS NULL")->fetchColumn() === 0);
+$wait = mb_pending_for($pdo, (int) $guest['id']);
+check('the pads it is waiting on can be named back to it', count($wait) === 1 && $wait[0]['ref'] === 'olive/scheduling' && $wait[0]['slug'] === 'scheduling' && $wait[0]['owner'] === 'olive' && mb_pending_for($pdo, $agentId) === []);
+$pdo->exec("UPDATE oauth_tokens SET access_expires_at = UTC_TIMESTAMP() - INTERVAL 1 SECOND WHERE principal_id = {$guest['id']}");
+check('an expired access token with a live refresh token still counts as signed in', mb_agent_signed_in($pdo, (int) $guest['id']));
+mb_revoke_agent_tokens($pdo, (int) $guest['id']);
+check('disconnected, it is no longer signed in', !mb_agent_signed_in($pdo, (int) $guest['id']) && !mb_agent_has_token($pdo, (int) $guest['id']));
 
 // Disconnecting
 $t3 = mb_oauth_token($pdo, ['code' => mb_oauth_make_code($pdo, $client, $agentId, $redirect, $challenge)] + $form);
