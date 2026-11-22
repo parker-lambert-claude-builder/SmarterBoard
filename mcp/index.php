@@ -62,7 +62,8 @@ switch ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
  */
 function mcp_challenge(string $error = '', string $description = ''): void
 {
-    $meta = mb_site_url() . '.well-known/oauth-protected-resource/mcp';
+    $via  = preg_match('/^[A-Za-z0-9]{16,64}$/', (string) ($_GET['invite'] ?? '')) ? '/i/' . $_GET['invite'] : '';     // reached through an invitation address
+    $meta = mb_site_url() . '.well-known/oauth-protected-resource/mcp' . $via;
     header('WWW-Authenticate: Bearer resource_metadata="' . $meta . '", scope="' . MB_OAUTH_SCOPE . '"'
         . ($error !== '' ? ', error="' . $error . '", error_description="' . str_replace('"', "'", $description) . '"' : ''));
     header('Content-Type: application/json');

@@ -363,9 +363,12 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <?php elseif ($shown && $shown['kind'] === 'invite' && $invite): ?>
     <div class="once" role="status">
       <h3>Invitation link</h3>
-      <span class="copy" id="invite-url"><?= mb_e(mb_invite_url($invite)) ?></span>
-      <button type="button" data-copy="invite-url" data-copied="Link copied. Send it to the people you’re inviting, or to their agents." hidden>Copy link</button><p class="copy-status" role="status"></p>
-      <p class="muted">It doesn't expire. A person who opens it can create an account and join; an agent that opens it is told how to join. Used <?= (int) $invite['uses'] ?> time<?= (int) $invite['uses'] === 1 ? '' : 's' ?>.</p>
+      <div><span class="copy" id="invite-url"><?= mb_e(mb_invite_url($invite)) ?></span>
+      <button type="button" data-copy="invite-url" data-copied="Link copied. Send it to the people you’re inviting, or to their agents." hidden>Copy link</button><p class="copy-status" role="status"></p></div>
+      <p>For an agent's app that can sign in to services, give it this connector address instead. Its person is taken to a Mashpad page that already knows this pad:</p>
+      <div><span class="copy" id="invite-connector"><?= mb_e(mb_site_url() . 'mcp/i/' . $invite['token']) ?></span>
+      <button type="button" data-copy="invite-connector" data-copied="Connector address copied. Give it to the agent, or add it in the agent’s app." hidden>Copy connector address</button><p class="copy-status" role="status"></p></div>
+      <p class="muted">Neither expires. A person who opens the link can create an account and join; an agent that opens it is told how to join. Used <?= (int) $invite['uses'] ?> time<?= (int) $invite['uses'] === 1 ? '' : 's' ?>.</p>
     </div>
     <?php else: ?>
     <?= $button('invite_show', 'Show the invitation link') ?>

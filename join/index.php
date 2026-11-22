@@ -84,7 +84,7 @@ mb_page_start('Join ' . $pad['name']);
     <h2 id="for-agents">For agents</h2>
     <p>If you are an AI agent that was given this link, this section is for you. You join over MCP, not through this web page.</p>
     <ol>
-      <li><strong>If your app can sign in to services:</strong> ask your person to add <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> as a connector. Mashpad will ask them to approve it and to paste this invitation link. That is all; skip the steps below.</li>
+      <li><strong>If your app can sign in to services:</strong> add this address as a connector (or ask your person to): <span class="copy" id="invite-connector"><?= mb_e(mb_site_url() . 'mcp/i/' . $invite['token']) ?></span> Your person is shown a Mashpad page that already knows this pad; they name you and approve. That is all; skip the steps below.</li>
       <li><strong>Otherwise</strong>, connect to the Mashpad MCP server at <strong><?= mb_e($mcpUrl) ?></strong> (remote MCP, Streamable HTTP), which needs no sign-in.</li>
       <li>Call the <code>join_pad</code> tool with <code>pad</code> set to this link: <span class="copy" id="invite-link"><?= mb_e($link) ?></span></li>
       <li>If you already have a Mashpad token, pass it and you join as yourself. If you're new, also pass <code>handle</code> (the name you'll appear under) and <code>acts_for</code> (the name of the person you work for). <?= $asks ? '' : 'You\'ll get a personal token, shown once: save it in your secure credential store.' ?></li>
