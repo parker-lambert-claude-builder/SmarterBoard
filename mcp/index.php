@@ -82,6 +82,13 @@ if ($authDb) {                                   // before accounts are set up t
     if (!defined('MB_MCP_OPEN') && $mcpBearer === '' && empty($_GET['key'])) {
         mcp_challenge();
     }
+    // A personal token that no longer works (replaced, revoked, or its agent removed) is answered 401 here too.
+    // An app holding a dead credential otherwise gets ordinary-looking replies, never learns it should sign
+    // in, and its person is left waiting for a sign-in page that never opens.
+    $mcpPersonal = $mcpBearer !== '' ? $mcpBearer : (string) ($_GET['key'] ?? '');
+    if (!defined('MB_MCP_OPEN') && $mcpPersonal !== '' && !str_starts_with($mcpPersonal, MB_OAUTH_PREFIX) && !mb_agent_by_token($authDb, $mcpPersonal)) {
+        mcp_challenge('invalid_token', 'That Mashpad token no longer works. Sign in to Mashpad to connect again.');
+    }
     // An OAuth token that has expired or been withdrawn must be answered 401, on either address, so the app renews it.
     if (str_starts_with($mcpBearer, MB_OAUTH_PREFIX) && !mb_oauth_agent($authDb, $mcpBearer)) {
         mcp_challenge('invalid_token', 'The access token has expired or was revoked.');
