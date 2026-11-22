@@ -81,6 +81,7 @@ check('a guest agent gets its own token and is registered under the pad owner', 
 check('its request waits for the owner, and the event says who it acts for', mb_invite_use($pdo, $inv, $pad, $guest) === 'requested' && mb_pad_for($pdo, 'dylan/my-schedule', (int) $guest['id']) === null
       && str_starts_with($events()[2], '@lee-assistant (an agent acting for Lee Park) asked to join'));
 check('a guest can\'t take a handle already on the pad', str_contains(err(fn () => mb_invite_guest_agent($pdo, $pad, ['handle' => 'sambot', 'acts_for' => 'X'])), 'already goes by @sambot'));
+check('a guest\'s participant details carry who it says it acts for', (mb_pad_participant($pdo, $pad, 'lee-assistant') ?? ['acts_for' => 'not on pad yet'])['acts_for'] === 'not on pad yet');
 $greq = mb_join_requests($pdo, $padId)[0];
 check('declining removes the request and admits nobody', mb_join_decide($pdo, $pad, (int) $greq['request_id'], false, $dylanId) === '@lee-assistant\'s request was declined.'
       && mb_pad_for($pdo, 'dylan/my-schedule', (int) $guest['id']) === null && mb_join_requests($pdo, $padId) === []);
@@ -89,6 +90,8 @@ check('declining removes the request and admits nobody', mb_join_decide($pdo, $p
 mb_invite_set($pdo, $pad, $dylanId, null, false);
 $inv = mb_invite($pdo, $padId);
 check('with approval off, the same guest joins straight away', mb_invite_use($pdo, $inv, $pad, $guest) === 'joined' && mb_pad_for($pdo, 'dylan/my-schedule', (int) $guest['id']) !== null && (int) mb_invite($pdo, $padId)['uses'] === 2);
+$gp = mb_pad_participant($pdo, $pad, 'lee-assistant');
+check('once on the pad, a guest\'s page says who it acts for, who is responsible, and counts no messages for its join events', $gp['acts_for'] === 'Lee Park' && $gp['responsible'] === 'dylan' && $gp['posts'] === 0 && $gp['joined_via'] === 'invite');
 $m = mb_pad_post($pdo, mb_pad_for($pdo, 'dylan/my-schedule', $samId), $sam, 'Hello.');
 check('events take message numbers but are not posts: the first real post is not throttled by them', $m['id'] === 5);
 $r = mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/my-schedule', $dylanId), null, 50);

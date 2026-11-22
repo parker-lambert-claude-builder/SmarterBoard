@@ -280,23 +280,48 @@ test('participant links are independent, encoded, and show a single @ prefix', a
   assert.match(html, /@&lt;img &quot; &amp;/);
 });
 
-test('agent route displays escaped name, real pad and clearly labeled placeholders', async () => {
+test('a participant page shows real details for an agent on a private pad, with nothing made up', async () => {
   const { api, context, element } = await app();
-  const name = '<img onerror="bad()">';
   const requests = [];
-  context.fetch = async (url, options) => { requests.push({url, options}); return reply({...pad(), messages: [{author:name}]}); };
-  context.location.search = '?b=launch-review&view=agent&agent=' + encodeURIComponent(name);
+  const member = { handle: 'muse', kind: 'agent', display_name: 'Muse <QA>', on_pad: true, pad_role: 'member', is_creator: false, joined: 1700000000, joined_via: 'lobby',
+    posts: 12, first_post: 1700000100, last_post: 1700009000, role: 'QA <tester>', doing: 'Acceptance tests & <reviews>', platform: 'ChatGPT', self_described: true, responsible: 'dylan', last_active: 1700009500 };
+  context.fetch = async (url, options) => { requests.push({ url, options }); return reply({ key: 'dylan/dev', pad_name: 'Dev', member }); };
+  context.location.pathname = '/mashpad/pads/dylan/dev'; context.location.search = '?view=agent&agent=%40Muse';
   await api.route();
   await api.pollBoard();
   const html = element('main').innerHTML;
   assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /api\/\?action=member&board=dylan%2Fdev&handle=muse$/);
   assert.equal(requests[0].options, undefined);
-  assert.match(html, /Profile preview/);
-  assert.match(html, /placeholder/);
-  assert.match(html, /@&lt;img onerror=&quot;bad\(\)&quot;&gt;/);
-  assert.match(html, /Launch review/);
-  assert.doesNotMatch(html, /<img|<input|<form/);
+  assert.match(html, /<h1>@muse<\/h1>/);
+  assert.match(html, /AI agent · Muse &lt;QA&gt;/);
+  assert.match(html, /<dt>Role<\/dt><dd>QA &lt;tester&gt; <span class="placeholder-label">\(as the agent describes itself\)<\/span>/);
+  assert.match(html, /<dt>Runs on<\/dt><dd>ChatGPT<\/dd>/);
+  assert.match(html, /<dt>Responsible person<\/dt><dd><a href="https:\/\/example\.test\/mashpad\/pads\/dylan\/dev\?view=agent&amp;agent=dylan" data-nav="dylan\/dev">@dylan<\/a>/);
+  assert.match(html, /<dt>Joined<\/dt><dd>Joined with a lobby code,/);
+  assert.match(html, /<dt>Messages here<\/dt><dd>12, most recently/);
+  assert.match(html, /Acceptance tests &amp; &lt;reviews&gt;/);
+  assert.doesNotMatch(html, /placeholder\)|Profile preview|Project assistant|Model name|<img|<input|<form/);
   assert.equal(api.state.view, 'agent');
+});
+
+test('a participant page for a person, and for someone no longer on the pad', async () => {
+  const { api, context, element } = await app();
+  const person = { handle: 'dylan', kind: 'human', display_name: 'Dylan Rhodes', on_pad: true, pad_role: 'owner', is_creator: true, joined: 1700000000, joined_via: 'created', posts: 0, first_post: null, last_post: null };
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: person });
+  context.location.pathname = '/mashpad/pads/dylan/dev'; context.location.search = '?view=agent&agent=dylan';
+  await api.route();
+  let html = element('main').innerHTML;
+  assert.match(html, /Person · Dylan Rhodes/);
+  assert.match(html, /<dt>On this pad<\/dt><dd>Owner<\/dd>/);
+  assert.match(html, /<dt>Messages here<\/dt><dd>None yet<\/dd>/);
+  assert.doesNotMatch(html, /Responsible person|Runs on|Last connected/);
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...person, handle: 'eve', display_name: 'eve', on_pad: false, pad_role: 'member', is_creator: false } });
+  context.location.search = '?view=agent&agent=eve';
+  await api.route();
+  html = element('main').innerHTML;
+  assert.match(html, /No longer on this pad\. Their earlier messages stay\./);
+  assert.doesNotMatch(html, /<dt>On this pad<\/dt>/);
 });
 
 test('late pad response cannot overwrite an agent profile', async () => {
@@ -312,13 +337,22 @@ test('late pad response cannot overwrite an agent profile', async () => {
   assert.match(element('main').innerHTML, /<h1>@muse<\/h1>/);
 });
 
-test('unknown participant gets a recovery page instead of a fabricated profile', async () => {
+test('an unknown name, or any name on an older open pad, gets an honest page instead of a profile', async () => {
   const { api, context, element } = await app();
-  context.fetch = async () => reply(pad());
-  context.location.search = '?b=launch-review&view=agent&agent=unknown';
+  context.fetch = async () => reply({ error: 'not_found' }, 404);
+  context.location.pathname = '/mashpad/pads/dylan/dev'; context.location.search = '?view=agent&agent=unknown';
   await api.route();
-  assert.match(element('main').innerHTML, /This name was not found/);
-  assert.doesNotMatch(element('main').innerHTML, /Project assistant/);
+  assert.match(element('main').innerHTML, /Nobody by that name is on this pad\./);
+  const requests = [];
+  context.fetch = async url => { requests.push(url); return reply(pad()); };
+  const name = '<img onerror="bad()">';
+  context.location.pathname = '/mashpad/pads/'; context.location.search = '?b=launch-review&view=agent&agent=' + encodeURIComponent(name);
+  await api.route();
+  const html = element('main').innerHTML;
+  assert.equal(requests.length, 0, 'open pads have no member records to ask for');
+  assert.match(html, /@&lt;img onerror=&quot;bad\(\)&quot;&gt;/);
+  assert.match(html, /a name is only a signature/);
+  assert.doesNotMatch(html, /<img|Project assistant|placeholder/);
 });
 
 test('signed out with accounts enabled: sign-in and create-account links that return here', async () => {

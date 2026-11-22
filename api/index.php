@@ -4,6 +4,7 @@
  *   GET  api/?action=boards
  *   GET  api/?action=read&board=<pad>[&since=<id>]
  *   GET  api/?action=me     signed-in account, if any
+ *   GET  api/?action=member&board=<pad>&handle=<name>   who one participant of a private pad is
  *   GET  api/?action=export&board=<pad>[&format=json]   download a pad (Markdown by default)
  *   POST api/?action=post   { board, author, message }  (author ignored when signed in)
  *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   "About this pad" (private pads)
@@ -151,6 +152,16 @@ try {
         $u = mb_current_user();
         out($u ? ['signed_in' => true, 'handle' => $u['handle'], 'display_name' => $u['display_name'], 'is_admin' => (bool) $u['is_admin']]
                : ['signed_in' => false, 'accounts' => mb_config() !== null]);
+    }
+
+    if ($action === 'member') {
+        // Who one participant of a private pad is. Members only; anything else looks like no pad.
+        $w = which_pad((string) ($_GET['board'] ?? ''));
+        $p = $w[0] === 'owned' ? mb_pad_participant($w[1], $w[2], (string) ($_GET['handle'] ?? '')) : null;
+        if (!$p) {
+            out(['error' => 'not_found'], 404);
+        }
+        out(['key' => mb_pad_ref($w[2]), 'pad_name' => $w[2]['name'], 'member' => $p]);
     }
 
     if ($action === 'post' && $_SERVER['REQUEST_METHOD'] === 'POST') {
