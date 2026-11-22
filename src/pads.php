@@ -63,7 +63,7 @@ function mb_principal(PDO $pdo, int $id): ?array
     return $q->fetch() ?: null;
 }
 
-const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds
+const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds, pl.threading
                          FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code';
 
 function mb_pad_by_id(PDO $pdo, int $id): ?array
@@ -288,8 +288,8 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
 /** Messages in the same shape as the file-based pads: id (the per-pad #), author, body, ts. */
 function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
 {
-    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind, m.kind
-               FROM messages m JOIN principals p ON p.id = m.author_id WHERE m.pad_id = ?';
+    $cols = 'SELECT m.seq AS id, p.handle AS author, m.body, UNIX_TIMESTAMP(m.created_at) AS ts, p.kind AS author_kind, m.kind, pm.seq AS reply_to
+               FROM messages m JOIN principals p ON p.id = m.author_id LEFT JOIN messages pm ON pm.id = m.parent_id WHERE m.pad_id = ?';
     if ($sinceId !== null) {
         $q = $pdo->prepare("$cols AND m.seq > ? ORDER BY m.seq");
         $q->execute([$pad['id'], $sinceId]);
@@ -302,6 +302,7 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
     foreach ($msgs as &$m) {
         $m['id'] = (int) $m['id'];
         $m['ts'] = (int) $m['ts'];
+        $m['reply_to'] = $m['reply_to'] === null ? null : (int) $m['reply_to'];
     }
     $total = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE pad_id = ?');
     $total->execute([$pad['id']]);
@@ -315,6 +316,7 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
         'owner'         => $pad['owner_handle'],
         'key'           => mb_pad_ref($pad),
         'owned'         => true,
+        'threaded'      => mb_pad_threaded($pad),
         'members'       => $who->fetchAll(PDO::FETCH_COLUMN),      // handles; lets the viewer link @mentions
         'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
         'created'       => strtotime($pad['created_at'] . ' UTC'),
@@ -336,10 +338,37 @@ function mb_interval_phrase(int $seconds): string
     };
 }
 
-/** Append a message. Enforces the owner's plan post interval per author (#43, #50). */
-function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
+/** Whether replies on this pad are threaded: a feature of its owner's plan. */
+function mb_pad_threaded(array $pad): bool
 {
-    $body = mb_clean_body($body);
+    return !empty($pad['threading']);
+}
+
+/**
+ * Append a message. Enforces the owner's plan post interval per author (#43, #50).
+ * $replyTo is the #number of the message being answered. On a pad whose plan has
+ * threaded replies it is stored and the post appears under that message. On a
+ * pad without them the post still goes through, at the end of the conversation,
+ * and the returned message has 'unthreaded' => true so the caller can say so.
+ */
+function mb_pad_post(PDO $pdo, array $pad, array $author, string $body, ?int $replyTo = null): array
+{
+    $body     = mb_clean_body($body);
+    $parentId = null;
+    $flat     = false;
+    if ($replyTo !== null) {
+        $q = $pdo->prepare("SELECT id FROM messages WHERE pad_id = ? AND seq = ? AND kind = 'post'");
+        $q->execute([$pad['id'], $replyTo]);
+        $found = $q->fetchColumn();
+        if (!$found) {
+            throw new MbAccountError('Not posted: there is no message #' . $replyTo . ' on this pad to reply to. Your text was not saved.');
+        }
+        if (mb_pad_threaded($pad)) {
+            $parentId = (int) $found;
+        } else {
+            $flat = true;
+        }
+    }
     $pdo->beginTransaction();
     try {
         $lock = $pdo->prepare('SELECT next_seq FROM pads WHERE id = ? FOR UPDATE');
@@ -362,8 +391,8 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
             }
         }
 
-        $pdo->prepare('INSERT INTO messages (pad_id, seq, author_id, body) VALUES (?, ?, ?, ?)')
-            ->execute([$pad['id'], $seq, $author['id'], $body]);
+        $pdo->prepare('INSERT INTO messages (pad_id, seq, author_id, body, parent_id) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$pad['id'], $seq, $author['id'], $body, $parentId]);
         $pdo->prepare('UPDATE pads SET next_seq = next_seq + 1, last_activity_at = UTC_TIMESTAMP() WHERE id = ?')
             ->execute([$pad['id']]);
         $pdo->commit();
@@ -373,7 +402,7 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body): array
         }
         throw $e;
     }
-    return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time()];
+    return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time(), 'reply_to' => $parentId !== null ? $replyTo : null] + ($flat ? ['unthreaded' => true] : []);
 }
 
 /**

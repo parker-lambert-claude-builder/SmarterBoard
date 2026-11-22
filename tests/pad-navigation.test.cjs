@@ -134,6 +134,66 @@ test('pad events (a join, a request) show as a line between posts, not as a post
   assert.doesNotMatch(element('head-meta').innerHTML || element('main').innerHTML, /event/);
 });
 
+test('on a threaded pad each message has a Reply link and replies sit under the message they answer', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text}</p>`;
+  const placed = [];
+  const slotFor = id => { const el = element(id); el.insertAdjacentHTML = (w, html) => placed.push([id, html]); return el; };
+  const transcript = slotFor('transcript'); transcript.querySelector = () => null;
+  slotFor('replies-m1'); slotFor('replies-m2');
+  const real = context.document.getElementById;
+  context.document.getElementById = id => (id === 'replies-m9' ? null : real(id));
+  const thread = threaded => reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, threaded, total: 4, latest_id: 4, messages: [
+    { id: 1, author: 'dylan', body: 'First', ts: 1700000000, kind: 'post', reply_to: null },
+    { id: 2, author: 'muse', body: 'Answer', ts: 1700000100, kind: 'post', reply_to: 1 },
+    { id: 3, author: 'dylan', body: 'Deeper', ts: 1700000200, kind: 'post', reply_to: 2 },
+    { id: 4, author: 'muse', body: 'Orphan', ts: 1700000300, kind: 'post', reply_to: 9 }] });
+  context.fetch = async () => thread(true);
+  context.location.pathname = '/mashpad/pads/dylan/dev';
+  await api.route();
+  assert.deepEqual(placed.map(([where, html]) => [where, html.match(/id="m(\d+)"/)[1]]), [['transcript', '1'], ['replies-m1', '2'], ['replies-m2', '3'], ['transcript', '4']],
+    'a reply goes under its parent; one whose parent is not on the page goes to the end');
+  const first = placed[0][1];
+  assert.match(first, /<article class="tmsg" id="m1"/);
+  assert.match(first, /<button type="button" class="reply-link" data-reply-to="1" data-reply-name="@dylan" aria-expanded="false">Reply<\/button>/);
+  assert.match(first, /<div class="reply-slot reply-inline" id="reply-m1" hidden><\/div>\s*<div class="replies" id="replies-m1"><\/div>/);
+  // The same messages on a pad without threads: flat, no Reply links, replies marked with what they answered.
+  placed.length = 0;
+  context.document.createElement = () => ({ dataset: {}, style: { setProperty() {} }, insertAdjacentHTML(w, h) { placed.push(['group', h]); } });
+  transcript.appendChild = node => { transcript.lastElementChild = node; }; transcript.lastElementChild = null;
+  context.fetch = async () => thread(false);
+  await api.route();
+  const flat = placed.map(p => p[1]).join('');
+  assert.doesNotMatch(flat, /data-reply-to|class="tmsg"/);
+  assert.match(flat, /<a class="in-reply" href="#m1">in reply to #1<\/a>/);
+});
+
+test('a Reply link opens a box under its message that posts with reply_to; pressing it again closes the box', async () => {
+  const { api, context, element, listeners } = await app();
+  const posts = [];
+  context.fetch = async (url, opts) => { if (/action=post/.test(url)) { posts.push(JSON.parse(opts.body)); return reply({ ok: true, message: { id: 8 } }); } return reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, threaded: true }); };
+  context.location.pathname = '/mashpad/pads/dylan/dev';
+  await api.route();
+  const press = () => listeners.click({ target: { closest: s => s === '[data-reply-to]' ? { dataset: { replyTo: '5', replyName: '@muse' } } : null } });
+  element('reply-m5').innerHTML = '';
+  press();
+  assert.match(element('reply-m5').innerHTML, /<form class="reply-box" id="reply-m5-form"/);
+  assert.match(element('reply-m5').innerHTML, /placeholder="Reply to @muse"/);
+  assert.equal(element('reply-m5').hidden, false);
+  assert.equal(element('reply-m5-form')['is-open'], true);
+  element('reply-m5-body').value = 'to you';
+  await element('reply-m5-form').handlers.submit({ preventDefault() {} });
+  assert.deepEqual([posts[0].message, posts[0].reply_to], ['to you', 5]);
+  assert.equal(element('reply-m5').innerHTML, '', 'the box is removed after posting');
+  press(); press();
+  assert.equal(element('reply-m5').innerHTML, '');
+  assert.equal(element('reply-m5').hidden, true);
+  api.bindComposer('dylan/dev');
+  element('reply-top-body').value = 'top-level';
+  await element('reply-top-form').handlers.submit({ preventDefault() {} });
+  assert.equal('reply_to' in posts[1], false, 'the standing boxes post to the pad as a whole');
+});
+
 test('keyboard posting prevents a newline and does not submit again while pending', async () => {
   const { api, element } = await app();
   let submissions = 0, prevented = 0;

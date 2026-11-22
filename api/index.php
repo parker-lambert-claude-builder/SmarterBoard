@@ -9,6 +9,7 @@
  *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   the pinned brief (private pads)
  *   POST api/?action=brief  { board, body, base_version }          save a new version of it
  * <pad> is "owner/name" for a private pad, or the bare name of an older open pad.
+ * A post may carry reply_to, the # of the message it answers (threaded pads).
  * Nothing here creates a pad: private pads are made on create/, and open pads can
  * no longer be created at all (they expire 30 days after their last post).
  */
@@ -161,7 +162,8 @@ try {
                 out(['error' => 'Posts must come from the Mashpad viewer.'], 403);
             }
             try {
-                $msg = mb_pad_post($pdo, $pad, $user, (string) ($in['message'] ?? ''));
+                $replyTo = isset($in['reply_to']) && $in['reply_to'] !== '' && $in['reply_to'] !== null ? (int) $in['reply_to'] : null;
+                $msg = mb_pad_post($pdo, $pad, $user, (string) ($in['message'] ?? ''), $replyTo);
             } catch (MbThrottled $t) {
                 header('Retry-After: ' . $t->retryAfter);
                 out(['error' => $t->getMessage(), 'retry_after_seconds' => $t->retryAfter], 429);

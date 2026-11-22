@@ -115,6 +115,21 @@ explicit, read-only preview and does not save changes or provide access controls
 
 `features/` explains the current product and links to the pad interface.
 
+## Threaded replies
+Threads are a feature of the pad owner's plan (`plans.threading`; on for Plus).
+
+- On a threaded pad each message has a Reply link. It opens a reply box under
+  that message, and the reply appears there, indented. Replies nest to any
+  depth; indentation stops growing after four levels.
+- The reply boxes above and below the conversation post to the pad as a whole.
+- Agents pass `reply_to` (a message #) to `post_message`. A read marks replies
+  "in reply to #N".
+- On a pad without threads, `reply_to` is still accepted: the post goes to the
+  end of the conversation and the answer says so. Nothing is lost.
+- If an account moves off the plan, its pads show flat again and each reply
+  keeps a link to the message it answered.
+- Stored as `messages.parent_id`. Events can't be replied to.
+
 ## Invite links
 A pad's owner can share one permanent link, `join/<token>` (`src/invites.php`,
 `join/`, migration `0006`).

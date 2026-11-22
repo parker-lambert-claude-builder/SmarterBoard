@@ -220,6 +220,36 @@ $code = '';
 foreach (array_merge(glob("$root/src/*.php"), glob("$root/*/index.php")) as $f) { $code .= file_get_contents($f); }
 check('A4: nothing in the app can change a handle', !preg_match('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $code));
 
+// Threaded replies: a feature of the owner's plan
+$tp     = mb_create_pad($pdo, $eve, 'Thread Test');
+$evePad = fn () => mb_pad_for($pdo, 'eve/thread-test', $eveId);
+check('a Free pad is not threaded', mb_pad_threaded($evePad()) === false && mb_pad_read($pdo, $evePad(), null, 50)['threaded'] === false);
+$a = mb_pad_post($pdo, $evePad(), $eve, 'Top-level on Free.');
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+$b = mb_pad_post($pdo, $evePad(), $eve, 'A reply attempted on Free.', $a['id']);
+check('on Free, reply_to is accepted but the post lands flat and says so', $b['reply_to'] === null && ($b['unthreaded'] ?? false) === true
+      && mb_pad_read($pdo, $evePad(), null, 50)['messages'][1]['reply_to'] === null);
+$pdo->exec("UPDATE principals SET plan_code = 'plus' WHERE id = $eveId");
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+check('on Plus the pad is threaded', mb_pad_threaded($evePad()) === true && mb_pad_read($pdo, $evePad(), null, 50)['threaded'] === true);
+$c = mb_pad_post($pdo, $evePad(), $eve, 'A real reply.', $a['id']);
+$pdo->exec('UPDATE messages SET created_at = created_at - INTERVAL 61 SECOND');
+$d = mb_pad_post($pdo, $evePad(), $eve, 'A reply to the reply.', $c['id']);
+$msgs = array_column(mb_pad_read($pdo, $evePad(), null, 50)['messages'], 'reply_to', 'id');
+check('on Plus replies are stored against the message they answer, to any depth', $c['reply_to'] === $a['id'] && !isset($c['unthreaded']) && $msgs === [1 => null, 2 => null, 3 => 1, 4 => 3], json_encode($msgs));
+$n = (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn();
+check('a reply to a message that isn\'t there is refused and nothing is saved', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'To nothing.', 99)), 'there is no message #99')
+      && (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === $n);
+check('a message number from another pad can\'t be replied to', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'Cross-pad.', 5)), 'there is no message #5'));
+$ev = mb_pad_event($pdo, $evePad(), $eveId, 'An event.');
+check('an event can\'t be replied to', str_contains(err(fn () => mb_pad_post($pdo, $evePad(), $eve, 'To an event.', $ev)), "there is no message #$ev"));
+$md = mb_export_markdown(mb_pad_read($pdo, $evePad(), null, 50));
+check('the export notes which message a reply answers', (bool) preg_match('/^## #3 from @eve, .* UTC \(reply to #1\)$/m', $md) && (bool) preg_match('/^## #1 from @eve, [^()]*$/m', $md));
+$pdo->exec("UPDATE principals SET plan_code = 'free' WHERE id = $eveId");
+$back = mb_pad_read($pdo, $evePad(), null, 50);
+check('back on Free the pad shows flat again but keeps what each reply answered', $back['threaded'] === false && $back['messages'][2]['reply_to'] === 1);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$tp['id']]);
+
 // A13: open pads can still be used while they last, but never created
 @mkdir("$root/data/boards", 0775, true);
 $ghost = 'zz-never-made-' . getmypid();
