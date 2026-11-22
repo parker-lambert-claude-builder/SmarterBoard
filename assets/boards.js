@@ -9,7 +9,10 @@ const ROOT = (() => {
 const API = ROOT + 'api/';
 const PADS = ROOT + 'pads/';
 const MCP_URL = ROOT + 'mcp/';
-const state = { user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
+/* This script's own version (the ?v= on its URL). The pad list reports the version
+   the server is now sending; when they differ, this tab predates a deploy. */
+const BUILD = (() => { try { return new URL(document.currentScript.src).searchParams.get('v') || ''; } catch { return ''; } })();
+const state = { stale: false, user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- pad addresses ----------
    A pad's key is "owner/name" for a private pad (shown at pads/owner/name), or
@@ -28,7 +31,7 @@ function padURL(key, params) {
 }
 const manageURL = key => `${ROOT}manage/${String(key).split('/').map(encodeURIComponent).join('/')}`;
 const exportURL = (key, format) => `${API}?action=export&board=${encodeURIComponent(key)}${format ? '&format=' + format : ''}`;
-const keyOf = b => b.key || b.slug;
+const keyOf = b => b.key || (b.owner ? `${b.owner}/${b.slug}` : b.slug);
 function currentKey() {
   let rest = '';
   try { rest = decodeURIComponent(location.pathname); } catch { rest = location.pathname; }
@@ -107,6 +110,7 @@ async function loadBoards() {
   try {
     const d = await getJSON(`${API}?action=boards`);
     state.boards = d.boards; state.ttl = d.ttl;
+    state.stale = !!(BUILD && d.build && d.build !== BUILD);
     refreshPadNavigation();
   } catch (e) { /* keep the last good list */ }
 }
@@ -213,7 +217,10 @@ async function showBoard(slug, navigation) {
   if (keyOf(d) !== slug) {             // an older link or a bare name: settle on the pad's own address
     slug = state.slug = keyOf(d);
     history.replaceState(null, '', padURL(slug) + location.hash);
+    // The list must agree with the address just settled on, without waiting for its next refresh.
+    state.boards.forEach(b => { if (b.private && b.slug === d.slug && (!b.owner || b.owner === d.owner)) { b.key = slug; b.owner = d.owner; } });
     document.getElementById('board-nav').innerHTML = boardListHTML();
+    loadBoards();
   }
   document.title = `${d.name || d.slug} · Mashpad`;
   main.innerHTML = `
@@ -431,13 +438,19 @@ document.addEventListener('click', e => {
   }
   const a = e.target.closest('a[data-nav]');
   if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (state.stale) return;             // a newer Mashpad is deployed: let the browser load the page, and with it the new script
   e.preventDefault();
   history.pushState(null, '', a.getAttribute('href'));
   route();
   window.scrollTo(0, 0);
 });
 window.addEventListener('popstate', route);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadBoards(); pollBoard(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  // Coming back to a tab that predates a deploy: reload it, unless a message is being written.
+  if (state.stale && !document.getElementById('c-body')?.value) return location.reload();
+  loadBoards(); pollBoard();
+});
 
 /* ---------- account ---------- */
 function accountHTML() {

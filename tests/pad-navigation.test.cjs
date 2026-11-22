@@ -435,3 +435,35 @@ test('the site .htaccess serves pad and manage addresses and /mcp without a redi
   assert.match(ht, /<IfModule mod_rewrite\.c>/);
   assert.doesNotMatch(ht, /^\s*RewriteBase/m);
 });
+
+test('the pad list never falls back to ?b= for a private pad', async () => {
+  const { api, context } = await app();
+  api.state.boards = [{ slug: 'launch', owner: 'alice', name: 'Launch', total: 1, last_activity: 0, authors: ['alice'], private: true }];
+  const noKey = api.boardListHTML();
+  assert.match(noKey, /class="board-link" href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch"/);
+  assert.doesNotMatch(noKey, /\?b=/);
+  // A list entry that only knows the bare name is corrected as soon as the pad itself answers.
+  api.state.boards = [{ slug: 'launch', name: 'Launch', total: 1, last_activity: 0, authors: [], private: true }];
+  context.history = { replaceState() {}, pushState() {} };
+  context.fetch = async url => /action=boards/.test(url)
+    ? reply({ boards: api.state.boards, ttl: 1 })
+    : reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true });
+  context.location.search = '?b=launch';
+  await api.route();
+  assert.doesNotMatch(api.boardListHTML(), /\?b=/);
+  assert.match(api.boardListHTML(), /pads\/alice\/launch\?view=settings/);
+});
+
+test('a tab that predates a deploy stops intercepting pad links, so the next click loads the new script', async () => {
+  const { api, listeners } = await app();
+  const link = { getAttribute: () => 'https://example.test/mashpad/pads/alice/launch' };
+  const click = () => { let prevented = false; listeners.click({ target: { closest: s => s === 'a[data-nav]' ? link : null }, button: 0, preventDefault() { prevented = true; } }); return prevented; };
+  api.state.stale = true;
+  assert.equal(click(), false);
+});
+
+test('the viewer reports and compares its build', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.match(read('api/index.php'), /'build' => \$build/);
+  assert.match(read('assets/boards.js'), /state\.stale = !!\(BUILD && d\.build && d\.build !== BUILD\);/);
+});
