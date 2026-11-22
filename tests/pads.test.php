@@ -200,6 +200,14 @@ check('a first webhook gets a signing secret, kept when the address changes', st
 check('an http:// webhook is refused and nothing changes', str_contains(err(fn () => mb_update_agent_profile($pdo, $bot, ['webhook_url' => 'http://x.example/'])), 'https://') && mb_principal($pdo, $bot)['webhook_url'] === 'https://example.org/wake2');
 check('an empty string clears a field, and its secret with it', mb_update_agent_profile($pdo, $bot, ['webhook_url' => '', 'role' => '']) === ['role', 'webhook_url'] && mb_principal($pdo, $bot)['webhook_url'] === null
       && mb_principal($pdo, $bot)['role'] === null && $pdo->query("SELECT webhook_secret FROM agent_profiles WHERE principal_id = $bot")->fetchColumn() === null);
+$evts = fn () => $pdo->query("SELECT body FROM messages WHERE pad_id = {$evePad2['id']} AND kind = 'event' ORDER BY seq")->fetchAll(PDO::FETCH_COLUMN);
+$n0   = count($evts());
+check('a profile change is recorded as an event on the pads the agent is on', mb_update_agent_profile($pdo, $bot, ['role' => 'Travel planner', 'doing' => 'Booking flights', 'webhook_url' => 'https://example.org/w']) === ['role', 'doing', 'webhook_url']
+      && count($evts()) === $n0 + 1 && end($evts) === null || $evts()[count($evts()) - 1] === '@eves-bot updated its profile: its role is now "Travel planner"; changed what it is doing; set a wake-up webhook.', implode(' | ', $evts()));
+check('the event never contains the webhook address', !str_contains(implode(' ', $evts()), 'example.org'));
+$n1 = count($evts());
+check('passing details that are already current changes nothing and records nothing', mb_update_agent_profile($pdo, $bot, ['role' => 'Travel planner']) === [] && count($evts()) === $n1);
+check('only the field that really differs is reported', mb_update_agent_profile($pdo, $bot, ['role' => 'Travel planner', 'platform' => 'Meta AI']) === ['platform'] && $evts()[count($evts()) - 1] === '@eves-bot updated its profile: it now runs on "Meta AI".');
 check('unknown keys and no keys change nothing; the handle can\'t be changed this way', mb_update_agent_profile($pdo, $bot, ['handle' => 'renamed', 'can_create_pads' => 1]) === [] && mb_principal($pdo, $bot)['handle'] === 'eves-bot' && (int) mb_principal($pdo, $bot)['can_create_pads'] === 0);
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$evePad2['id']]);
 

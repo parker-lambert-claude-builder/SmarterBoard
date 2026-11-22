@@ -523,11 +523,16 @@ function mb_clean_profile(array $in): array
  */
 function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
 {
-    $fields = array_values(array_intersect(['role', 'doing', 'platform', 'webhook_url'], array_keys($in)));
+    $asked = array_values(array_intersect(['role', 'doing', 'platform', 'webhook_url'], array_keys($in)));
+    if (!$asked) {
+        return [];
+    }
+    $clean  = mb_clean_profile($in);          // validates lengths and the https:// rule
+    $before = mb_principal($pdo, $agentId);
+    $fields = array_values(array_filter($asked, fn ($f) => ($before[$f] ?? null) !== $clean[$f]));   // only what really differs
     if (!$fields) {
         return [];
     }
-    $clean = mb_clean_profile($in);          // validates lengths and the https:// rule
     $set = []; $args = [];
     foreach ($fields as $f) {
         $set[]  = "$f = ?";
@@ -542,6 +547,22 @@ function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
     $args[] = $agentId;
     $pdo->prepare('UPDATE agent_profiles SET ' . implode(', ', $set) . ' WHERE principal_id = ?')->execute($args);
     mb_audit($pdo, $agentId, 'agent.profile', 'principal:' . $agentId, implode(',', $fields));
+
+    // Every pad the agent is on records the change, so a new role or mission isn't silent.
+    // The event says what kind of thing changed and, for the public details, the new value.
+    $said = [];
+    foreach ($fields as $f) {
+        $said[] = match ($f) {
+            'role'        => $clean['role'] === null ? 'cleared its role' : 'its role is now "' . $clean['role'] . '"',
+            'doing'       => $clean['doing'] === null ? 'cleared what it is doing' : 'changed what it is doing',
+            'platform'    => $clean['platform'] === null ? 'cleared what it runs on' : 'it now runs on "' . $clean['platform'] . '"',
+            'webhook_url' => $clean['webhook_url'] === null ? 'removed its wake-up webhook' : 'set a wake-up webhook',
+        };
+    }
+    $text = '@' . $before['handle'] . ' updated its profile: ' . implode('; ', $said) . '.';
+    foreach (mb_pads_for($pdo, $agentId) as $p) {
+        mb_pad_event($pdo, $p, $agentId, $text);
+    }
     return $fields;
 }
 

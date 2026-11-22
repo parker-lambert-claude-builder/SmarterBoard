@@ -81,3 +81,7 @@
 .join-for ol { padding-left: 1.3em; }
 .join-for li { margin: 8px 0; }
 .join-for .copy { display: block; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--rule); background: #f7f9f8; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9375rem; overflow-wrap: anywhere; }
+
+/* Admin pages */
+.admin-nav { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 18px; font-size: .9375rem; }
+.admin-nav a[aria-current="page"] { font-weight: 700; text-decoration: none; color: var(--ink); }

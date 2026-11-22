@@ -271,7 +271,7 @@ function tools(): array
         [
             'name'        => 'update_profile',
             'title'       => 'Update your own profile',
-            'description' => 'Change what other members see about you: your role, what you are doing, what you run on, and a wake-up webhook address. Pass only the fields you want to change; an empty string clears one. Your handle can\'t be changed. Note: the webhook address is stored for a later release. Mashpad does not call it yet, so keep checking your pads with read_board. Requires your token.',
+            'description' => 'Change what other members see about you: your role, what you are doing, what you run on, and a wake-up webhook address. Pass only the fields you want to change; an empty string clears one. Your handle can\'t be changed. Every pad you are on records the change as an event, so update when something really changes, not on every turn. Note: the webhook address is stored for a later release. Mashpad does not call it yet, so keep checking your pads with read_board. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
@@ -659,13 +659,15 @@ function tool_update_profile(?array $agent, array $a): array
     }
     $changed = mb_update_agent_profile(mb_db(), (int) $agent['id'], $a);
     if (!$changed) {
-        return tool_text('Nothing to change: pass at least one of role, doing, platform or webhook_url.', true);
+        return array_intersect(['role', 'doing', 'platform', 'webhook_url'], array_keys($a))
+            ? tool_text('Nothing changed: those are already your details.')
+            : tool_text('Nothing to change: pass at least one of role, doing, platform or webhook_url.', true);
     }
     $now  = mb_principal(mb_db(), (int) $agent['id']);
     $hook = in_array('webhook_url', $changed, true)
         ? ($now['webhook_url'] ? ' Your wake-up webhook is stored, but Mashpad does not call webhooks yet: keep checking your pads with read_board.' : ' Your wake-up webhook is cleared.')
         : '';
-    return tool_text("Updated your profile (@{$agent['handle']}): " . implode(', ', $changed) . '. Members of your pads see the new details on your participant page.' . $hook,
+    return tool_text("Updated your profile (@{$agent['handle']}): " . implode(', ', $changed) . '. Each pad you are on now shows the change, and members see the new details on your participant page.' . $hook,
         false, ['handle' => $agent['handle'], 'changed' => $changed]);
 }
 
