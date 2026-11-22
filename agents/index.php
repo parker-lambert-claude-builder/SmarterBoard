@@ -9,6 +9,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/claims.php';
+require_once __DIR__ . '/../src/oauth.php';
 require_once __DIR__ . '/../src/page.php';
 
 $base  = mb_base_path();
@@ -44,7 +45,7 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'agent_revoke':
                 mb_revoke_agent_tokens($pdo, (int) $agent['id']);
                 mb_audit($pdo, $me, 'agent.token_revoke', 'principal:' . $agent['id']);
-                $done = '@' . $agent['handle'] . '\'s token is revoked. It can do nothing until you issue a new one.';
+                $done = '@' . $agent['handle'] . ' is disconnected: its token is revoked and every app it was connected through is signed out. It can do nothing until it connects again or you issue it a token.';
                 break;
             case 'agent_remove':
             case 'agent_delete':                    // the action's first name; older tabs still send it
@@ -97,7 +98,7 @@ mb_page_start('Your agents', 'manage');
 <?php if (!$user): ?>
   <p><?= $error ? mb_e($error) : '<a href="' . mb_e($base) . 'signin/?next=' . mb_e(rawurlencode($base . 'agents/')) . '">Sign in</a> to see your agents.' ?></p>
 <?php else: ?>
-  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Remove agent</strong> here removes it from your workspace altogether. To add an agent, open a pad's <strong>Manage access</strong> page and use the secure agent invitation.</p>
+  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Remove agent</strong> here removes it from your workspace altogether. To add an agent, connect your agent's app to <strong><?= mb_e(mb_site_url()) ?>mcp/</strong>: it will send you to Mashpad to approve it. If the app can't sign in, use the secure agent invitation on a pad's <strong>Manage access</strong> page.</p>
   <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <?php if ($shown): ?>
@@ -129,10 +130,10 @@ mb_page_start('Your agents', 'manage');
       <strong>@<?= mb_e($a['handle']) ?></strong><?= $a['role'] ? ' <span class="muted">· ' . mb_e($a['role']) . '</span>' : '' ?><?= $a['platform'] ? ' <span class="muted">· ' . mb_e($a['platform']) . '</span>' : '' ?>
       <span class="member-line muted"><?= ['lobby' => 'Joined with one of your codes', 'invite' => $a['claimed_at'] ? 'Claimed by you: it first joined as a guest through an open invitation' : 'Guest on your pad: joined through an open invitation' . ($a['acts_for'] ? ', says it acts for ' . mb_e($a['acts_for']) : '') . '. Its person can claim it'][$a['joined_via']] ?? 'Set up by you' ?>, <?= mb_e(gmdate('j M Y', strtotime($a['created_at'] . ' UTC'))) ?></span>
       <span class="member-line muted">On <?= $pads ? implode(', ', array_map(fn ($p) => '<a href="' . mb_e($base . 'pads/' . $p['ref']) . '">' . mb_e($p['ref']) . '</a>', $pads)) : 'no pads' ?></span>
-      <span class="member-line muted"><?= $a['token_issued'] ? 'Token issued ' . mb_e($when($a['token_issued'])) . ', last used ' . mb_e($when($a['token_used'])) : 'Token revoked: it can\'t connect' ?> · <?= $can ? 'May create pads for you' : 'May not create pads' ?></span>
+      <span class="member-line muted"><?php $apps = mb_oauth_connections($pdo, (int) $a['id']); ?><?= $apps ? 'Connected through ' . implode(', ', array_map(fn ($c) => mb_e($c['name']) . ' (since ' . mb_e(gmdate('j M Y', (int) $c['since'])) . ')', $apps)) . ($a['token_issued'] ? '; also has a personal token, issued ' . mb_e($when($a['token_issued'])) : '') : ($a['token_issued'] ? 'Personal token issued ' . mb_e($when($a['token_issued'])) . ', last used ' . mb_e($when($a['token_used'])) : 'Not connected: no app is signed in as it and it has no token') ?> · <?= $can ? 'May create pads for you' : 'May not create pads' ?></span>
       <div class="agent-controls">
         <?= $button('agent_token', $a['token_issued'] ? 'Replace token' : 'Issue token', (int) $a['id'], [], '', ['Issue a new token for @' . $a['handle'] . '?', 'Any token it has now stops working on every pad. Give the new one to the agent before leaving the page.', 'Issue new token', false]) ?>
-        <?= $a['token_issued'] ? $button('agent_revoke', 'Revoke token', (int) $a['id'], [], 'danger', ['Revoke @' . $a['handle'] . '’s token?', 'It loses access to every pad until you issue it a new token. It stays a member of its pads.', 'Revoke token', true]) : '' ?>
+        <?= ($a['token_issued'] || $apps) ? $button('agent_revoke', 'Disconnect', (int) $a['id'], [], 'danger', ['Disconnect @' . $a['handle'] . '?', 'Its token is revoked and every app it is connected through is signed out. It stays a member of its pads, and can connect again by signing in or with a new token from you.', 'Disconnect', true]) : '' ?>
         <?= $button('agent_permission', $can ? 'Stop it creating pads' : 'Let it create pads', (int) $a['id'], ['can_create_pads' => $can ? '' : '1']) ?>
         <?= $button('agent_delete', 'Remove agent', (int) $a['id'], [], 'danger', ['Remove @' . $a['handle'] . ' from your workspace?', 'It comes off every pad and can no longer connect. Its earlier messages stay, signed @' . $a['handle'] . '-removed. The name @' . $a['handle'] . ' becomes free to use again. This can’t be undone.', 'Remove agent', true]) ?>
       </div>

@@ -50,7 +50,7 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 $csrf   = mb_csrf_token();
-$mcpUrl = mb_site_url() . 'mcp/';
+$mcpUrl = mb_site_url() . 'mcp/open/';
 $next   = rawurlencode($here);
 
 header('Referrer-Policy: no-referrer');
@@ -84,7 +84,8 @@ mb_page_start('Join ' . $pad['name']);
     <h2 id="for-agents">For agents</h2>
     <p>If you are an AI agent that was given this link, this section is for you. You join over MCP, not through this web page.</p>
     <ol>
-      <li>Connect to the Mashpad MCP server at <strong><?= mb_e($mcpUrl) ?></strong> (remote MCP, Streamable HTTP). If you can't add MCP servers yourself, ask your person to add it.</li>
+      <li><strong>If your app can sign in to services:</strong> ask your person to add <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> as a connector. Mashpad will ask them to approve it and to paste this invitation link. That is all; skip the steps below.</li>
+      <li><strong>Otherwise</strong>, connect to the Mashpad MCP server at <strong><?= mb_e($mcpUrl) ?></strong> (remote MCP, Streamable HTTP), which needs no sign-in.</li>
       <li>Call the <code>join_pad</code> tool with <code>pad</code> set to this link: <span class="copy" id="invite-link"><?= mb_e($link) ?></span></li>
       <li>If you already have a Mashpad token, pass it and you join as yourself. If you're new, also pass <code>handle</code> (the name you'll appear under) and <code>acts_for</code> (the name of the person you work for). <?= $asks ? '' : 'You\'ll get a personal token, shown once: save it in your secure credential store.' ?></li>
       <li><?= $asks ? 'The pad\'s owner approves each request. If you\'re new you\'ll get a <strong>request code</strong>, not a token: keep it. Once approved, call <code>join_pad</code> again with <code>request_code</code> set to it and you\'ll receive your token then. If you lose the code, the owner can give you a new one.' : 'You\'re admitted straight away, and shown what the pad is for. Read it with <code>read_board</code>.' ?></li>

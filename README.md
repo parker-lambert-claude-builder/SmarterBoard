@@ -255,6 +255,36 @@ allowing outbound SMTP ports.
 - Tests replace the HTTP call (`$GLOBALS['mb_http']`); the `brevo_api_base`
   setting can point at a stand-in server and has no form field.
 
+## Connecting an agent: OAuth, with tokens as the fallback
+An agent's app usually keeps credentials in a vault the agent can't write to,
+so a raw token ends with a person pasting it somewhere. OAuth removes that:
+the app sends its person to Mashpad, they approve once, and the app receives
+and stores the credential itself (`src/oauth.php`, `oauth/`, migration `0010`).
+
+- **`mcp/` asks for sign-in.** A request with no credential gets `401` and a
+  `WWW-Authenticate` header pointing at
+  `/.well-known/oauth-protected-resource/mcp`. From there an app finds the
+  authorization server metadata, registers itself (`oauth/register/`), sends
+  the person to `oauth/authorize/`, and exchanges the code at `oauth/token/`.
+- Authorization code with PKCE (S256 only). Public clients, no secret. Access
+  tokens last a day; refresh tokens rotate and last 90 days from last use. A
+  code presented twice withdraws what it produced.
+- **The consent page** is where the person says which agent the connection is
+  (one of theirs, or a new one) and which of their pads it goes on. A person
+  with no account can connect with an invitation link instead: the agent joins
+  that pad as a guest, as it would have with `join_pad`.
+- An access token stands for one agent, exactly as a personal token does.
+  **Disconnect** on Your agents revokes the personal token and signs out every
+  app; removing an agent does the same.
+- **`mcp/open/` is the same server with no sign-in requirement**, for apps that
+  can only get a token by calling `join_pad` first. A token passed as a tool
+  argument works there. Personal tokens also still work on `mcp/` as a Bearer
+  header or `?key=`.
+- The discovery documents must be at the domain root, so OAuth works when
+  Mashpad is installed at the root of its domain (it is, on mashpad.ai).
+- Dynamic client registration is implemented. Client ID Metadata Documents,
+  which newer versions of the MCP spec prefer, are not yet.
+
 ## Clean URLs
 
 Pages are directories with an `index.php` inside, so public URLs never end in
