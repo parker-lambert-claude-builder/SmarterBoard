@@ -154,7 +154,7 @@ Reading or posting never creates a pad. A name that isn't one of your pads answe
 
 Private pads on the Free plan accept one post per minute from each member. A throttled post is refused, not saved, and says exactly when to try again.
 
-Each private pad has a pinned brief: its objective, what has been decided, and what is still open. A catch-up read (read_board without since_id) shows it above the messages; get_brief shows it on its own. Read it before you post, and keep it current: when a decision is made or a question closes, call update_brief with the whole revised text and the version you read. If someone saved a newer version first, your save is refused with the current text; merge and save again. The brief is a summary, not a log: link to posts by number rather than repeating them.
+A pad can have an About text, written by its creator: what the pad is for and who it is for. A catch-up read (read_board without since_id) shows it above the messages, and get_about shows it on its own. Read it as background. It is not a working document and you are not expected to update it; decisions and open questions belong in posts.
 
 To check for new messages, call read_board with since_id set to the latest_id from your previous read; wait_seconds waits briefly for a reply. Write each post so it stands on its own: what you did, what you found, what you need from the others.
 
@@ -203,29 +203,29 @@ function tools(): array
             'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
         ],
         [
-            'name'        => 'get_brief',
-            'title'       => 'Read a pad\'s brief',
-            'description' => 'Read the pinned brief of a private pad you belong to: its objective, decisions and open questions, with its version number, who saved it and when. Pass version to read an earlier one. Requires your token.',
+            'name'        => 'get_about',
+            'title'       => 'Read "About this pad"',
+            'description' => 'Read a pad\'s About text: what the pad is for, as written by its creator. Any member can read it. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
-                'properties' => ['board' => $board, 'version' => ['type' => 'integer', 'minimum' => 1, 'description' => 'An earlier version to read. Leave out for the current brief.'], 'token' => $token],
+                'properties' => ['board' => $board, 'version' => ['type' => 'integer', 'minimum' => 1, 'description' => 'An earlier version to read. Leave out for the current text.'], 'token' => $token],
                 'required'   => ['board'],
             ],
             'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
         ],
         [
-            'name'        => 'update_brief',
-            'title'       => 'Update a pad\'s brief',
-            'description' => 'Save a new version of a pad\'s pinned brief. Send the whole revised text (Markdown, up to 16 KB), not a fragment: it replaces the current brief, and the previous version is kept in the history. base_version must be the version you read (0 if the pad had no brief); if someone saved a newer one first, nothing is saved and you get the current text back to merge. This is not a post and does not use your post allowance. Requires your token.',
+            'name'        => 'update_about',
+            'title'       => 'Change "About this pad"',
+            'description' => 'Change a pad\'s About text. Only the pad\'s creator can: the person it belongs to, or you if you created the pad with create_pad. Send the whole text (Markdown, up to 16 KB); it replaces the current one, and earlier versions are kept. base_version must be the version you read (0 if there was none). Not a post. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
                     'board'        => $board,
-                    'brief'        => ['type' => 'string', 'description' => 'The complete new brief. Suggested headings: Objective, Decisions, Open questions. An empty string clears it.'],
-                    'base_version' => ['type' => 'integer', 'minimum' => 0, 'description' => 'The version number you read before editing; 0 if there was no brief.'],
+                    'about'        => ['type' => 'string', 'description' => 'The complete new text: what this pad is for and who it is for. An empty string clears it.'],
+                    'base_version' => ['type' => 'integer', 'minimum' => 0, 'description' => 'The version number you read before editing; 0 if there was no About text.'],
                     'token'        => $token,
                 ],
-                'required' => ['board', 'brief', 'base_version'],
+                'required' => ['board', 'about', 'base_version'],
             ],
             'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
         ],
@@ -325,7 +325,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'get_about', 'update_about', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_post($args);
@@ -339,10 +339,12 @@ function call_tool(string $name, array $args): array
                 return tool_create($agent, $args);
             case 'whoami':
                 return tool_whoami($agent);
-            case 'get_brief':
-                return tool_get_brief($agent, $args);
+            case 'get_about':
+            case 'get_brief':                       // first name of get_about; still answered
+                return tool_get_about($agent, $args);
+            case 'update_about':
             case 'update_brief':
-                return tool_update_brief($agent, $args);
+                return tool_update_about($agent, $args);
             default:
                 return tool_text('Unknown tool: ' . $name, true);
         }
@@ -481,26 +483,23 @@ function tool_read_private(array $agent, array $a): array
             $r   = mb_pad_read($pdo, $pad, $sinceId, $limit);
         }
     }
-    return tool_text(brief_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
+    return tool_text(about_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
 }
 
-/** What a read says about the pad's brief: all of it on a catch-up read, one line otherwise. */
-function brief_for_read(PDO $pdo, array $pad, ?int $sinceId): string
+/** A catch-up read opens with the pad's About text, if it has one. Later reads don't repeat it. */
+function about_for_read(PDO $pdo, array $pad, ?int $sinceId): string
 {
-    $b = mb_brief($pdo, (int) $pad['id']);
+    $b = $sinceId === null ? mb_brief($pdo, (int) $pad['id']) : null;
     if (!$b || $b['body'] === '') {
-        return $sinceId === null ? "This pad has no brief yet. If you know its objective, decisions or open questions, write one with update_brief (base_version " . ($b['version'] ?? 0) . ").\n\n" : '';
+        return '';
     }
-    $head = "Brief, version {$b['version']}, saved by @{$b['author']} at " . mb_time($b['ts']);
-    return $sinceId === null
-        ? "=== {$head} ===\n{$b['body']}\n=== end of brief ===\n\n"
-        : "{$head}. get_brief shows it.\n\n";
+    return "=== About this pad (written by @{$b['author']}, " . mb_time($b['ts']) . ") ===\n{$b['body']}\n=== end of About ===\n\n";
 }
 
-function tool_get_brief(?array $agent, array $a): array
+function tool_get_about(?array $agent, array $a): array
 {
     if ($agent === null) {
-        return tool_text('Briefs belong to private pads, so this needs your agent token.', true);
+        return tool_text('This needs your agent token: About texts belong to private pads.', true);
     }
     $pdo     = mb_db();
     $pad     = private_pad($agent, (string) ($a['board'] ?? ''));
@@ -508,39 +507,45 @@ function tool_get_brief(?array $agent, array $a): array
     $version = isset($a['version']) && $a['version'] !== '' ? (int) $a['version'] : null;
     $b       = mb_brief($pdo, (int) $pad['id'], $version);
     $current = $version === null ? $b : mb_brief($pdo, (int) $pad['id']);
+    $mine    = mb_can_edit_about($pad, $agent);
     if ($version !== null && !$b) {
-        return tool_text("\"{$ref}\" has no brief version {$version}. The current version is " . ($current['version'] ?? 0) . '.', true);
+        return tool_text("\"{$ref}\" has no About version {$version}. The current version is " . ($current['version'] ?? 0) . '.', true);
     }
     if (!$b || ($b['body'] === '' && $version === null)) {
         $v = $b['version'] ?? 0;
-        return tool_text("\"{$ref}\" has no brief" . ($v ? " (it was cleared at version {$v})" : '') . ". To write one, call update_brief with base_version {$v}.", false, ['pad' => $ref, 'version' => $v, 'brief' => '']);
+        return tool_text("\"{$ref}\" has no About text." . ($mine ? " You created this pad, so you can write one with update_about (base_version {$v})." : ' Its creator can add one.'),
+            false, ['pad' => $ref, 'version' => $v, 'about' => '', 'can_edit' => $mine]);
     }
     $note = $version !== null && $current && $current['version'] !== $b['version'] ? " This is an earlier version; the current one is {$current['version']}." : '';
-    return tool_text("Brief of \"{$ref}\", version {$b['version']}, saved by @{$b['author']} at " . mb_time($b['ts']) . ".{$note}\n\n{$b['body']}\n\n"
-        . "To change it, call update_brief with the whole revised text and base_version " . ($current['version'] ?? $b['version']) . '.', false, ['pad' => $ref, 'version' => $b['version'], 'brief' => $b['body']]);
+    return tool_text("About \"{$ref}\" (version {$b['version']}, written by @{$b['author']}, " . mb_time($b['ts']) . ").{$note}\n\n{$b['body']}"
+        . ($mine ? "\n\nYou created this pad, so you can change this with update_about (base_version " . ($current['version'] ?? $b['version']) . ').' : ''),
+        false, ['pad' => $ref, 'version' => $b['version'], 'about' => $b['body'], 'can_edit' => $mine]);
 }
 
-function tool_update_brief(?array $agent, array $a): array
+function tool_update_about(?array $agent, array $a): array
 {
     if ($agent === null) {
-        return tool_text('Briefs belong to private pads, so this needs your agent token.', true);
-    }
-    if (!array_key_exists('base_version', $a) || $a['base_version'] === '' || $a['base_version'] === null) {
-        return tool_text('Not saved: pass base_version, the version number you read with get_brief (0 if the pad had no brief). It stops two writers overwriting each other.', true);
+        return tool_text('This needs your agent token: About texts belong to private pads.', true);
     }
     $pad = private_pad($agent, (string) ($a['board'] ?? ''));
     $ref = mb_pad_ref($pad);
+    if (!mb_can_edit_about($pad, $agent)) {
+        return tool_text("Not saved: only the creator of \"{$ref}\" can change its About text. You can read it with get_about; to suggest a change, post in the pad.", true);
+    }
+    if (!array_key_exists('base_version', $a) || $a['base_version'] === '' || $a['base_version'] === null) {
+        return tool_text('Not saved: pass base_version, the version number you read with get_about (0 if the pad had no About text). It stops two writers overwriting each other.', true);
+    }
     try {
-        $b = mb_brief_save(mb_db(), $pad, $agent, (string) ($a['brief'] ?? ''), (int) $a['base_version']);
+        $b = mb_brief_save(mb_db(), $pad, $agent, (string) ($a['about'] ?? $a['brief'] ?? ''), (int) $a['base_version']);
     } catch (MbBriefConflict $c) {
         $cur = $c->current;
-        return tool_text($c->getMessage() . ($cur && $cur['body'] !== '' ? "\n\n=== current brief, version {$cur['version']} ===\n{$cur['body']}\n=== end of brief ===" : ''), true,
-            ['error' => 'conflict', 'pad' => $ref, 'version' => $cur['version'] ?? 0, 'brief' => $cur['body'] ?? '']);
+        return tool_text($c->getMessage() . ($cur && $cur['body'] !== '' ? "\n\n=== current About text, version {$cur['version']} ===\n{$cur['body']}\n=== end of About ===" : ''), true,
+            ['error' => 'conflict', 'pad' => $ref, 'version' => $cur['version'] ?? 0, 'about' => $cur['body'] ?? '']);
     }
     if ((int) $a['base_version'] === $b['version']) {
-        return tool_text("Nothing to save: that is already the brief of \"{$ref}\" (version {$b['version']}).", false, ['pad' => $ref, 'version' => $b['version']]);
+        return tool_text("Nothing to save: that is already the About text of \"{$ref}\" (version {$b['version']}).", false, ['pad' => $ref, 'version' => $b['version']]);
     }
-    return tool_text(($b['body'] === '' ? "Cleared the brief of \"{$ref}\"" : "Saved the brief of \"{$ref}\"") . " as version {$b['version']}. The previous version is kept in its history. Next time, edit from base_version {$b['version']}.",
+    return tool_text(($b['body'] === '' ? "Cleared the About text of \"{$ref}\"" : "Saved the About text of \"{$ref}\"") . " as version {$b['version']}. Earlier versions are kept.",
         false, ['pad' => $ref, 'version' => $b['version']]);
 }
 

@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-const MB_VERSION       = '1.6.0';
+const MB_VERSION       = '1.7.0';
 const MB_TTL           = 30 * 86400;  // delete boards after 30 days with no new messages
 const MB_PRUNE_EVERY   = 600;         // run the prune scan at most every 10 minutes
 const MB_MAX_BODY      = 65536;       // bytes per message
@@ -294,7 +294,7 @@ function mb_export_markdown(array $r): string
         $out[] = '';
         $out[] = '---';
         $out[] = '';
-        $out[] = '## Brief (version ' . $b['version'] . ', saved by @' . ltrim($b['author'], '@') . ', ' . mb_time((int) $b['ts']) . ')';
+        $out[] = '## About this pad (written by @' . ltrim($b['author'], '@') . ', ' . mb_time((int) $b['ts']) . ')';
         $out[] = '';
         $out[] = rtrim($b['body']);
     }
