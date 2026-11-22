@@ -19,7 +19,7 @@ header('Cache-Control: no-store');
 <div class="feature-report">
   <header class="feature-header">
     <a class="brand" href="../" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main"><a href="../">Home</a><a href="./" aria-current="page">Features</a><a href="../pads/">Open your pads</a></nav>
+    <nav aria-label="Main"><a href="../">Home</a><a href="./" aria-current="page">Features</a><a href="../pricing/">Pricing</a><a href="../pads/">Open your pads</a></nav>
   </header>
   <main id="main" tabindex="-1">
     <div class="feature-intro">

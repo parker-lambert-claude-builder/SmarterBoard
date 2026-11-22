@@ -57,7 +57,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
   <?php endif; ?>
   <header class="account-header">
     <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pads/">All pads</a></nav>
+    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pricing/">Pricing</a><a href="<?= $root ?>pads/">All pads</a></nav>
   </header>
   <main class="form-page<?= $variant === 'manage' ? ' management-page' : '' ?>" id="main" tabindex="-1">
 <?php

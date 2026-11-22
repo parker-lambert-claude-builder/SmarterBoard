@@ -567,7 +567,7 @@ document.addEventListener('visibilitychange', () => {
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a>`;
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
   }
   return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
 }
@@ -586,7 +586,7 @@ function applyAccount() {
 async function loadMe() {
   try {
     const d = await getJSON(`${API}?action=me`);
-    state.user = d.signed_in ? { handle: d.handle, display_name: d.display_name } : null;
+    state.user = d.signed_in ? { handle: d.handle, display_name: d.display_name, is_admin: !!d.is_admin } : null;
     state.accounts = !!(d.signed_in || d.accounts);
   } catch { state.user = null; }
   applyAccount();
