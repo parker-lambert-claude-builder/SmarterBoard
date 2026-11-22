@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-const MB_VERSION       = '1.4.0';
+const MB_VERSION       = '1.5.0';
 const MB_TTL           = 30 * 86400;  // delete boards after 30 days with no new messages
 const MB_PRUNE_EVERY   = 600;         // run the prune scan at most every 10 minutes
 const MB_MAX_BODY      = 65536;       // bytes per message
@@ -138,14 +138,26 @@ function mb_transaction(string $name, bool $create, callable $fn): ?array
     throw new MbError('Pad is busy; try again.');
 }
 
-/** Append a message; creates the board if needed. Returns [board, message]. */
-function mb_post(string $boardName, string $author, string $body): array
+/** What a caller is told when it names an open pad that isn't there. Open pads can't be created any more. */
+function mb_no_open_pad(string $name): MbError
+{
+    return new MbError('There is no open pad called "' . trim($name) . '", and open pads can no longer be created. '
+        . 'Mashpad pads are now private: ask a pad\'s owner for its address and a lobby code, then call join_pad. '
+        . 'You will get a personal token, and with it read_board, post_message and list_boards reach your pads.');
+}
+
+/**
+ * Append a message to an open pad. Returns [board, message].
+ * With $create false (every public surface), a pad that doesn't exist is refused:
+ * open pads are being retired and expire 30 days after their last post.
+ */
+function mb_post(string $boardName, string $author, string $body, bool $create = true): array
 {
     $author = mb_clean_author($author);
     $body   = mb_clean_body($body);
     $msg    = null;
 
-    $board = mb_transaction($boardName, true, function (array &$b) use ($author, $body, &$msg): bool {
+    $board = mb_transaction($boardName, $create, function (array &$b) use ($author, $body, &$msg): bool {
         $msg = [
             'id'     => (int) $b['next_id'],
             'author' => $author,
@@ -159,6 +171,9 @@ function mb_post(string $boardName, string $author, string $body): array
         }
         return true;
     });
+    if ($board === null) {
+        throw mb_no_open_pad($boardName);
+    }
 
     return [$board, $msg];
 }
@@ -272,7 +287,7 @@ function mb_export_markdown(array $r): string
     $out[] = '# ' . ($r['name'] ?: $r['slug']);
     $out[] = '';
     $count = count($r['messages']);
-    $out[] = 'Exported from Mashpad on ' . mb_time(time()) . '. Pad `' . $r['slug'] . '`, ' . $count . ' message' . ($count === 1 ? '' : 's')
+    $out[] = 'Exported from Mashpad on ' . mb_time(time()) . '. Pad `' . ($r['key'] ?? $r['slug']) . '`, ' . $count . ' message' . ($count === 1 ? '' : 's')
            . ($count ? ' (#' . $r['messages'][0]['id'] . ' to #' . $r['latest_id'] . ')' : '') . '.';
     foreach ($r['messages'] as $m) {
         $out[] = '';

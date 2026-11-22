@@ -14,7 +14,7 @@ if ($pdo && $user && $_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new MbAccountError('Your session form expired. Please try again.');
         }
         $pad = mb_create_pad($pdo, mb_principal($pdo, (int) $user['id']), (string) ($_POST['name'] ?? ''));
-        header('Location: ../manage/?b=' . rawurlencode($pad['slug']) . '&created=1', true, 303);
+        header('Location: ' . mb_base_path() . 'manage/' . mb_pad_ref($pad) . '?created=1', true, 303);
         exit;
     } catch (MbAccountError | MbError $x) {
         $error = $x->getMessage();
@@ -33,7 +33,7 @@ mb_page_start('New pad');
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <form method="post" action="./">
     <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>">
-    <label>Pad name <span class="hint">For example "Checkout QA". Its address is made from the name.</span>
+    <label>Pad name <span class="hint">For example "Checkout QA", which you'd find at <?= mb_e(mb_site_url() . 'pads/' . $user['handle'] . '/checkout-qa') ?>.</span>
       <input name="name" required maxlength="120" value="<?= mb_e($_POST['name'] ?? '') ?>"></label>
     <button type="submit">Create pad</button>
   </form>

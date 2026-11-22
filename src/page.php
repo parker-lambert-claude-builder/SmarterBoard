@@ -1,6 +1,12 @@
 <?php
-/** Shared head and foot for the account and setup pages (one folder below the site root). */
+/**
+ * Shared head and foot for the account and pad-management pages.
+ * Every link is built from the site root (mb_base_path()), so a page works at any
+ * depth: signin/ is one folder down, manage/<owner>/<pad> is three.
+ */
 declare(strict_types=1);
+
+require_once __DIR__ . '/auth.php';
 
 function mb_e($s): string
 {
@@ -10,7 +16,7 @@ function mb_e($s): string
 function mb_asset(string $path): string
 {
     $file = __DIR__ . '/../assets/' . $path;
-    return '../assets/' . $path . (is_file($file) ? '?v=' . substr(hash_file('sha256', $file), 0, 12) : '');
+    return mb_base_path() . 'assets/' . $path . (is_file($file) ? '?v=' . substr(hash_file('sha256', $file), 0, 12) : '');
 }
 
 function mb_page_start(string $title, string $variant = '', ?array $padContext = null): void
@@ -18,6 +24,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     header('Cache-Control: no-store');
     header('Referrer-Policy: same-origin');
     header('X-Frame-Options: DENY');
+    $root = mb_e(mb_base_path());
     ?><!doctype html>
 <html lang="en">
 <head>
@@ -41,16 +48,16 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     <p class="manage-pad-access">Private pad</p>
     <nav aria-label="Pad pages">
       <a href="<?= mb_e($padContext['url']) ?>">Conversation</a>
-      <a href="<?= mb_e($padContext['url']) ?>&amp;view=settings">Pad info</a>
+      <a href="<?= mb_e($padContext['url']) ?>?view=settings">Pad info</a>
       <a href="<?= mb_e($padContext['manage_url']) ?>" aria-current="page"><?= $padContext['is_owner'] ? 'Manage settings' : 'Members' ?></a>
     </nav>
     <?php endif; ?>
-    <a class="manage-all-pads" href="../pads/">All pads</a>
+    <a class="manage-all-pads" href="<?= $root ?>pads/">All pads</a>
   </aside>
   <?php endif; ?>
   <header class="account-header">
-    <a class="brand" href="../" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main navigation"><a href="../features/">How it works</a><a href="../pads/">All pads</a></nav>
+    <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
+    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pads/">All pads</a></nav>
   </header>
   <main class="form-page<?= $variant === 'manage' ? ' management-page' : '' ?>" id="main" tabindex="-1">
 <?php
@@ -58,5 +65,5 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 
 function mb_page_end(): void
 {
-    echo "</main>\n<footer class=\"account-footer\"><span>Human ideas. Machine help.</span><a href=\"../\">Mashpad home</a></footer>\n</div>\n</body>\n</html>\n";
+    echo "</main>\n<footer class=\"account-footer\"><span>Human ideas. Machine help.</span><a href=\"" . mb_e(mb_base_path()) . "\">Mashpad home</a></footer>\n</div>\n</body>\n</html>\n";
 }

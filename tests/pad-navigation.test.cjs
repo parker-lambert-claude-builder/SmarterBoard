@@ -294,23 +294,86 @@ test('pad settings offer Markdown and JSON export of the whole pad', async () =>
   context.location.search = '?b=launch-review&view=settings';
   await api.route();
   const html = element('main').innerHTML;
-  assert.match(html, /href="https:\/\/example\.test\/mashpad\/api\.php\?action=export&amp;board=launch-review" download>Download Markdown/);
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/api\/\?action=export&amp;board=launch-review" download>Download Markdown/);
   assert.match(html, /action=export&amp;board=launch-review&amp;format=json" download>Download JSON/);
 });
 
 test('private pads are marked, credit an agent creator, and link to member management', async () => {
   const { api, context, element } = await app();
-  api.state.boards = [{ slug: 'dev', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true, created_by: 'muse' }];
+  api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true, created_by: 'muse' }];
   const html = api.boardListHTML();
-  assert.match(html, /<span class="pad-private">Private<\/span>/);
+  assert.match(html, /<span class="pad-private">Private<\/span> <span class="pad-address">dylan\/dev<\/span>/);
   assert.match(html, /created by @muse/);
-  context.fetch = async () => reply({ ...pad(), slug: 'dev', name: 'Dev', owned: true, is_owner: true });
-  context.location.search = '?b=dev';
+  context.fetch = async () => reply({ ...pad(), slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', owned: true, is_owner: true });
+  context.location.pathname = '/mashpad/pads/dylan/dev';
   await api.route();
-  assert.match(element('main').innerHTML, /href="https:\/\/example\.test\/mashpad\/manage\/\?b=dev">Members</);
-  context.location.search = '?b=dev&view=settings';
+  assert.match(element('main').innerHTML, /href="https:\/\/example\.test\/mashpad\/manage\/dylan\/dev">Members</);
+  context.location.search = '?view=settings';
   await api.route();
   assert.match(element('main').innerHTML, />Manage settings<\/a>/);
+  assert.match(element('main').innerHTML, /api\/\?action=export&amp;board=dylan%2Fdev" download>Download Markdown/);
+});
+
+test('a private pad is addressed as pads/owner/name everywhere, never with ?b= or .php', async () => {
+  const { api, context, element } = await app();
+  api.state.boards = [{ slug: 'launch', key: 'alice/launch', owner: 'alice', name: 'Launch', total: 1, last_activity: 0, authors: ['alice'], private: true }];
+  const list = api.boardListHTML();
+  assert.match(list, /class="board-link" href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch" data-nav="alice\/launch"/);
+  assert.match(list, /href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch\?view=settings"/);
+  assert.match(list, /href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch\?view=agent&amp;agent=alice"/);
+  const requests = [];
+  context.fetch = async url => { requests.push(url); return reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, is_owner: false }); };
+  context.location.pathname = '/mashpad/pads/Alice/Launch/';
+  for (const view of ['', '?view=settings']) {
+    context.location.search = view;
+    await api.route();
+    const html = list + element('main').innerHTML;
+    assert.doesNotMatch(html, /\?b=|\.php/);
+  }
+  assert.ok(requests.every(u => /\/api\/\?action=read&board=alice%2Flaunch/.test(u)), requests.join(' '));
+});
+
+test('a bare name that turns out to be a private pad settles on the pad\'s full address', async () => {
+  const { api, context } = await app();
+  const replaced = [];
+  context.history = { replaceState: (a, b, url) => replaced.push(url), pushState() {} };
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true });
+  context.location.search = '?b=launch';
+  context.location.hash = '#notes';
+  await api.route();
+  assert.deepEqual(replaced, ['https://example.test/mashpad/pads/alice/launch#notes']);
+  assert.equal(api.state.slug, 'alice/launch');
+});
+
+test('a name shared by two of your pads offers both addresses instead of guessing', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async () => reply({ error: 'ambiguous', message: 'More than one', choices: ['alice/launch', 'bob/launch'] }, 409);
+  context.location.search = '?b=launch';
+  await api.route();
+  const html = element('main').innerHTML;
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch" data-nav="alice\/launch">alice\/launch</);
+  assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/bob\/launch" data-nav="bob\/launch">bob\/launch</);
+});
+
+test('an older open pad keeps its ?b= address until it expires', async () => {
+  const { api } = await app();
+  api.state.boards = [{ slug: 'old-open', name: 'Old open', total: 1, last_activity: 0, authors: [] }];
+  assert.match(api.boardListHTML(), /class="board-link" href="https:\/\/example\.test\/mashpad\/pads\/\?b=old-open"/);
+  assert.match(api.boardListHTML(), /pads\/\?b=old-open&amp;view=settings"/);
+});
+
+test('a pad nobody can see is described the same way whether or not it exists', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async () => reply({ error: 'not_found' }, 404);
+  const seen = [];
+  for (const [pathname, search] of [['/mashpad/pads/alice/secret', ''], ['/mashpad/pads/alice/never-made', ''], ['/mashpad/pads/', '?b=secret']]) {
+    context.location.pathname = pathname; context.location.search = search;
+    await api.route();
+    seen.push(element('main').innerHTML.replace(/<h1>.*?<\/h1>/, ''));
+  }
+  assert.equal(seen[0], seen[1]);
+  assert.equal(seen[1], seen[2]);
+  assert.doesNotMatch(seen[0], /as soon as an agent posts/);
 });
 
 test('open pads show no private marker or members link', async () => {
@@ -349,8 +412,26 @@ test('pad info distinguishes member access and uses server expiry instead of a f
 test('the MCP address Mashpad shows never carries a .php file name', () => {
   const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   assert.match(read('assets/boards.js'), /const MCP_URL = ROOT \+ 'mcp\/';/);
-  assert.match(read('manage/index.php'), /\$mcpUrl\s*=\s*\$site \. 'mcp\/';/);
+  assert.match(read('manage/index.php'), /\$mcpUrl\s*=\s*mb_site_url\(\) \. 'mcp\/';/);
   const mcp = read('mcp/index.php');
   assert.ok(!/parker-lambert-sandbox/.test(mcp), 'MCP instructions must not name a fixed host');
   assert.match(mcp, /\$pads = mb_site_url\(\) \. 'pads\/';/);
+});
+
+test('no page, script or MCP text builds a private pad link the old way', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  for (const f of ['assets/boards.js', 'manage/index.php', 'create/index.php', 'src/page.php', 'src/pads.php', 'mcp/index.php']) {
+    const code = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(\/\/|\*).*$/gm, '');
+    assert.doesNotMatch(code, /manage\/\?b=|api\.php|mcp\/index\.php/, f);
+    if (f !== 'assets/boards.js') assert.doesNotMatch(code, /pads\/\?b=/, f);
+  }
+  assert.match(read('assets/boards.js'), /const API = ROOT \+ 'api\/';/);
+});
+
+test('the site .htaccess serves pad and manage addresses and /mcp without a redirect', () => {
+  const ht = fs.readFileSync(path.join(__dirname, '..', '.htaccess'), 'utf8');
+  assert.match(ht, /RewriteRule \^mcp\$ %\{ENV:BASE\}mcp\/index\.php \[L\]/);
+  assert.match(ht, /RewriteRule \^\(pads\|manage\)\//);
+  assert.match(ht, /<IfModule mod_rewrite\.c>/);
+  assert.doesNotMatch(ht, /^\s*RewriteBase/m);
 });
