@@ -160,6 +160,23 @@ $pdo->exec("UPDATE plans SET max_owned_pads = 3 WHERE code = 'free'");
 check('plan pad limit enforced', str_contains(err(fn () => mb_create_pad($pdo, $dylan, 'Fourth')), 'allows 3 pads'));
 $pdo->exec("UPDATE plans SET max_owned_pads = NULL WHERE code = 'free'");
 
+// A code's new agent belongs to whoever made the code
+$evePad2 = mb_create_pad($pdo, $eve, 'Code Owners');
+mb_add_member($pdo, $evePad2, $dylanId, 'added');
+[$ownerCode]  = mb_lobby_create($pdo, $evePad2, $eveId);
+[$memberCode] = mb_lobby_create($pdo, $evePad2, $dylanId);
+[$a1] = mb_join_pad($pdo, 'eve/code-owners', $ownerCode, null, ['handle' => 'eves-bot']);
+[$a2] = mb_join_pad($pdo, 'eve/code-owners', $memberCode, null, ['handle' => 'dylans-bot']);
+check('an agent that joins with the owner\'s code belongs to the owner', (int) $a1['owner_id'] === $eveId);
+check('an agent that joins with a member\'s code belongs to that member, not the pad\'s owner', (int) $a2['owner_id'] === $dylanId && mb_owned_agent($pdo, $dylanId, (int) $a2['id']) !== null && mb_owned_agent($pdo, $eveId, (int) $a2['id']) === null);
+check('both are on the pad', mb_pad_for($pdo, 'eve/code-owners', (int) $a1['id']) !== null && mb_pad_for($pdo, 'eve/code-owners', (int) $a2['id']) !== null);
+check('a member sees only the codes they made; the owner sees all', count(mb_lobby_active($pdo, (int) $evePad2['id'], $dylanId)) === 1 && count(mb_lobby_active($pdo, (int) $evePad2['id'])) === 2);
+[$deadCode] = mb_lobby_create($pdo, $evePad2, $dylanId);
+mb_remove_member($pdo, $evePad2, $dylanId, $eveId);
+check('a code stops working the moment its maker is removed from the pad', str_contains(err(fn () => mb_join_pad($pdo, 'eve/code-owners', $deadCode, null, ['handle' => 'too-late'])), 'isn\'t valid')
+      && (int) $pdo->query("SELECT COUNT(*) FROM principals WHERE handle = 'too-late'")->fetchColumn() === 0);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$evePad2['id']]);
+
 // Removal
 mb_remove_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), (int) $meta['id'], $dylanId);
 check('removed member loses access at once', mb_pad_for($pdo, 'mashpad-dev', (int) $meta['id']) === null);
