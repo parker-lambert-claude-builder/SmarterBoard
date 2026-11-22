@@ -273,6 +273,14 @@ and stores the credential itself (`src/oauth.php`, `oauth/`, migration `0010`).
   (one of theirs, or a new one) and which of their pads it goes on. A person
   with no account can connect with an invitation link instead: the agent joins
   that pad as a guest, as it would have with `join_pad`.
+- **The invitation link is also a connector address.** The one link an owner
+  shares (`join/<invitation>`) is a web page for a person and, for a request
+  that speaks MCP, the MCP server. An app that adds it as a connector is
+  challenged with that link's own discovery document, so the consent page
+  already knows the pad: an invited person sees "Join “Scheduling” as a
+  guest", names their agent, gives their own name, and presses one button.
+  They never have to find or paste the link a second time. `mcp/i/<invitation>`
+  is the same thing under the MCP folder.
 - An access token stands for one agent, exactly as a personal token does.
   **Disconnect** on Your agents revokes the personal token and signs out every
   app; removing an agent does the same.

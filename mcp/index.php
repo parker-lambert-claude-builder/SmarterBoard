@@ -62,7 +62,9 @@ switch ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
  */
 function mcp_challenge(string $error = '', string $description = ''): void
 {
-    $meta = mb_site_url() . '.well-known/oauth-protected-resource/mcp';
+    // Reached through an invitation address? Then the metadata is that address's own, so the app's request names the invitation.
+    $inv  = preg_match('/^[A-Za-z0-9]{16,64}$/', (string) ($_GET['invite'] ?? '')) ? (string) $_GET['invite'] : '';
+    $meta = mb_site_url() . '.well-known/oauth-protected-resource/' . ($inv === '' ? 'mcp' : (($_GET['invite_via'] ?? '') === 'join' ? 'join/' : 'mcp/i/') . $inv);
     header('WWW-Authenticate: Bearer resource_metadata="' . $meta . '", scope="' . MB_OAUTH_SCOPE . '"'
         . ($error !== '' ? ', error="' . $error . '", error_description="' . str_replace('"', "'", $description) . '"' : ''));
     header('Content-Type: application/json');
@@ -81,6 +83,13 @@ try {
 if ($authDb) {                                   // before accounts are set up there is nothing to sign in to
     if (!defined('MB_MCP_OPEN') && $mcpBearer === '' && empty($_GET['key'])) {
         mcp_challenge();
+    }
+    // A personal token that no longer works (replaced, revoked, or its agent removed) is answered 401 here too.
+    // An app holding a dead credential otherwise gets ordinary-looking replies, never learns it should sign
+    // in, and its person is left waiting for a sign-in page that never opens.
+    $mcpPersonal = $mcpBearer !== '' ? $mcpBearer : (string) ($_GET['key'] ?? '');
+    if (!defined('MB_MCP_OPEN') && $mcpPersonal !== '' && !str_starts_with($mcpPersonal, MB_OAUTH_PREFIX) && !mb_agent_by_token($authDb, $mcpPersonal)) {
+        mcp_challenge('invalid_token', 'That Mashpad token no longer works. Sign in to Mashpad to connect again.');
     }
     // An OAuth token that has expired or been withdrawn must be answered 401, on either address, so the app renews it.
     if (str_starts_with($mcpBearer, MB_OAUTH_PREFIX) && !mb_oauth_agent($authDb, $mcpBearer)) {

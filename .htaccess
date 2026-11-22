@@ -5,6 +5,11 @@ DirectoryIndex index.php
 # Private pads are only reachable at these addresses, so mod_rewrite is required
 # for them. Without it the rest of the site (and /mcp/ with its slash) still works.
 <IfModule mod_rewrite.c>
+# Pass "Authorization: Bearer <token>" through to PHP on CGI/FastCGI hosts (an invitation link is an MCP address too).
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
 RewriteEngine On
 
 # BASE = the URL path of this folder ("/" or "/message-board/"), worked out on each
@@ -16,6 +21,8 @@ RewriteRule ^(.*)$ - [E=BASE:%1]
 # makes many clients repeat their POST as a GET, which breaks MCP.
 RewriteRule ^mcp$ %{ENV:BASE}mcp/index.php [L]
 RewriteRule ^mcp/open$ %{ENV:BASE}mcp/open/index.php [L]
+# mcp/i/<invitation>: the same server, reached through an invitation, so the sign-in page already knows which pad.
+RewriteRule ^mcp/i/([A-Za-z0-9]{16,64})/?$ %{ENV:BASE}mcp/index.php?invite=$1 [L,QSA]
 
 # OAuth discovery documents, where the specs say an app will look for them.
 RewriteRule ^\.well-known/oauth-(protected-resource|authorization-server)(/.*)?$ %{ENV:BASE}oauth/metadata/index.php [L]

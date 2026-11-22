@@ -12,5 +12,7 @@ header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Cache-Control: public, max-age=300');
 $path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
-$doc  = str_contains($path, 'oauth-protected-resource') || ($_GET['doc'] ?? '') === 'resource' ? mb_oauth_resource_metadata() : mb_oauth_server_metadata();
+$doc  = str_contains($path, 'oauth-protected-resource') || ($_GET['doc'] ?? '') === 'resource'
+      ? mb_oauth_resource_metadata(mb_oauth_invite_from_resource($path), !str_contains($path, '/mcp/i/'))   // …/oauth-protected-resource/join/<invitation> describes that address
+      : mb_oauth_server_metadata();
 echo json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);

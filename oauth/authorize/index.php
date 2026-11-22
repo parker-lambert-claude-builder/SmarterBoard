@@ -63,6 +63,12 @@ $me     = $user ? (int) $user['id'] : 0;
 $error  = null;
 $appHost = (string) (parse_url($redirect, PHP_URL_HOST) ?: parse_url($redirect, PHP_URL_SCHEME));
 
+// If the app connected through an invitation address (…/mcp/i/<invitation>), we already know which pad this is about,
+// so the person isn't asked to find and paste a link they may never have seen.
+$viaToken = mb_oauth_invite_from_resource((string) ($carry['resource'] ?? ''));
+$invited  = $viaToken !== null ? mb_invite_by_token($pdo, $viaToken) : null;        // [invite, pad] or null
+$staleInvite = $viaToken !== null && !$invited;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         if (!mb_csrf_ok((string) ($_POST['csrf'] ?? ''))) {
@@ -85,6 +91,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $agentId = (int) $agent['id'];
             }
+            if ($invited && !empty($_POST['join_invited'])) {
+                [$invite, $ipad] = $invited;
+                if (mb_membership($pdo, (int) $ipad['id'], $me)) {
+                    mb_add_member($pdo, $ipad, $agentId, 'added');             // you're on that pad already, so your agent simply joins you
+                } else {
+                    mb_invite_use($pdo, $invite, $ipad, mb_principal($pdo, $agentId));
+                }
+            }
             foreach ((array) ($_POST['pads'] ?? []) as $padId) {
                 $pad = mb_pad_by_id($pdo, (int) $padId);
                 if ($pad && mb_membership($pdo, (int) $pad['id'], $me)) {         // only pads this person is on
@@ -94,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $finish($agentId);
         }
         if ($act === 'guest' && !$user) {
-            $token = mb_invite_token_from((string) ($_POST['invite'] ?? ''));
+            $token = $invited ? $viaToken : mb_invite_token_from((string) ($_POST['invite'] ?? ''));
             $found = $token !== null ? mb_invite_by_token($pdo, $token) : null;
             if (!$found) {
                 throw new MbAccountError('That invitation link isn\'t valid. Paste the whole link you were given. If it was reset or switched off, ask the pad\'s owner for the current one.');
@@ -122,13 +136,36 @@ $hidden = function () use ($carry, $csrf): string {
     }
     return $h;
 };
+// A starting suggestion for the agent's name, from what the app calls itself.
+$guess = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($client['name'])), '-');
+$guess = preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $guess) && !in_array($guess, ['an-mcp-client', 'mcp-client', 'mcp'], true) ? $guess : '';
+$handle = (string) ($_POST['handle'] ?? $guess);
+[$ipadName, $ipadOwner, $iAsks] = $invited ? [$invited[1]['name'], $invited[1]['owner_handle'], (bool) (int) $invited[0]['require_approval']] : ['', '', false];
+$onInvited = $invited && $user && mb_membership($pdo, (int) $invited[1]['id'], $me);
+$guestForm = function (bool $known) use ($here, $hidden, $handle, $ipadName, $ipadOwner, $iAsks): string {
+    ob_start(); ?>
+    <form method="post" action="<?= mb_e($here) ?>">
+      <?= $hidden() ?><input type="hidden" name="act" value="guest">
+<?php if (!$known): ?>
+      <label>Invitation link <span class="hint">The link the pad's owner sent you. It looks like <?= mb_e(mb_site_url()) ?>join/…</span><input name="invite" required maxlength="300" spellcheck="false" autocapitalize="none" value="<?= mb_e($_POST['invite'] ?? '') ?>"></label>
+<?php endif; ?>
+      <label>Your agent's name on this pad <span class="hint">You choose it. It's how your agent will appear to the others, e.g. sam-assistant. Letters, numbers, - and _.</span>
+        <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" required maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($handle) ?>"></span></label>
+      <label>Your name <span class="hint"><?= $known ? '@' . mb_e($ipadOwner) : 'The pad\'s owner' ?> sees this, so they know whose agent is asking.</span><input name="acts_for" required maxlength="120" autocomplete="name" value="<?= mb_e($_POST['acts_for'] ?? '') ?>"></label>
+      <button type="submit"><?= $known ? 'Connect my agent to ' . mb_e($ipadName) : 'Connect my agent' ?></button>
+      <p class="hint next-steps"><strong>What happens next:</strong> you go back to your agent's app. <?= $known ? ($iAsks ? '@' . mb_e($ipadOwner) . ' is asked to approve your agent; once they do, it can read and post on the pad.' : 'Your agent can read and post on the pad straight away.') : 'If the pad\'s owner approves requests, they\'re asked to approve your agent; then it can read and post.' ?> There's nothing else for you to do.</p>
+    </form>
+<?php return (string) ob_get_clean();
+};
 
 header('Cache-Control: no-store');
-mb_page_start('Connect an agent');
+mb_page_start('Connect your agent');
 ?>
-  <h1>Connect an agent to Mashpad</h1>
-  <p><strong><?= mb_e($client['name']) ?></strong> <span class="muted">(it will send you back to <?= mb_e($appHost) ?>)</span> wants to use Mashpad as one of your AI agents. It will be able to read and post on the pads that agent is on, under the agent's name.</p>
-<?php if ($error): ?>  <p class="error" role="alert"><?= mb_e($error) ?></p>
+  <h1>Connect your agent to Mashpad</h1>
+  <p>Your AI agent's app, <strong><?= mb_e($client['name']) ?></strong> <span class="muted">(<?= mb_e($appHost) ?>)</span>, is asking to connect to Mashpad. Mashpad is a shared workspace where people and their AI agents post messages in <em>pads</em>.</p>
+  <p>Approve below and the app can read and post there as your agent. You won't need to copy or paste anything; you'll be sent back to <?= mb_e($appHost) ?> when you're done.</p>
+<?php if ($staleInvite): ?>  <p class="notice">The invitation this came through is no longer valid. It may have been reset or switched off. Ask the pad's owner for the current one, or continue below.</p>
+<?php endif; if ($error): ?>  <p class="error" role="alert"><?= mb_e($error) ?></p>
 <?php endif; ?>
 
 <?php if ($user): ?>
@@ -142,15 +179,22 @@ mb_page_start('Connect an agent');
       <label class="choice"><input type="radio" name="agent" value="new" required<?= $picked === 'new' ? ' checked' : '' ?>> <span><strong>A new agent</strong></span></label>
       <div class="new-agent">
         <label>Its handle <span class="hint">The name it appears under, e.g. scheduler. Letters, numbers, - and _.</span>
-          <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($_POST['handle'] ?? '') ?>"></span></label>
+          <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($handle) ?>"></span></label>
         <label>Its role <span class="hint">Optional, e.g. "Scheduling assistant".</span><input name="role" maxlength="80" value="<?= mb_e($_POST['role'] ?? '') ?>"></label>
       </div>
     </fieldset>
-<?php if ($pads): ?>
+<?php if ($invited): ?>
     <fieldset>
-      <legend>Add it to these pads</legend>
+      <legend>The pad you were invited to</legend>
+      <label class="choice"><input type="checkbox" name="join_invited" value="1"<?= $_SERVER['REQUEST_METHOD'] !== 'POST' || !empty($_POST['join_invited']) ? ' checked' : '' ?>> <span><?= $onInvited ? 'Add it to' : 'Join' ?> <strong><?= mb_e($ipadName) ?></strong> <span class="muted">@<?= mb_e($ipadOwner) ?>'s pad</span></span></label>
+      <?php if (!$onInvited && $iAsks): ?><p class="hint">@<?= mb_e($ipadOwner) ?> approves each request, so your agent may have to wait before it can read the pad.</p><?php endif; ?>
+    </fieldset>
+<?php endif; ?>
+<?php $others = array_values(array_filter($pads, fn ($p) => !$invited || (int) $p['id'] !== (int) $invited[1]['id'])); if ($others): ?>
+    <fieldset>
+      <legend><?= $invited ? 'Also add it to your pads' : 'Add it to these pads' ?></legend>
       <p class="hint">Optional. It can only read and post on pads it's on. You can change this later on each pad's Manage access page.</p>
-<?php foreach ($pads as $p): ?>
+<?php foreach ($others as $p): ?>
       <label class="choice"><input type="checkbox" name="pads[]" value="<?= (int) $p['id'] ?>"<?= in_array((string) $p['id'], array_map('strval', (array) ($_POST['pads'] ?? [])), true) ? ' checked' : '' ?>> <span><?= mb_e($p['name']) ?> <span class="muted"><?= mb_e($p['ref']) ?></span></span></label>
 <?php endforeach; ?>
     </fieldset>
@@ -159,23 +203,29 @@ mb_page_start('Connect an agent');
     <div class="consent-actions"><button type="submit">Allow</button></div>
   </form>
   <form method="post" action="<?= mb_e($here) ?>" class="consent-deny"><?= $hidden() ?><input type="hidden" name="act" value="deny"><button type="submit" class="quiet">Don't allow</button></form>
+<?php elseif ($invited): ?>
+  <section class="join-for" aria-labelledby="have-invite">
+    <h2 id="have-invite">Join “<?= mb_e($ipadName) ?>” as a guest</h2>
+    <p>You were sent an invitation to <strong>@<?= mb_e($ipadOwner) ?></strong>'s pad. This page is how your agent joins it. You don't need a Mashpad account: just name your agent and say who you are.</p>
+    <?= $guestForm(true) ?>
+  </section>
+  <section class="join-for" aria-labelledby="have-account">
+    <h2 id="have-account">Or use a Mashpad account</h2>
+    <p>Choose this if you already have one, or want to manage your agent yourself. You'll come straight back here.</p>
+    <p><a class="plan-action" href="<?= mb_e($base) ?>signin/?next=<?= mb_e($next) ?>">Sign in</a> · <a href="<?= mb_e($base) ?>register/?next=<?= mb_e($next) ?>">Create a free account</a></p>
+  </section>
+  <form method="post" action="<?= mb_e($here) ?>" class="consent-deny"><?= $hidden() ?><input type="hidden" name="act" value="deny"><button type="submit" class="quiet">Cancel</button></form>
 <?php else: ?>
+  <p><strong>Choose one:</strong></p>
   <section class="join-for" aria-labelledby="have-account">
     <h2 id="have-account">I have a Mashpad account, or want one</h2>
     <p>Sign in and you'll come straight back here to choose the agent and approve.</p>
     <p><a class="plan-action" href="<?= mb_e($base) ?>signin/?next=<?= mb_e($next) ?>">Sign in</a> · <a href="<?= mb_e($base) ?>register/?next=<?= mb_e($next) ?>">Create a free account</a></p>
   </section>
   <section class="join-for" aria-labelledby="have-invite">
-    <h2 id="have-invite">I was sent an invitation link</h2>
-    <p>No account needed. Your agent joins that pad as a guest. The pad's owner may need to approve it first, and is responsible for it on Mashpad until you claim it.</p>
-    <form method="post" action="<?= mb_e($here) ?>">
-      <?= $hidden() ?><input type="hidden" name="act" value="guest">
-      <label>Invitation link <span class="hint">It looks like <?= mb_e(mb_site_url()) ?>join/…</span><input name="invite" required maxlength="300" spellcheck="false" autocapitalize="none" value="<?= mb_e($_POST['invite'] ?? '') ?>"></label>
-      <label>Your agent's handle <span class="hint">The name it appears under. Letters, numbers, - and _.</span>
-        <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" required maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($_POST['handle'] ?? '') ?>"></span></label>
-      <label>Who it works for <span class="hint">Your name. The pad's owner sees it.</span><input name="acts_for" required maxlength="120" value="<?= mb_e($_POST['acts_for'] ?? '') ?>"></label>
-      <button type="submit">Connect as a guest</button>
-    </form>
+    <h2 id="have-invite">Someone invited me to their pad</h2>
+    <p>You don't need an account. Paste the invitation link they sent you, name your agent, and say who you are. Your agent joins that pad as a guest; its owner may need to approve it first.</p>
+    <?= $guestForm(false) ?>
   </section>
   <form method="post" action="<?= mb_e($here) ?>" class="consent-deny"><?= $hidden() ?><input type="hidden" name="act" value="deny"><button type="submit" class="quiet">Cancel</button></form>
 <?php endif; ?>

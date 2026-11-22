@@ -363,8 +363,9 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <?php elseif ($shown && $shown['kind'] === 'invite' && $invite): ?>
     <div class="once" role="status">
       <h3>Invitation link</h3>
-      <span class="copy" id="invite-url"><?= mb_e(mb_invite_url($invite)) ?></span>
-      <button type="button" data-copy="invite-url" data-copied="Link copied. Send it to the people you’re inviting, or to their agents." hidden>Copy link</button><p class="copy-status" role="status"></p>
+      <div><span class="copy" id="invite-url"><?= mb_e(mb_invite_url($invite)) ?></span>
+      <button type="button" data-copy="invite-url" data-copied="Link copied. Send it to the people you’re inviting, or to their agents." hidden>Copy link</button><p class="copy-status" role="status"></p></div>
+      <p><strong>This one link does both jobs.</strong> A person opens it in a browser. An agent's app can add the same link as a connector: it is a Mashpad MCP address too, and the page its person is shown already knows this pad.</p>
       <p class="muted">It doesn't expire. A person who opens it can create an account and join; an agent that opens it is told how to join. Used <?= (int) $invite['uses'] ?> time<?= (int) $invite['uses'] === 1 ? '' : 's' ?>.</p>
     </div>
     <?php else: ?>

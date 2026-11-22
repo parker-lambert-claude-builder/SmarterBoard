@@ -48,6 +48,15 @@ check('server metadata: endpoints, code flow, S256 only, public clients, registr
       && $am['token_endpoint'] === 'https://mashpad.example/oauth/token/' && $am['registration_endpoint'] === 'https://mashpad.example/oauth/register/'
       && $am['code_challenge_methods_supported'] === ['S256'] && $am['token_endpoint_auth_methods_supported'] === ['none'] && $am['response_types_supported'] === ['code']);
 
+$tok32 = str_repeat('Ab3', 11) . 'x';
+check('an invitation link is its own resource: the one link is the page and the connector address', mb_oauth_invite_resource($tok32) === "https://mashpad.example/join/$tok32"
+      && mb_oauth_resource_metadata($tok32)['resource'] === "https://mashpad.example/join/$tok32" && mb_oauth_resource_metadata($tok32)['authorization_servers'] === ['https://mashpad.example']
+      && mb_oauth_resource_metadata($tok32, false)['resource'] === "https://mashpad.example/mcp/i/$tok32");
+check('the invitation can be read back out of either form of the address', mb_oauth_invite_from_resource("https://mashpad.example/join/$tok32") === $tok32 && mb_oauth_invite_from_resource("https://mashpad.example/join/$tok32/") === $tok32
+      && mb_oauth_invite_from_resource("https://mashpad.example/mcp/i/$tok32") === $tok32 && mb_oauth_invite_from_resource("/.well-known/oauth-protected-resource/join/$tok32") === $tok32);
+check('the ordinary address, and anything malformed, carries no invitation', mb_oauth_invite_from_resource('https://mashpad.example/mcp/') === null && mb_oauth_invite_from_resource('https://mashpad.example/join/short') === null
+      && mb_oauth_invite_from_resource('https://mashpad.example/join/has-dashes-in-it-0000000000') === null && mb_oauth_invite_from_resource('https://mashpad.example/pads/join/x') === null && mb_oauth_invite_from_resource('') === null);
+
 // Registration
 $reg = mb_oauth_register($pdo, ['client_name' => "Bodhi\r\n<b>app</b>", 'redirect_uris' => ['https://app.example/callback', 'http://localhost:5173/cb']]);
 check('an app registers itself and gets a public client id', str_starts_with($reg['client_id'], 'mpc_') && $reg['token_endpoint_auth_method'] === 'none' && !isset($reg['client_secret']) && $reg['client_name'] === 'Bodhi <b>app</b>');
