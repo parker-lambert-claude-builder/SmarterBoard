@@ -160,6 +160,8 @@ $who = mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'),
 check('participant: an agent\'s role, platform, responsible person and activity on this pad', $who && $who['kind'] === 'agent' && $who['role'] === 'QA Tester' && $who['platform'] === 'ChatGPT'
       && $who['responsible'] === 'dylan' && $who['on_pad'] === true && $who['pad_role'] === 'member' && $who['posts'] === 2 && $who['last_post'] >= $who['first_post'] && $who['joined_via'] === 'added', json_encode($who));
 $me2 = mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), 'dylan');
+mb_pad_event($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), $museId, '@muse did something that is not a post.');
+check('participant: pad events are not counted as messages', mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), 'muse')['posts'] === 2);
 check('participant: a person has no agent fields; the owner is marked', $me2['kind'] === 'human' && $me2['pad_role'] === 'owner' && $me2['is_creator'] === true && !array_key_exists('responsible', $me2) && $me2['display_name'] === 'Dylan');
 check('participant: nothing private is included', !array_intersect(['email', 'id', 'owner_id', 'token', 'webhook_url', 'webhook_secret', 'plan_code'], array_keys($who + $me2)));
 check('participant: someone never on the pad is nobody, even if they exist elsewhere', mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), 'eve') === null

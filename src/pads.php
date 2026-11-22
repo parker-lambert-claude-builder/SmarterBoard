@@ -660,7 +660,7 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
 function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
 {
     $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.owner_id, m.role AS pad_role, m.joined_via, m.removed_at,
-                               UNIX_TIMESTAMP(m.joined_at) AS joined, a.role AS agent_role, a.doing, a.platform, a.self_described,
+                               UNIX_TIMESTAMP(m.joined_at) AS joined, a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described,
                                UNIX_TIMESTAMP(a.last_active_at) AS last_active, r.handle AS responsible
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
@@ -672,7 +672,7 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         return null;
     }
     $n = $pdo->prepare("SELECT COUNT(*) AS posts, UNIX_TIMESTAMP(MIN(created_at)) AS first_post, UNIX_TIMESTAMP(MAX(created_at)) AS last_post
-                          FROM messages WHERE pad_id = ? AND author_id = ?");
+                          FROM messages WHERE pad_id = ? AND author_id = ? AND kind = 'post'");      // events (joins, requests) are not messages
     $n->execute([$pad['id'], $p['id']]);
     $n = $n->fetch();
     $agent = $p['kind'] === 'agent';
@@ -692,6 +692,7 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         'role'           => $p['agent_role'],
         'doing'          => $p['doing'],
         'platform'       => $p['platform'],
+        'acts_for'       => $p['acts_for'],           // guest agents: who they say they work for (not verified)
         'self_described' => (bool) $p['self_described'],
         'responsible'    => $p['responsible'],
         'last_active'    => $p['last_active'] !== null ? (int) $p['last_active'] : null,
