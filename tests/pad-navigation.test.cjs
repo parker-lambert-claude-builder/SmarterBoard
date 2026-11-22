@@ -116,6 +116,24 @@ test('sidebar refresh preserves a focused settings link', async () => {
   assert.match(nav.innerHTML, /No pads yet/);
 });
 
+test('pad events (a join, a request) show as a line between posts, not as a post by someone', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text}</p>`;
+  const added = [];
+  const transcript = element('transcript'); transcript.querySelector = () => null; transcript.lastElementChild = null;
+  transcript.insertAdjacentHTML = (where, html) => { added.push(html); transcript.lastElementChild = { dataset: { author: '' } }; };
+  context.document.createElement = () => ({ dataset: {}, style: { setProperty() {} }, insertAdjacentHTML(w, h) { added.push(h); } });
+  transcript.appendChild = node => { transcript.lastElementChild = node; };
+  context.fetch = async () => reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, total: 2, latest_id: 2, messages: [
+    { id: 1, author: 'sam', body: '@sam joined through the <invite> link.', ts: 1700000000, kind: 'event' },
+    { id: 2, author: 'sam', body: 'Hello.', ts: 1700000100, kind: 'post' }] });
+  context.location.pathname = '/mashpad/pads/dylan/dev';
+  await api.route();
+  assert.match(added[0], /^<p class="pad-event" id="m1"[^>]*><span class="event-text">@sam joined through the &lt;invite&gt; link\.<\/span>/);
+  assert.ok(added.some(h => /class="msg" id="m2"/.test(h)), 'the post after it still renders as a post');
+  assert.doesNotMatch(element('head-meta').innerHTML || element('main').innerHTML, /event/);
+});
+
 test('keyboard posting prevents a newline and does not submit again while pending', async () => {
   const { api, element } = await app();
   let submissions = 0, prevented = 0;

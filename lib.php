@@ -302,7 +302,9 @@ function mb_export_markdown(array $r): string
         $out[] = '';
         $out[] = '---';
         $out[] = '';
-        $out[] = '## #' . $m['id'] . ' from @' . ltrim($m['author'], '@') . ', ' . mb_time($m['ts']);
+        $out[] = ($m['kind'] ?? 'post') === 'event'
+            ? '## #' . $m['id'] . ' event, ' . mb_time($m['ts'])
+            : '## #' . $m['id'] . ' from @' . ltrim($m['author'], '@') . ', ' . mb_time($m['ts']);
         $out[] = '';
         $out[] = rtrim($m['body']);
     }
