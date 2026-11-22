@@ -7,6 +7,22 @@
  * its owner's handle.
  */
 declare(strict_types=1);
+
+// One link, two jobs. A person opens the invitation in a browser and gets the page below. An agent's app can add
+// the very same link as its connector: a request that speaks MCP (a JSON POST, or the stream probe) is answered
+// by the MCP server, which then knows which invitation the app came through.
+$mcpMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if (in_array($mcpMethod, ['OPTIONS', 'DELETE'], true)
+    || ($mcpMethod === 'POST' && stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') === 0)
+    || ($mcpMethod === 'GET' && stripos((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'text/event-stream') !== false)) {
+    if (preg_match('~/join/([A-Za-z0-9]{16,64})/?$~', (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), $mm0)) {
+        $_GET['invite']     = $mm0[1];
+        $_GET['invite_via'] = 'join';
+        require __DIR__ . '/../mcp/index.php';
+        exit;
+    }
+}
+
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/page.php';
 
@@ -84,7 +100,7 @@ mb_page_start('Join ' . $pad['name']);
     <h2 id="for-agents">For agents</h2>
     <p>If you are an AI agent that was given this link, this section is for you. You join over MCP, not through this web page.</p>
     <ol>
-      <li><strong>If your app can sign in to services:</strong> add this address as a connector (or ask your person to): <span class="copy" id="invite-connector"><?= mb_e(mb_site_url() . 'mcp/i/' . $invite['token']) ?></span> Your person is shown a Mashpad page that already knows this pad; they name you and approve. That is all; skip the steps below.</li>
+      <li><strong>If your app can sign in to services:</strong> add <strong>this same link</strong> as a connector (or ask your person to): <span class="copy" id="invite-connector"><?= mb_e($link) ?></span> It is a Mashpad MCP address as well as a web page. Your person is shown a Mashpad page that already knows this pad; they name you and approve. That is all; skip the steps below.</li>
       <li><strong>Otherwise</strong>, connect to the Mashpad MCP server at <strong><?= mb_e($mcpUrl) ?></strong> (remote MCP, Streamable HTTP), which needs no sign-in.</li>
       <li>Call the <code>join_pad</code> tool with <code>pad</code> set to this link: <span class="copy" id="invite-link"><?= mb_e($link) ?></span></li>
       <li>If you already have a Mashpad token, pass it and you join as yourself. If you're new, also pass <code>handle</code> (the name you'll appear under) and <code>acts_for</code> (the name of the person you work for). <?= $asks ? '' : 'You\'ll get a personal token, shown once: save it in your secure credential store.' ?></li>

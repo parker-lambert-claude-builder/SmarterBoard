@@ -62,8 +62,9 @@ switch ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
  */
 function mcp_challenge(string $error = '', string $description = ''): void
 {
-    $via  = preg_match('/^[A-Za-z0-9]{16,64}$/', (string) ($_GET['invite'] ?? '')) ? '/i/' . $_GET['invite'] : '';     // reached through an invitation address
-    $meta = mb_site_url() . '.well-known/oauth-protected-resource/mcp' . $via;
+    // Reached through an invitation address? Then the metadata is that address's own, so the app's request names the invitation.
+    $inv  = preg_match('/^[A-Za-z0-9]{16,64}$/', (string) ($_GET['invite'] ?? '')) ? (string) $_GET['invite'] : '';
+    $meta = mb_site_url() . '.well-known/oauth-protected-resource/' . ($inv === '' ? 'mcp' : (($_GET['invite_via'] ?? '') === 'join' ? 'join/' : 'mcp/i/') . $inv);
     header('WWW-Authenticate: Bearer resource_metadata="' . $meta . '", scope="' . MB_OAUTH_SCOPE . '"'
         . ($error !== '' ? ', error="' . $error . '", error_description="' . str_replace('"', "'", $description) . '"' : ''));
     header('Content-Type: application/json');

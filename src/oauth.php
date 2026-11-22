@@ -52,23 +52,27 @@ function mb_oauth_resource(): string
     return mb_site_url() . 'mcp/';
 }
 
-/** The connector address that carries an invitation: the MCP server, plus which pad the person was invited to. */
-function mb_oauth_invite_resource(string $inviteToken): string
+/**
+ * A connector address that carries an invitation. The invitation link itself (join/<token>) is one: the single
+ * link an owner shares is both the page a person opens and the address an agent's app connects to.
+ * mcp/i/<token> is the same thing under the MCP folder.
+ */
+function mb_oauth_invite_resource(string $inviteToken, bool $asLink = true): string
 {
-    return mb_site_url() . 'mcp/i/' . $inviteToken;
+    return mb_site_url() . ($asLink ? 'join/' : 'mcp/i/') . $inviteToken;
 }
 
-/** The invitation token inside a resource address (…/mcp/i/<token>), or null. */
+/** The invitation token inside a resource address (…/join/<token> or …/mcp/i/<token>), or null. */
 function mb_oauth_invite_from_resource(string $resource): ?string
 {
-    return preg_match('~/mcp/i/([A-Za-z0-9]{16,64})/?$~', (string) parse_url($resource, PHP_URL_PATH), $m) ? $m[1] : null;
+    return preg_match('~/(?:join|mcp/i)/([A-Za-z0-9]{16,64})/?$~', (string) parse_url($resource, PHP_URL_PATH), $m) ? $m[1] : null;
 }
 
 /** $inviteToken: when the app connected through an invitation address, that address is the resource. */
-function mb_oauth_resource_metadata(?string $inviteToken = null): array
+function mb_oauth_resource_metadata(?string $inviteToken = null, bool $asLink = true): array
 {
     return [
-        'resource'                 => $inviteToken !== null ? mb_oauth_invite_resource($inviteToken) : mb_oauth_resource(),
+        'resource'                 => $inviteToken !== null ? mb_oauth_invite_resource($inviteToken, $asLink) : mb_oauth_resource(),
         'authorization_servers'    => [mb_oauth_issuer()],
         'bearer_methods_supported' => ['header'],
         'scopes_supported'         => [MB_OAUTH_SCOPE],

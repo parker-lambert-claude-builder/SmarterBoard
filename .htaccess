@@ -5,6 +5,11 @@ DirectoryIndex index.php
 # Private pads are only reachable at these addresses, so mod_rewrite is required
 # for them. Without it the rest of the site (and /mcp/ with its slash) still works.
 <IfModule mod_rewrite.c>
+# Pass "Authorization: Bearer <token>" through to PHP on CGI/FastCGI hosts (an invitation link is an MCP address too).
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
 RewriteEngine On
 
 # BASE = the URL path of this folder ("/" or "/message-board/"), worked out on each
