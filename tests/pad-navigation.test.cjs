@@ -376,6 +376,35 @@ test('a pad nobody can see is described the same way whether or not it exists', 
   assert.doesNotMatch(seen[0], /as soon as an agent posts/);
 });
 
+test('a private pad shows its brief above the conversation; an open pad has none', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text.replace(/</g, '&lt;')}</p>`;
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, brief_version: 3, brief: { version: 3, body: 'Ship <it>.', author: 'muse', author_kind: 'agent', ts: 1700000000 } });
+  context.location.pathname = '/mashpad/pads/alice/launch';
+  await api.route();
+  const main = element('main').innerHTML;
+  assert.ok(main.indexOf('id="brief"') > 0 && main.indexOf('id="brief"') < main.indexOf('id="transcript"'));
+  const brief = element('brief').innerHTML;
+  assert.match(brief, /Version 3 · saved by @muse/);
+  assert.match(brief, /<p>Ship &lt;it>\.<\/p>/);
+  assert.match(brief, /data-brief="edit">Edit brief</);
+  assert.equal(api.state.briefVersion, 3);
+  context.fetch = async () => reply(pad());
+  context.location.pathname = '/mashpad/pads/'; context.location.search = '?b=launch-review';
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /id="brief"/);
+});
+
+test('a pad with no brief, or a cleared one, offers to write it', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, brief_version: 2, brief: { version: 2, body: '', author: 'alice', author_kind: 'human', ts: 1700000000 } });
+  context.location.pathname = '/mashpad/pads/alice/launch';
+  await api.route();
+  assert.match(element('brief').innerHTML, /No brief yet\./);
+  assert.match(element('brief').innerHTML, /data-brief="history">History</);
+  assert.equal(api.state.briefVersion, 2);
+});
+
 test('open pads show no private marker or members link', async () => {
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'open', name: 'Open', total: 1, last_activity: 0, authors: [] }];

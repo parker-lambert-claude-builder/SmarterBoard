@@ -66,7 +66,7 @@ const render = text => window.renderMessage(text);
 async function getJSON(url, opts) {
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.message || data.error || r.statusText); e.status = r.status; e.choices = data.choices; throw e; }
+  if (!r.ok) { const e = new Error(data.message || data.error || r.statusText); e.status = r.status; e.choices = data.choices; e.brief = data.brief; throw e; }
   return data;
 }
 
@@ -223,6 +223,7 @@ async function showBoard(slug, navigation) {
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
       <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
     </div>
+    ${d.owned ? '<div class="inner pad-brief" id="brief"></div>' : ''}
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
     </div>
@@ -238,12 +239,104 @@ async function showBoard(slug, navigation) {
         <p class="composer-hint">⌘ / Ctrl + Enter to post</p>
       </div>
     </div>`;
+  state.brief = d.brief || null; state.briefVersion = d.brief_version || 0;
+  renderBrief();
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
   bindComposer(slug);
   const linkedMessage = /^#m\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (linkedMessage) linkedMessage.scrollIntoView();
   else window.scrollTo(0, document.body.scrollHeight);
+}
+
+/* ---------- pinned brief ----------
+   The pad's standing summary, above the conversation. Any member can edit it;
+   every save is a new version, and a save made against an out-of-date version
+   is refused by the server rather than overwriting someone else's. */
+state.brief = null; state.briefVersion = 0; state.briefMode = 'view';
+const BRIEF_TEMPLATE = '## Objective\n\n\n## Decisions\n\n\n## Open questions\n\n';
+const briefMeta = b => `Version ${b.version} · saved by ${esc(displayName(b.author))} <time datetime="${new Date(b.ts * 1000).toISOString()}" title="${esc(fullTime(b.ts))}">${ago(b.ts)}</time>`;
+
+function renderBrief(mode = 'view', extra = {}) {
+  const box = document.getElementById('brief');
+  if (!box) return;
+  const b = state.brief && state.brief.body ? state.brief : null;
+  state.briefMode = mode;
+  if (mode === 'edit') {
+    box.innerHTML = `<form class="brief-form" id="brief-form" aria-label="Edit the brief">
+        <h2 id="brief-h">Edit the brief</h2>
+        <p class="brief-help">Keep it short: what this pad is for, what has been decided, what is still open. Markdown works. Link to messages by number, like #12.</p>
+        <label for="brief-body">Brief</label>
+        <textarea id="brief-body" rows="12" maxlength="16000">${esc(extra.text ?? (b ? b.body : BRIEF_TEMPLATE))}</textarea>
+        <div class="brief-actions"><button type="submit">Save brief</button><button type="button" class="quiet" data-brief="view">Cancel</button></div>
+      </form>`;
+    const form = document.getElementById('brief-form');
+    form.addEventListener('submit', saveBrief);
+    document.getElementById('brief-body').focus();
+    return;
+  }
+  if (mode === 'history') {
+    const rows = (extra.history || []).map(h => `<li><button type="button" class="quiet" data-brief="version" data-version="${h.version}">Version ${h.version}</button> <span class="brief-meta">saved by ${esc(displayName(h.author))}, ${esc(fullTime(h.ts))}${h.bytes ? '' : ', cleared'}</span></li>`).join('');
+    box.innerHTML = `<section class="brief-box" aria-labelledby="brief-h"><h2 id="brief-h">Brief history</h2>
+      ${rows ? `<ol class="brief-history" reversed>${rows}</ol>` : '<p class="brief-meta">No versions saved yet.</p>'}
+      ${extra.shown ? `<p class="brief-meta">${briefMeta(extra.shown)}${extra.shown.version === state.briefVersion ? ' (current)' : ''}</p><div class="body">${extra.shown.body ? render(extra.shown.body) : '<p class="brief-meta">This version cleared the brief.</p>'}</div>` : ''}
+      <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back to the current brief</button></div></section>`;
+    return;
+  }
+  box.innerHTML = b
+    ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">Brief</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
+        <div class="body">${render(b.body)}</div>
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit brief</button><button type="button" class="quiet" data-brief="history">History</button></div></details>`
+    : `<div class="brief-box brief-empty"><p><strong id="brief-h">No brief yet.</strong> A brief keeps this pad’s objective, decisions and open questions in one place, above the conversation.</p>
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write the brief</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">History</button>' : ''}</div></div>`;
+  if (extra.note) box.insertAdjacentHTML('afterbegin', `<p class="brief-note" role="status">${esc(extra.note)}</p>`);
+}
+
+async function saveBrief(e) {
+  e.preventDefault();
+  const form = e.currentTarget, slug = state.slug, navigation = state.navigation;
+  const text = document.getElementById('brief-body').value;
+  const btn = form.querySelector('button[type="submit"]');
+  form.querySelector('.form-error')?.remove();
+  form.querySelector('.brief-current')?.remove();
+  btn.disabled = true;
+  try {
+    const d = await getJSON(`${API}?action=brief`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board: slug, body: text, base_version: state.briefVersion || 0 }) });
+    if (navigation !== state.navigation) return;
+    state.brief = d.brief; state.briefVersion = d.brief ? d.brief.version : state.briefVersion;
+    if (!d.brief) await loadBrief();
+    renderBrief('view', { note: 'Brief saved.' });
+  } catch (err) {
+    if (navigation !== state.navigation) return;
+    btn.disabled = false;
+    form.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
+    if (err.status === 409 && err.brief) {
+      // Someone saved first. Show theirs beside the unsaved text; the next save is made against it.
+      state.brief = err.brief; state.briefVersion = err.brief.version;
+      form.insertAdjacentHTML('beforeend', `<details class="brief-current" open><summary>Current brief (${briefMeta(err.brief)})</summary><div class="body">${render(err.brief.body || '')}</div></details>`);
+    }
+  }
+}
+
+async function loadBrief() {
+  const slug = state.slug, navigation = state.navigation;
+  try {
+    const d = await getJSON(`${API}?action=brief&board=${encodeURIComponent(slug)}`);
+    if (navigation !== state.navigation) return;
+    state.brief = d.brief; state.briefVersion = d.brief ? d.brief.version : 0;
+  } catch { /* keep what is shown */ }
+}
+
+async function showBriefHistory(version) {
+  const slug = state.slug, navigation = state.navigation;
+  try {
+    const d = await getJSON(`${API}?action=brief&board=${encodeURIComponent(slug)}&history=1${version ? '&version=' + version : ''}`);
+    if (navigation !== state.navigation) return;
+    renderBrief('history', { history: d.history, shown: version ? d.brief : null });
+  } catch (e) {
+    renderBrief('view', { note: 'The history couldn’t be loaded. Please try again.' });
+  }
 }
 
 async function pollBoard() {
@@ -263,6 +356,16 @@ async function pollBoard() {
     }
     const hm = document.getElementById('head-meta');
     if (hm) hm.innerHTML = headMeta(d);
+    if (d.owned && (d.brief_version || 0) !== state.briefVersion) {
+      if (state.briefMode === 'edit') {
+        // Don't touch what is being typed; the save will be refused and show the newer version.
+        const form = document.getElementById('brief-form');
+        if (form && !form.querySelector('.brief-note')) form.insertAdjacentHTML('afterbegin', '<p class="brief-note" role="status">Someone else has just saved a newer brief. Saving will show you theirs so you can merge.</p>');
+      } else {
+        await loadBrief();
+        if (navigation === state.navigation && state.briefMode !== 'history') renderBrief('view', { note: 'The brief was updated.' });
+      }
+    }
   } catch (e) {
     if (e.status === 404 && navigation === state.navigation) showBoard(slug, navigation);
   } finally {
@@ -427,6 +530,14 @@ document.addEventListener('click', e => {
     navigator.clipboard?.writeText(text).then(() => {
       copy.textContent = 'Copied'; setTimeout(() => (copy.textContent = 'Copy'), 1500);
     });
+    return;
+  }
+  const brief = e.target.closest('[data-brief]');
+  if (brief) {
+    const act = brief.dataset.brief;
+    if (act === 'history') showBriefHistory();
+    else if (act === 'version') showBriefHistory(Number(brief.dataset.version));
+    else renderBrief(act);
     return;
   }
   const a = e.target.closest('a[data-nav]');

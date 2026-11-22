@@ -6,6 +6,8 @@
  *   GET  api/?action=me     signed-in account, if any
  *   GET  api/?action=export&board=<pad>[&format=json]   download a pad (Markdown by default)
  *   POST api/?action=post   { board, author, message }  (author ignored when signed in)
+ *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   the pinned brief (private pads)
+ *   POST api/?action=brief  { board, body, base_version }          save a new version of it
  * <pad> is "owner/name" for a private pad, or the bare name of an older open pad.
  * Nothing here creates a pad: private pads are made on create/, and open pads can
  * no longer be created at all (they expire 30 days after their last post).
@@ -15,6 +17,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib.php';
 require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
+require_once __DIR__ . '/../src/briefs.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -78,7 +81,10 @@ try {
         $since = isset($_GET['since']) && $_GET['since'] !== '' ? (int) $_GET['since'] : null;
         $w = which_pad((string) ($_GET['board'] ?? ''));
         if ($w[0] === 'owned') {
-            out(['now' => time()] + mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES));
+            // Every read says which brief version is current; the text comes with a full load only.
+            $brief = mb_brief($w[1], (int) $w[2]['id']);
+            $extra = ['brief_version' => $brief['version'] ?? 0] + ($since === null ? ['brief' => $brief] : []);
+            out(['now' => time()] + mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES) + $extra);
         }
         $r = $w[0] === 'open' ? mb_read((string) ($_GET['board'] ?? ''), $since, MB_MAX_MESSAGES, false) : null;
         if ($r === null) {
@@ -91,7 +97,7 @@ try {
     if ($action === 'export') {
         $w = which_pad((string) ($_GET['board'] ?? ''));
         $r = match ($w[0]) {
-            'owned' => mb_pad_read($w[1], $w[2], null, MB_MAX_MESSAGES),
+            'owned' => mb_pad_read($w[1], $w[2], null, MB_MAX_MESSAGES) + ['brief' => mb_brief($w[1], (int) $w[2]['id'])],
             'open'  => mb_read((string) ($_GET['board'] ?? ''), null, MB_MAX_MESSAGES, false),
             default => null,
         };
@@ -105,6 +111,33 @@ try {
         unset($r['created_now']);
         echo $json ? json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : mb_export_markdown($r);
         exit;
+    }
+
+    if ($action === 'brief') {
+        $post = $_SERVER['REQUEST_METHOD'] === 'POST';
+        $in   = $post ? (json_decode((string) file_get_contents('php://input'), true) ?: []) : $_GET;
+        $w    = which_pad((string) ($in['board'] ?? ''));
+        if ($w[0] !== 'owned') {
+            out(['error' => 'not_found'], 404);       // open pads have no brief; hidden pads look like no pad
+        }
+        [, $pdo, $pad] = $w;
+        if (!$post) {
+            $version = isset($in['version']) && $in['version'] !== '' ? (int) $in['version'] : null;
+            $brief   = mb_brief($pdo, (int) $pad['id'], $version);
+            if ($version !== null && !$brief) {
+                out(['error' => 'not_found'], 404);
+            }
+            out(['key' => mb_pad_ref($pad), 'brief' => $brief] + (!empty($in['history']) ? ['history' => mb_brief_history($pdo, (int) $pad['id'])] : []));
+        }
+        if (!mb_same_origin() || stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== 0) {
+            out(['error' => 'The brief must be saved from the Mashpad viewer.'], 403);
+        }
+        try {
+            $saved = mb_brief_save($pdo, $pad, mb_current_user(), (string) ($in['body'] ?? ''), (int) ($in['base_version'] ?? 0));
+        } catch (MbBriefConflict $c) {
+            out(['error' => 'conflict', 'message' => $c->getMessage(), 'brief' => $c->current], 409);
+        }
+        out(['ok' => true, 'key' => mb_pad_ref($pad), 'brief' => $saved['version'] ? $saved : null]);
     }
 
     if ($action === 'me') {
