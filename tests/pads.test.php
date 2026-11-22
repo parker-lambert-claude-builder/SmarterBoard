@@ -175,6 +175,19 @@ check('a member sees only the codes they made; the owner sees all', count(mb_lob
 mb_remove_member($pdo, $evePad2, $dylanId, $eveId);
 check('a code stops working the moment its maker is removed from the pad', str_contains(err(fn () => mb_join_pad($pdo, 'eve/code-owners', $deadCode, null, ['handle' => 'too-late'])), 'isn\'t valid')
       && (int) $pdo->query("SELECT COUNT(*) FROM principals WHERE handle = 'too-late'")->fetchColumn() === 0);
+check('a removed maker\'s codes are no longer listed as active', array_map('intval', array_column(mb_lobby_active($pdo, (int) $evePad2['id']), 'created_by')) === [$eveId]);
+
+// An agent updates its own profile
+$bot = (int) $a1['id'];
+check('an agent changes only the profile fields it passes', mb_update_agent_profile($pdo, $bot, ['role' => '  Scheduling   assistant ', 'webhook_url' => 'https://example.org/wake']) === ['role', 'webhook_url']
+      && mb_principal($pdo, $bot)['role'] === 'Scheduling assistant' && mb_principal($pdo, $bot)['webhook_url'] === 'https://example.org/wake' && mb_principal($pdo, $bot)['platform'] === null);
+$secret = $pdo->query("SELECT webhook_secret FROM agent_profiles WHERE principal_id = $bot")->fetchColumn();
+check('a first webhook gets a signing secret, kept when the address changes', str_starts_with((string) $secret, 'whsec_') && mb_update_agent_profile($pdo, $bot, ['webhook_url' => 'https://example.org/wake2']) === ['webhook_url']
+      && $pdo->query("SELECT webhook_secret FROM agent_profiles WHERE principal_id = $bot")->fetchColumn() === $secret);
+check('an http:// webhook is refused and nothing changes', str_contains(err(fn () => mb_update_agent_profile($pdo, $bot, ['webhook_url' => 'http://x.example/'])), 'https://') && mb_principal($pdo, $bot)['webhook_url'] === 'https://example.org/wake2');
+check('an empty string clears a field, and its secret with it', mb_update_agent_profile($pdo, $bot, ['webhook_url' => '', 'role' => '']) === ['role', 'webhook_url'] && mb_principal($pdo, $bot)['webhook_url'] === null
+      && mb_principal($pdo, $bot)['role'] === null && $pdo->query("SELECT webhook_secret FROM agent_profiles WHERE principal_id = $bot")->fetchColumn() === null);
+check('unknown keys and no keys change nothing; the handle can\'t be changed this way', mb_update_agent_profile($pdo, $bot, ['handle' => 'renamed', 'can_create_pads' => 1]) === [] && mb_principal($pdo, $bot)['handle'] === 'eves-bot' && (int) mb_principal($pdo, $bot)['can_create_pads'] === 0);
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$evePad2['id']]);
 
 // Removal

@@ -33,7 +33,7 @@ mb_page_start('New pad');
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <form method="post" action="./">
     <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>">
-    <label>Pad name <span class="hint">For example "Checkout QA", which you'd find at <?= mb_e(mb_site_url() . 'pads/' . $user['handle'] . '/checkout-qa') ?>.</span>
+    <label>Pad name
       <input name="name" required maxlength="120" value="<?= mb_e($_POST['name'] ?? '') ?>"></label>
     <button type="submit">Create pad</button>
   </form>

@@ -47,6 +47,20 @@ $padUrl    = $pad ? mb_pad_url($pad) : '';
 $manageUrl = $pad ? $base . 'manage/' . mb_pad_ref($pad) : $base . 'manage/';
 $mcpUrl    = mb_site_url() . 'mcp/';
 
+// Which section an action belongs to. After it, the page comes back at that section (not at the
+// top, which feels like a reload) and shows the result there.
+const ACTION_SECTION = [
+    'member_remove' => 'members', 'request_approve' => 'members', 'request_decline' => 'members',
+    'lobby_create' => 'lobby', 'lobby_revoke' => 'lobby', 'agent_add' => 'lobby',
+    'person_add' => 'people',
+    'invite_show' => 'invite', 'invite_make' => 'invite', 'invite_reset' => 'invite', 'invite_on' => 'invite', 'invite_off' => 'invite', 'invite_approval' => 'invite',
+];
+const SECTION_ANCHOR = ['members' => 'members-h', 'lobby' => 'lobby-h', 'people' => 'add-person-h', 'invite' => 'invite-h'];
+$at = ACTION_SECTION[(string) ($_POST['act'] ?? '')] ?? (isset(SECTION_ANCHOR[(string) ($_GET['at'] ?? '')]) ? (string) $_GET['at'] : '');
+if (!$own && in_array($at, ['people', 'invite'], true)) {
+    $at = '';                 // those sections aren't shown to a member, so anything to say goes at the top
+}
+
 // What a member who isn't the owner may do here: invite, add and remove their own agents, nothing else.
 // (agent_create, agent_token, agent_revoke and agent_permission have no form on this page any more; they
 // are still answered so older tabs and bookmarks keep working.)
@@ -150,7 +164,7 @@ if ($pad && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new MbAccountError('Unknown action.');
         }
         if ($done !== null) {
-            header('Location: ' . $manageUrl . '?done=' . rawurlencode($done), true, 303);
+            header('Location: ' . $manageUrl . '?done=' . rawurlencode($done) . ($at !== '' ? '&at=' . $at . '#' . SECTION_ANCHOR[$at] : ''), true, 303);
             exit;
         }
     } catch (MbAccountError | MbError $x) {
@@ -179,7 +193,17 @@ $humans  = count(array_filter($members, fn ($m) => $m['kind'] !== 'agent'));
 $summary = ucfirst($count($humans, 'human', 'humans') . ', ' . $count(count($members) - $humans, 'agent', 'agents'));
 
 /** One small POST form; $fields are hidden inputs. */
-$button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad, $manageUrl): string {
+/** Where a form posts: this page, coming back at the section the action belongs to. */
+$actionUrl = fn (string $act): string => $manageUrl . (isset(ACTION_SECTION[$act]) ? '#' . SECTION_ANCHOR[ACTION_SECTION[$act]] : '');
+/** The result of the last action, shown in the section it belongs to ('' = top of the page). */
+$note = function (string $section) use ($at, &$error): string {
+    if ($at !== $section) {
+        return '';
+    }
+    return (isset($_GET['done']) ? '<p class="notice" role="status">' . mb_e(substr((string) $_GET['done'], 0, 300)) . '</p>' : '')
+         . ($error ? '<p class="error" role="alert">' . mb_e($error) . '</p>' : '');
+};
+$button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad, $actionUrl): string {
     $confirm = match ($act) {
         'member_remove' => 'Remove this member from this pad? Their earlier posts will stay.',
         'invite_reset' => 'Regenerate the open invitation? The current link stops working for everyone who has it. Members who already joined stay.',
@@ -187,7 +211,7 @@ $button = function (string $act, string $label, array $fields = [], string $clas
         'request_decline' => 'Decline this request to join?',
         default => '',
     };
-    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($manageUrl) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
+    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($actionUrl($act)) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
        . '<input type="hidden" name="b" value="' . mb_e(mb_pad_ref($pad)) . '"><input type="hidden" name="act" value="' . mb_e($act) . '">';
     foreach ($fields as $k => $v) {
         $h .= '<input type="hidden" name="' . mb_e($k) . '" value="' . mb_e($v) . '">';
@@ -216,8 +240,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
 
   <?php if (isset($_GET['welcome'])): ?><p class="notice" role="status">You're on this pad. To bring your AI agent, use “Secure agent invitation” below and paste the message it gives you into your agent's chat.</p><?php endif; ?>
   <?php if (isset($_GET['created'])): ?><p class="notice" role="status">Pad created. Invite the agents and people who should be on it.</p><?php endif; ?>
-  <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
-  <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
+  <?= $note('') ?>
 
   <?php if ($shown && $shown['kind'] === 'token'): ?>
   <div class="once" role="status">
@@ -226,13 +249,14 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <code><?= mb_e($shown['token']) ?></code>
     <p>A message you can paste to the agent:</p>
     <span class="copy" id="agent-invitation">You're @<?= mb_e($shown['handle']) ?> on Mashpad. Your agent token is <?= mb_e($shown['token']) ?>; keep it. Mashpad's MCP server is <?= mb_e($mcpUrl) ?>. Read the pad "<?= mb_e(mb_pad_ref($pad)) ?>" with read_board and pass your token.</span>
-    <button type="button" data-copy="agent-invitation" hidden>Copy invitation</button><p class="copy-status" role="status"></p>
+    <button type="button" data-copy="agent-invitation" data-copied="Message copied. Paste it into your agent’s chat." hidden>Copy invitation</button><p class="copy-status" role="status"></p>
   </div>
   <?php endif; ?>
 
   <section aria-labelledby="members-h" class="access-section">
     <h2 id="members-h">Who's on this pad</h2>
     <p class="access-summary"><?= mb_e($summary) ?></p>
+    <?= $note('members') ?>
     <?php if ($requests): ?>
     <div class="join-requests">
       <h3 id="requests-h">Waiting to join <span class="section-count"><?= count($requests) ?></span></h3>
@@ -246,9 +270,11 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
       </ul>
     </div>
     <?php endif; ?>
-    <details class="member-details">
-      <summary>Show everyone<?= $own ? ' and manage them' : '' ?></summary>
-      <ul class="member-list">
+    <?php $listOpen = $at === 'members'; ?>
+    <button type="button" class="disclosure" data-toggle="member-list" aria-controls="member-list" aria-expanded="<?= $listOpen ? 'true' : 'false' ?>"
+            data-show="Show everyone<?= $own ? ' and manage them' : '' ?>" data-hide="Hide the list"><span class="disclosure-mark" aria-hidden="true"></span><span class="toggle-label"><?= $listOpen ? 'Hide the list' : 'Show everyone' . ($own ? ' and manage them' : '') ?></span></button>
+    <noscript><style>#member-list { display: block !important; } .disclosure { display: none; }</style></noscript>
+    <ul class="member-list" id="member-list"<?= $listOpen ? '' : ' hidden' ?>>
       <?php foreach ($members as $m): $mine = in_array((int) $m['id'], $myAgentIds, true); ?>
         <li>
           <div class="member-who"><strong>@<?= mb_e($m['handle']) ?></strong>
@@ -259,19 +285,19 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
           <div class="member-actions"><?= $m['role'] !== 'owner' && ($own || $mine) ? $button('member_remove', 'Remove @' . $m['handle'], ['member' => $m['id']], 'danger') : '' ?></div>
         </li>
       <?php endforeach; ?>
-      </ul>
-    </details>
+    </ul>
   </section>
 
   <section aria-labelledby="lobby-h" class="access-section">
     <h2 id="lobby-h">Secure agent invitation</h2>
     <p>Invite your own agents with a code that's good for ten minutes.</p>
+    <?= $note('lobby') ?>
     <?php if ($shown && $shown['kind'] === 'lobby'): ?>
     <div class="once" role="status">
       <h3>Code: <?= mb_e($shown['code']) ?></h3>
       <p>Valid until <?= gmdate('H:i', $shown['expires']) ?> UTC. Paste this message into your agent's chat. Any number of your agents can use it in that time.</p>
       <span class="copy" id="agent-invitation">Join my Mashpad pad at <?= mb_e($padUrl) ?> with lobby code <?= mb_e($shown['code']) ?> (valid 10 minutes). Use the join_pad tool on the Mashpad MCP server at <?= mb_e($mcpUrl) ?>. If you're new, pick a handle and describe your role; you'll get a personal token, so keep it. If you already have a Mashpad token, pass it to join as yourself.</span>
-      <button type="button" data-copy="agent-invitation" hidden>Copy invitation</button><p class="copy-status" role="status"></p>
+      <button type="button" data-copy="agent-invitation" data-copied="Invitation copied. Paste it into your agent’s chat." hidden>Copy invitation</button><p class="copy-status" role="status"></p>
     </div>
     <?php else: ?>
     <?= $button('lobby_create', 'Show agent invitation') ?>
@@ -281,7 +307,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <?php endforeach; ?>
     <p class="muted">A new agent that joins with your code belongs to your account: you're the person responsible for it. Manage it under <a href="<?= mb_e($base) ?>agents/">Your agents</a>.</p>
     <?php if ($others): ?>
-    <form method="post" action="<?= mb_e($manageUrl) ?>" class="add-existing">
+    <form method="post" action="<?= mb_e($actionUrl('agent_add')) ?>" class="add-existing">
       <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="agent_add">
       <label for="add-agent">Or add an agent you already have</label>
       <span class="add-row"><select id="add-agent" name="agent"><?php foreach ($others as $a): ?><option value="<?= (int) $a['id'] ?>">@<?= mb_e($a['handle']) ?></option><?php endforeach; ?></select>
@@ -294,7 +320,8 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <section aria-labelledby="add-person-h" class="access-section">
     <h2 id="add-person-h">Invite people</h2>
     <p>Add people to your project.</p>
-    <form method="post" action="<?= mb_e($manageUrl) ?>">
+    <?= $note('people') ?>
+    <form method="post" action="<?= mb_e($actionUrl('person_add')) ?>">
       <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="person_add">
       <label for="add-person">Their @handle or email address <span class="hint">A @handle adds someone who already has a Mashpad account. Inviting by email isn't available yet.</span></label>
       <span class="add-row"><input id="add-person" name="handle" required maxlength="254" spellcheck="false" autocapitalize="none" autocomplete="off" value="<?= mb_e($error && ($_POST['act'] ?? '') === 'person_add' ? ($_POST['handle'] ?? '') : '') ?>">
@@ -306,6 +333,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <h2 id="invite-h">Open invitation</h2>
     <?php $live = $invite && (int) $invite['enabled']; $asks = !$invite || (int) $invite['require_approval']; ?>
     <p><strong>Caution:</strong> anybody who has this invitation link can <?= $asks ? 'ask to join this pad' : 'join this pad' ?> until you revoke it. It's best for sharing with a close group of people and their agents, for tasks like schedule coordination.<?= $asks ? ' You approve each request before they get in.' : ' <strong>They get in straight away</strong> and can read everything here.' ?></p>
+    <?= $note('invite') ?>
     <?php if ($invite && !$live): ?>
     <p class="notice">The open invitation is revoked. Nobody can join with it. Members who already joined stay.</p>
     <div class="invite-actions"><?= $button('invite_on', 'Switch it back on') ?><?= $button('invite_reset', 'Regenerate (it stays off)') ?></div>
@@ -313,7 +341,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <div class="once" role="status">
       <h3>Invitation link</h3>
       <span class="copy" id="invite-url"><?= mb_e(mb_invite_url($invite)) ?></span>
-      <button type="button" data-copy="invite-url" hidden>Copy link</button><p class="copy-status" role="status"></p>
+      <button type="button" data-copy="invite-url" data-copied="Link copied. Send it to the people you’re inviting, or to their agents." hidden>Copy link</button><p class="copy-status" role="status"></p>
       <p class="muted">It doesn't expire. A person who opens it can create an account and join; an agent that opens it is told how to join. Used <?= (int) $invite['uses'] ?> time<?= (int) $invite['uses'] === 1 ? '' : 's' ?>.</p>
     </div>
     <?php else: ?>

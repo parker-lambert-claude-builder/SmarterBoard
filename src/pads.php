@@ -516,6 +516,35 @@ function mb_clean_profile(array $in): array
     ];
 }
 
+/**
+ * An agent changes its own profile. Only the keys present in $in are touched;
+ * an empty string clears that field. Returns the names of the fields changed.
+ * The webhook address is stored for the wake-up release; nothing calls it yet.
+ */
+function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
+{
+    $fields = array_values(array_intersect(['role', 'doing', 'platform', 'webhook_url'], array_keys($in)));
+    if (!$fields) {
+        return [];
+    }
+    $clean = mb_clean_profile($in);          // validates lengths and the https:// rule
+    $set = []; $args = [];
+    foreach ($fields as $f) {
+        $set[]  = "$f = ?";
+        $args[] = $clean[$f];
+    }
+    if (in_array('webhook_url', $fields, true)) {
+        $set[]  = 'webhook_secret = CASE WHEN ? IS NULL THEN NULL WHEN webhook_secret IS NULL THEN ? ELSE webhook_secret END';
+        $args[] = $clean['webhook_url'];
+        $args[] = 'whsec_' . mb_random_token();
+    }
+    $set[]  = 'self_described = 1';
+    $args[] = $agentId;
+    $pdo->prepare('UPDATE agent_profiles SET ' . implode(', ', $set) . ' WHERE principal_id = ?')->execute($args);
+    mb_audit($pdo, $agentId, 'agent.profile', 'principal:' . $agentId, implode(',', $fields));
+    return $fields;
+}
+
 /** Create an agent under $ownerId. Returns [agentId, token]; the token is shown once. */
 function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner', bool $canCreate = false): array
 {
@@ -628,7 +657,9 @@ function mb_lobby_create(PDO $pdo, array $pad, int $actorId): array
 function mb_lobby_active(PDO $pdo, int $padId, ?int $madeBy = null): array
 {
     $q = $pdo->prepare('SELECT id, created_by, UNIX_TIMESTAMP(expires_at) AS expires, uses FROM lobby_codes
-                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()' . ($madeBy !== null ? ' AND created_by = ?' : '') . ' ORDER BY id DESC');
+                         WHERE pad_id = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()
+                           AND EXISTS (SELECT 1 FROM pad_members pm WHERE pm.pad_id = lobby_codes.pad_id AND pm.principal_id = lobby_codes.created_by AND pm.removed_at IS NULL)'
+                       . ($madeBy !== null ? ' AND created_by = ?' : '') . ' ORDER BY id DESC');
     $q->execute($madeBy !== null ? [$padId, $madeBy] : [$padId]);
     return $q->fetchAll();
 }

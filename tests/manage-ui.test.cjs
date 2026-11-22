@@ -36,3 +36,24 @@ test('copy invitation reports success only after copying and offers selection wh
   assert.equal(denied.selected(), true);
   assert.match(denied.status.textContent, /Automatic copying is unavailable/);
 });
+
+test('copying says what was copied when the button gives its own message', async () => {
+  const ok = setup();
+  ok.button.dataset.copied = 'Link copied. Send it to the people you’re inviting, or to their agents.';
+  await ok.handlers.click();
+  assert.equal(ok.status.textContent, 'Link copied. Send it to the people you’re inviting, or to their agents.');
+});
+
+test('the show/hide button opens and closes its list and says which it will do', () => {
+  const handlers = {};
+  const label = { textContent: 'Show everyone' };
+  const list = { hidden: true };
+  const attrs = { 'aria-expanded': 'false' };
+  const button = { dataset: { toggle: 'member-list', show: 'Show everyone', hide: 'Hide the list' }, getAttribute: n => attrs[n], setAttribute: (n, v) => { attrs[n] = v; },
+    querySelector: () => label, addEventListener: (name, fn) => { handlers.click = fn; } };
+  vm.runInNewContext(source, { document: { querySelectorAll: sel => sel === 'button[data-toggle]' ? [button] : [], getElementById: () => list }, navigator: {}, window: {} });
+  handlers.click();
+  assert.deepEqual([list.hidden, attrs['aria-expanded'], label.textContent], [false, 'true', 'Hide the list']);
+  handlers.click();
+  assert.deepEqual([list.hidden, attrs['aria-expanded'], label.textContent], [true, 'false', 'Show everyone']);
+});

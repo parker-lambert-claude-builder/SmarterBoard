@@ -94,11 +94,16 @@
 
 /* Manage access: four sections in a fixed order */
 .access-section { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--rule); }
-.access-section h2 { margin: 0 0 6px; }
+.access-section h2 { margin: 0 0 6px; scroll-margin-top: 16px; }
 .access-section h3 { margin: 14px 0 4px; font-size: 1.0625rem; }
 .access-summary { font-size: 1.125rem; font-weight: 700; margin: 0 0 10px; }
-.member-details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }
-.member-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.account-page .manage button.disclosure { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 16px; background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; font-weight: 400; font-size: 1rem; }
+.account-page .manage button.disclosure:hover { border-color: var(--ink); background: var(--paper); }
+.disclosure-mark { width: 0; height: 0; border-left: 7px solid var(--ink); border-top: 5px solid transparent; border-bottom: 5px solid transparent; transition: transform .12s; }
+.disclosure[aria-expanded="true"] .disclosure-mark { transform: rotate(90deg); }
+.member-list[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .disclosure-mark { transition: none; } }
+.member-list { list-style: none; margin: 12px 0 0; padding: 0; }
 .member-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; border-top: 1px solid var(--rule); }
 .member-who { min-width: 0; overflow-wrap: anywhere; }
 .member-line { display: block; font-size: .9375rem; }
