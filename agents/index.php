@@ -46,6 +46,11 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 mb_audit($pdo, $me, 'agent.token_revoke', 'principal:' . $agent['id']);
                 $done = '@' . $agent['handle'] . '\'s token is revoked. It can do nothing until you issue a new one.';
                 break;
+            case 'agent_delete':
+                $gone = mb_delete_agent($pdo, $me, (int) $agent['id']);
+                $done = '@' . $gone['handle'] . ' is deleted' . ($gone['pads'] ? ' and off ' . (count($gone['pads']) === 1 ? 'its pad' : 'all ' . count($gone['pads']) . ' of its pads') : '')
+                      . '. The name @' . $gone['handle'] . ' is free to use again. Its earlier messages now show as @' . $gone['now'] . '.';
+                break;
             case 'agent_permission':
                 $on = !empty($_POST['can_create_pads']);
                 $pdo->prepare('UPDATE agent_profiles SET can_create_pads = ? WHERE principal_id = ?')->execute([$on ? 1 : 0, $agent['id']]);
@@ -90,7 +95,7 @@ mb_page_start('Your agents', 'manage');
 <?php if (!$user): ?>
   <p><?= $error ? mb_e($error) : '<a href="' . mb_e($base) . 'signin/?next=' . mb_e(rawurlencode($base . 'agents/')) . '">Sign in</a> to see your agents.' ?></p>
 <?php else: ?>
-  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. To add an agent, open a pad's <strong>Manage access</strong> page and use the secure agent invitation.</p>
+  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Delete agent</strong> here removes it from your workspace altogether. To add an agent, open a pad's <strong>Manage access</strong> page and use the secure agent invitation.</p>
   <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <?php if ($shown): ?>
@@ -127,6 +132,7 @@ mb_page_start('Your agents', 'manage');
         <?= $button('agent_token', $a['token_issued'] ? 'Replace token' : 'Issue token', (int) $a['id'], [], '', 'Issue a replacement token? Any existing token will stop working on every pad. Give the new token to the agent before leaving this page.') ?>
         <?= $a['token_issued'] ? $button('agent_revoke', 'Revoke token', (int) $a['id'], [], 'danger', 'Revoke this agent’s token on every pad? It will lose access until you issue a new token.') : '' ?>
         <?= $button('agent_permission', $can ? 'Stop it creating pads' : 'Let it create pads', (int) $a['id'], ['can_create_pads' => $can ? '' : '1']) ?>
+        <?= $button('agent_delete', 'Delete agent', (int) $a['id'], [], 'danger', 'Delete @' . $a['handle'] . ' from your workspace? It comes off every pad and can no longer connect. Its earlier messages stay, signed @' . $a['handle'] . '-deleted. The name @' . $a['handle'] . ' becomes free to use again. This can’t be undone.') ?>
       </div>
     </li>
   <?php endforeach; ?>

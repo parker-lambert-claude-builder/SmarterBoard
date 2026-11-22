@@ -135,6 +135,40 @@ check('approved and then removed before collecting: the code gives nothing', mb_
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$rid]);
 check('deleting the pad deletes its request codes', (int) $pdo->query('SELECT COUNT(*) FROM join_receipts')->fetchColumn() === 0);
 
+// Starting over: delete an agent from the workspace so its name can be used again
+$dpad = mb_create_pad($pdo, $dylan, 'Start Over');
+$dinv = mb_invite_make($pdo, $dpad, $dylanId);
+mb_invite_set($pdo, $dpad, $dylanId, null, false);
+$dinv = mb_invite($pdo, (int) $dpad['id']);
+[$bodhi, $bodhiToken] = mb_invite_guest_agent($pdo, $dpad, ['handle' => 'bodhi', 'acts_for' => 'Dylan']);
+mb_invite_use($pdo, $dinv, $dpad, $bodhi);
+mb_pad_post($pdo, mb_pad_for($pdo, 'dylan/start-over', (int) $bodhi['id']), $bodhi, 'Hello from the first bodhi.');
+mb_revoke_agent_tokens($pdo, (int) $bodhi['id']);
+mb_remove_member($pdo, $dpad, (int) $bodhi['id'], $dylanId);
+$stuck = err(fn () => mb_invite_guest_agent($pdo, $dpad, ['handle' => 'bodhi', 'acts_for' => 'Dylan']));
+check('removed from the pad with a dead token, the same name still can\'t register, and the refusal says how to get unstuck', str_contains($stuck, 'already an agent called @bodhi')
+      && str_contains($stuck, 'issue a new one') && str_contains($stuck, 'delete the old agent'), $stuck);
+check('only its responsible person can delete it', str_contains(err(fn () => mb_delete_agent($pdo, $samId, (int) $bodhi['id'])), 'isn\'t one of your agents') && mb_principal($pdo, (int) $bodhi['id'])['handle'] === 'bodhi');
+mb_add_member($pdo, $dpad, (int) $bodhi['id'], 'added');
+$gone = mb_delete_agent($pdo, $dylanId, (int) $bodhi['id']);
+$old  = mb_principal($pdo, (int) $bodhi['id']);
+check('deleting takes it off its pads, kills its token and frees the name', $gone['handle'] === 'bodhi' && $gone['pads'] === ['dylan/start-over'] && mb_pad_for($pdo, 'dylan/start-over', (int) $bodhi['id']) === null
+      && mb_agent_by_token($pdo, $bodhiToken) === null && !mb_agent_has_token($pdo, (int) $bodhi['id']) && $old['disabled_at'] !== null && $old['handle'] === 'bodhi-deleted-' . $bodhi['id']);
+check('it is gone from its person\'s agents and can\'t be acted on again', !in_array((int) $bodhi['id'], array_map('intval', array_column(mb_agents_of($pdo, $dylanId), 'id')), true)
+      && mb_owned_agent($pdo, $dylanId, (int) $bodhi['id']) === null && str_contains(err(fn () => mb_delete_agent($pdo, $dylanId, (int) $bodhi['id'])), 'isn\'t one of your agents'));
+$dr = mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/start-over', $dylanId), null, 50);
+$post = array_values(array_filter($dr['messages'], fn ($m) => $m['body'] === 'Hello from the first bodhi.'))[0];
+check('its earlier message stays, now signed with the closed name', $post['author'] === 'bodhi-deleted-' . $bodhi['id']);
+check('the pad records the deletion', str_contains(end($dr['messages'])['body'], '@bodhi was deleted by @dylan and is no longer on this pad. Its earlier messages now show as @bodhi-deleted-'));
+[$bodhi2, $token2] = mb_invite_guest_agent($pdo, $dpad, ['handle' => 'bodhi', 'acts_for' => 'Dylan']);
+check('a brand-new @bodhi can now register and join from square zero, as a different agent', (int) $bodhi2['id'] !== (int) $bodhi['id'] && mb_invite_use($pdo, $dinv, $dpad, $bodhi2) === 'joined'
+      && (int) mb_agent_by_token($pdo, $token2)['id'] === (int) $bodhi2['id'] && mb_pad_participant($pdo, $dpad, 'bodhi')['posts'] === 0);
+$long = str_repeat('a', 40);
+[$longId] = mb_create_agent($pdo, $dylanId, ['handle' => $long]);
+$lg = mb_delete_agent($pdo, $dylanId, $longId);
+check('a 40-character name still fits once closed', strlen($lg['now']) <= 40 && str_ends_with($lg['now'], '-deleted-' . $longId) && (bool) preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $lg['now']));
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$dpad['id']]);
+
 // Off, on, reset
 mb_invite_set($pdo, $pad, $dylanId, false, null);
 check('switched off, the link finds nothing; members stay', mb_invite_by_token($pdo, $inv['token']) === null && mb_pad_for($pdo, 'dylan/my-schedule', $samId) !== null);

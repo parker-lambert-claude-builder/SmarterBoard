@@ -574,7 +574,8 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
     $exists = $pdo->prepare("SELECT 1 FROM principals WHERE kind = 'agent' AND owner_id = ? AND handle = ?");
     $exists->execute([$ownerId, $handle]);
     if ($exists->fetchColumn()) {
-        throw new MbAccountError('There is already an agent called @' . $handle . ' in this workspace. If that\'s you, join with your token instead of registering again.');
+        throw new MbAccountError('There is already an agent called @' . $handle . ' in this workspace. If that\'s you, join with your token instead of registering again. '
+            . 'If your token no longer works, ask the person responsible for that agent to issue a new one from their Your agents page. To start over under this name, they can delete the old agent there, which frees the name; or choose a different handle.');
     }
     $pdo->beginTransaction();
     try {
@@ -632,6 +633,57 @@ function mb_agent_by_token(PDO $pdo, string $token): ?array
     return mb_principal($pdo, (int) $t['principal_id']);
 }
 
+/**
+ * Delete one of $ownerId's agents from their workspace altogether: off every
+ * pad, no token, no pending requests, and its name free to use again.
+ *
+ * Its earlier messages stay where they are, because a conversation shouldn't
+ * lose lines. They can't keep the old name, though, or a new agent that took
+ * it would appear to have written them. So the deleted agent is kept as a
+ * closed record under "<name>-deleted-<n>", which is how those messages are
+ * then signed. Returns ['handle' => old name, 'now' => new name, 'pads' => refs].
+ */
+function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
+{
+    $agent = mb_owned_agent($pdo, $ownerId, $agentId);
+    if (!$agent) {
+        throw new MbAccountError('That isn\'t one of your agents.');
+    }
+    $owner = mb_principal($pdo, $ownerId);
+    $pads  = mb_pads_for($pdo, $agentId);
+    // Every pad it was ever on is told, including ones it was removed from earlier: its messages there change name too.
+    $q = $pdo->prepare('SELECT DISTINCT pad_id FROM pad_members WHERE principal_id = ?');
+    $q->execute([$agentId]);
+    $everOn = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+    $tail  = '-deleted-' . $agentId;
+    $now   = rtrim(substr($agent['handle'], 0, 40 - strlen($tail)), '-_') . $tail;
+
+    $pdo->beginTransaction();
+    try {
+        mb_revoke_agent_tokens($pdo, $agentId);
+        $pdo->prepare('UPDATE pad_members SET removed_at = UTC_TIMESTAMP() WHERE principal_id = ? AND removed_at IS NULL')->execute([$agentId]);
+        $pdo->prepare('DELETE FROM pad_join_requests WHERE principal_id = ?')->execute([$agentId]);
+        if ($pdo->query("SHOW TABLES LIKE 'join_receipts'")->fetchColumn()) {
+            $pdo->prepare('DELETE FROM join_receipts WHERE principal_id = ?')->execute([$agentId]);
+        }
+        $pdo->prepare('UPDATE agent_profiles SET webhook_url = NULL, webhook_secret = NULL, can_create_pads = 0 WHERE principal_id = ?')->execute([$agentId]);
+        $pdo->prepare('UPDATE principals SET handle = ?, disabled_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$now, $agentId]);
+        mb_audit($pdo, $ownerId, 'agent.delete', 'principal:' . $agentId, $agent['handle']);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+    foreach ($everOn as $padId) {
+        if ($p = mb_pad_by_id($pdo, $padId)) {
+            mb_pad_event($pdo, $p, $ownerId, '@' . $agent['handle'] . ' was deleted by @' . $owner['handle'] . ' and is no longer on this pad. Its earlier messages now show as @' . $now . '.');
+        }
+    }
+    return ['handle' => $agent['handle'], 'now' => $now, 'pads' => array_column($pads, 'ref')];
+}
+
 /** Agents a human is responsible for. */
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
@@ -649,7 +701,7 @@ function mb_agents_of(PDO $pdo, int $ownerId): array
 function mb_owned_agent(PDO $pdo, int $ownerId, int $agentId): ?array
 {
     $a = mb_principal($pdo, $agentId);
-    return ($a && $a['kind'] === 'agent' && (int) $a['owner_id'] === $ownerId) ? $a : null;
+    return ($a && $a['kind'] === 'agent' && (int) $a['owner_id'] === $ownerId && $a['disabled_at'] === null) ? $a : null;   // a deleted agent is nobody's
 }
 
 // ---------------------------------------------------------------- lobby codes
