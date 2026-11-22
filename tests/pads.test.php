@@ -270,7 +270,10 @@ check('a name that merely contains a slash is still one pad', $slash['slug'] ===
 
 $code = '';
 foreach (array_merge(glob("$root/src/*.php"), glob("$root/*/index.php")) as $f) { $code .= file_get_contents($f); }
-check('A4: nothing in the app can change a handle', !preg_match('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $code));
+// The one place a handle is ever rewritten is deleting an agent, which closes its record under "<name>-deleted-<n>".
+$del = (string) preg_replace('/function mb_delete_agent\(.*?\n}\n/s', '', $code, 1);
+check('A4: nothing in the app can rename a handle (only deleting an agent closes its name)', !preg_match('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $del)
+      && preg_match_all('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $code) === 1);
 
 // Threaded replies: a feature of the owner's plan
 $tp     = mb_create_pad($pdo, $eve, 'Thread Test');

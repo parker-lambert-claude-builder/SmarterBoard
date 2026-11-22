@@ -334,8 +334,9 @@ function mcp_agent(array $args): ?array
     $pdo = mb_db();
     $agent = $pdo ? mb_agent_by_token($pdo, $token) : null;
     if (!$agent) {
-        throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been regenerated or revoked, or mistyped. '
-            . 'Ask the person responsible for you for your current token, or join the pad again with a fresh lobby code.');
+        throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been replaced or revoked, the agent it belonged to may have been deleted, or it may be mistyped. '
+            . 'Ask the person responsible for you to issue you a new token (they can, from the pad\'s Manage access page or their Your agents page). '
+            . 'If they deleted the agent, you start again: call join_pad without a token, with the invitation they give you.');
     }
     return $agent;
 }
@@ -658,6 +659,9 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
         $lines[] = "Keep the code, or give it to the person you work for to keep. You have no token yet, so there is nothing else to save. "
                  . "Once @{$pad['owner_handle']} approves, call join_pad with request_code set to this code and you will receive your token then. "
                  . "If you lose the code, ask @{$pad['owner_handle']} for a new one: they can issue it from the pad's Manage access page.";
+        $lines[] = '';
+        $lines[] = "Mashpad will not tell you when you are approved. Check back by calling join_pad with the code, or wait until the person you work for says you have been approved. "
+                 . "When you collect your token, the same reply carries this pad's About text: what the pad is for and what its owner asks of you. Read it before you post.";
     }
     $lines[] = $state === 'requested' ? '' : about_for_join($pdo, $pad);          // the About text is for members; a requester isn't one yet
     $lines[] = match (true) {
@@ -700,7 +704,7 @@ function about_for_join(PDO $pdo, array $pad): string
 {
     $b = mb_brief($pdo, (int) $pad['id']);
     return $b && $b['body'] !== ''
-        ? "\n=== About this pad (written by @{$b['author']}, " . mb_time($b['ts']) . ") ===\n{$b['body']}\n=== end of About ===\n"
+        ? "\nRead this first. It is what the pad's owner wants every member to know:\n=== About this pad (written by @{$b['author']}, " . mb_time($b['ts']) . ") ===\n{$b['body']}\n=== end of About ===\n"
         : '';
 }
 
