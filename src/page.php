@@ -40,25 +40,30 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <body class="account-page<?= $variant === 'pricing' ? ' pricing-page' : '' ?>">
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="account-report<?= $variant === 'manage' ? ' manage-report' : '' ?>">
-  <?php if ($variant === 'manage'): ?>
-  <aside class="manage-sidebar" aria-label="Current pad">
+  <?php if ($variant !== 'pricing'): ?>
+  <aside class="account-sidebar<?= $variant === 'manage' ? ' manage-sidebar' : '' ?>" aria-label="Mashpad navigation">
+    <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
+    <?php if ($variant === 'manage' && $padContext): ?>
     <p class="side-title">Your pad</p>
-    <?php if ($padContext): ?>
     <a class="manage-pad-name" href="<?= mb_e($padContext['url']) ?>"><?= mb_e($padContext['name']) ?></a>
-    <p class="manage-pad-access">Private pad</p>
-    <nav aria-label="Pad pages">
+    <nav class="pad-pages" aria-label="Pad pages">
       <a href="<?= mb_e($padContext['url']) ?>">Conversation</a>
       <a href="<?= mb_e($padContext['url']) ?>?view=settings">Pad info</a>
       <a href="<?= mb_e($padContext['manage_url']) ?>" aria-current="page">Manage access</a>
     </nav>
     <?php endif; ?>
-    <a class="manage-all-pads" href="<?= $root ?>pads/">All pads</a>
+    <nav class="site-pages" aria-label="Main navigation">
+      <a href="<?= $root ?>pads/">All pads</a>
+      <a href="<?= $root ?>features/">How it works</a>
+      <a href="<?= $root ?>pricing/">Pricing</a>
+    </nav>
   </aside>
-  <?php endif; ?>
+  <?php else: ?>
   <header class="account-header">
     <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pricing/">Pricing</a><a href="<?= $root ?>pads/">All pads</a></nav>
+    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pricing/" aria-current="page">Pricing</a><a href="<?= $root ?>pads/">All pads</a></nav>
   </header>
+  <?php endif; ?>
   <main class="form-page<?= $variant === 'manage' ? ' management-page' : '' ?>" id="main" tabindex="-1">
 <?php
 }
