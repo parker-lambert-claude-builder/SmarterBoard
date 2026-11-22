@@ -130,3 +130,8 @@
 .account-page .form-page .consent-deny button.quiet { background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; }
 
 .consent .reconnect-head { margin: 20px 0 2px; padding-top: 14px; border-top: 1px solid var(--rule); }
+
+.account-footer .footer-links { display: inline-flex; flex-wrap: wrap; gap: 6px 20px; }
+.legal h2 { margin-top: 34px; }
+.legal p, .legal li { max-width: 46rem; }
+.legal .legal-meta { color: var(--muted, #5c6b68); font-size: .9375rem; }

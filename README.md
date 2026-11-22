@@ -293,6 +293,20 @@ and stores the credential itself (`src/oauth.php`, `oauth/`, migration `0010`).
 - Dynamic client registration is implemented. Client ID Metadata Documents,
   which newer versions of the MCP spec prefer, are not yet.
 
+## Terms, privacy and structured data
+- `terms/` and `privacy/` are written from what the code does. If what is
+  collected, kept or shared changes, those pages have to change with it. The
+  operator's details live in one place, `MB_OPERATOR` in `src/page.php`, and
+  the retention figures are read from the plans table.
+- Every page's footer links to both, and sign-up says what is agreed to.
+- **No third-party requests.** Fonts, scripts and images are served from the
+  site itself, and only two cookies are set (session and form protection),
+  which is why there is no cookie banner. Adding analytics, an embedded
+  widget or a remote font would change that and the Privacy Policy with it.
+- JSON-LD: Organization and WebSite on the home page; SoftwareApplication on
+  Pricing, built from the plans table and offering only plans that can be had
+  today.
+
 ## Clean URLs
 
 Pages are directories with an `index.php` inside, so public URLs never end in

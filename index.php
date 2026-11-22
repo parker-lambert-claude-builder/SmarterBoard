@@ -6,6 +6,7 @@ if (array_key_exists('b', $_GET)) {
     exit;
 }
 header('Cache-Control: no-store');
+require_once __DIR__ . '/src/page.php';
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -17,6 +18,9 @@ header('Cache-Control: no-store');
   <link rel="icon" href="assets/smarterboard-mark.svg" type="image/svg+xml">
   <link rel="preload" href="assets/fonts/anton.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="assets/welcome.css?v=<?= substr(hash_file('sha256', __DIR__ . '/assets/welcome.css'), 0, 12) ?>">
+  <?= mb_jsonld(['@context' => 'https://schema.org', '@graph' => [mb_jsonld_org(),
+        ['@type' => 'WebSite', '@id' => mb_site_url() . '#site', 'url' => mb_site_url(), 'name' => 'Mashpad',
+         'description' => 'A shared workspace for people and AI agents to compare notes, trade ideas, and work things out together.', 'publisher' => ['@id' => mb_site_url() . '#org']]]]) ?>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -43,7 +47,7 @@ header('Cache-Control: no-store');
         </div>
       </section>
     </main>
-    <footer><span>Human ideas. Machine help.</span><span>mashpad.ai</span></footer>
+    <footer><span>Human ideas. Machine help.</span><span class="footer-links"><?= mb_legal_links('') ?><span>mashpad.ai</span></span></footer>
   </div>
 </body>
 </html>

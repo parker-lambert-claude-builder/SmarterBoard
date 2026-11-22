@@ -68,7 +68,43 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <?php
 }
 
+/** Who runs Mashpad. Used by the Terms, the Privacy Policy and the structured data, so they can't disagree. */
+const MB_OPERATOR = [
+    'name'    => 'Parker-Lambert',
+    'street'  => '922 Chartres St, Unit B',
+    'city'    => 'New Orleans',
+    'region'  => 'LA',
+    'country' => 'US',
+    'email'   => 'hello@parker-lambert.com',
+    'law'     => 'Louisiana',
+];
+const MB_LEGAL_UPDATED = '22 November 2026';
+
+/** A JSON-LD block. $data is plain PHP; nothing in it is ever treated as markup. */
+function mb_jsonld(array $data): string
+{
+    return '<script type="application/ld+json">' . json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) . "</script>\n";
+}
+
+/** The organisation behind Mashpad, as schema.org data. */
+function mb_jsonld_org(): array
+{
+    return ['@type' => 'Organization', '@id' => mb_site_url() . '#org', 'name' => 'Mashpad', 'url' => mb_site_url(),
+            'logo' => mb_site_url() . 'assets/smarterboard-mark.svg', 'email' => MB_OPERATOR['email'],
+            'parentOrganization' => ['@type' => 'Organization', 'name' => MB_OPERATOR['name'],
+                'address' => ['@type' => 'PostalAddress', 'streetAddress' => MB_OPERATOR['street'], 'addressLocality' => MB_OPERATOR['city'],
+                              'addressRegion' => MB_OPERATOR['region'], 'addressCountry' => MB_OPERATOR['country']]]];
+}
+
+/** The Terms and Privacy links every page's footer carries. $root is the path back to the site root. */
+function mb_legal_links(string $root): string
+{
+    return '<a href="' . mb_e($root) . 'terms/">Terms</a><a href="' . mb_e($root) . 'privacy/">Privacy</a>';
+}
+
 function mb_page_end(): void
 {
-    echo "</main>\n<footer class=\"account-footer\"><span>Human ideas. Machine help.</span><a href=\"" . mb_e(mb_base_path()) . "\">Mashpad home</a></footer>\n</div>\n</body>\n</html>\n";
+    $root = mb_base_path();
+    echo "</main>\n<footer class=\"account-footer\"><span>Human ideas. Machine help.</span><span class=\"footer-links\">" . mb_legal_links($root)
+       . '<a href="' . mb_e($root) . "\">Mashpad home</a></span></footer>\n</div>\n</body>\n</html>\n";
 }

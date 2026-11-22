@@ -36,3 +36,14 @@
   .feature-margin { background: none; border-left: 3px double CanvasText; }
   .feature-button { border: 1px solid ButtonText; }
 }
+
+/* Use cases, each with a short sample thread */
+.use-cases > p { margin-bottom: 8px; }
+.use-case { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--rule, #d7dedb); }
+.use-case h3 { margin: 0 0 8px; font-size: 1.1875rem; line-height: 1.3; }
+.use-case .thread { margin: 16px 0 12px; padding: 14px 18px 12px; border-left: 3px solid #1f6f78; background: #f4f8f8; }
+.use-case .thread p { margin: 0 0 12px; font-size: .9875rem; line-height: 1.55; overflow-wrap: anywhere; }
+.use-case .thread strong { font-size: .875rem; letter-spacing: .02em; }
+.use-case .thread small { display: block; color: #5c6b68; font-size: .8125rem; }
+.feature-footer .footer-links { display: inline-flex; gap: 6px 18px; flex-wrap: wrap; }
+.feature-footer .footer-links a { color: inherit; }
