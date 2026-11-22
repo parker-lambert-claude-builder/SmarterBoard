@@ -19,6 +19,11 @@
  * - Every request and every join through the link is recorded in the pad as an
  *   event, and the members page shows how each member joined.
  * - Lobby codes are unchanged: still the quick, ten-minute way to add agents.
+ * - A new agent that has to wait for approval is given a request code, not a
+ *   token. After approval it presents the code and collects its token then.
+ *   Many agents run in sessions that can't keep a secret for long; this way
+ *   nothing irreplaceable is handed over before the owner has said yes, and a
+ *   lost code can be reissued by the owner.
  */
 declare(strict_types=1);
 
@@ -160,6 +165,9 @@ function mb_join_decide(PDO $pdo, array $pad, int $requestId, bool $approve, int
     }
     $p = mb_principal($pdo, (int) $pid);
     $pdo->prepare('DELETE FROM pad_join_requests WHERE id = ?')->execute([$requestId]);
+    if (!$approve) {
+        $pdo->prepare('DELETE FROM join_receipts WHERE pad_id = ? AND principal_id = ?')->execute([$pad['id'], $pid]);   // a declined request's code is dead
+    }
     if ($approve) {
         mb_add_member($pdo, $pad, (int) $pid, 'invite');
         $pdo->prepare('UPDATE pad_invites SET uses = uses + 1 WHERE pad_id = ?')->execute([$pad['id']]);
@@ -172,9 +180,10 @@ function mb_join_decide(PDO $pdo, array $pad, int $requestId, bool $approve, int
 /**
  * An agent with no Mashpad identity joins through the link on its own. It is
  * registered as a guest under the pad's owner and must say who it acts for.
- * Returns [agent row, token].
+ * Returns [agent row, token]. With $withToken false (the pad's owner has to approve
+ * first) no token exists yet and the second element is null.
  */
-function mb_invite_guest_agent(PDO $pdo, array $pad, array $in): array
+function mb_invite_guest_agent(PDO $pdo, array $pad, array $in, bool $withToken = true): array
 {
     $for = trim((string) preg_replace('/\s+/u', ' ', (string) ($in['acts_for'] ?? '')));
     if ($for === '' || mb_ulen($for) > 120) {
@@ -188,5 +197,77 @@ function mb_invite_guest_agent(PDO $pdo, array $pad, array $in): array
     }
     [$id, $token] = mb_create_agent($pdo, (int) $pad['owner_id'], $in, 'invite');
     $pdo->prepare('UPDATE agent_profiles SET acts_for = ? WHERE principal_id = ?')->execute([$for, $id]);
+    if (!$withToken) {
+        mb_revoke_agent_tokens($pdo, $id);          // it gets one when it collects with its request code, after approval
+        $token = null;
+    }
     return [mb_principal($pdo, $id), $token];
+}
+
+// ---------------------------------------------------------------- request codes
+
+/** Whether $agentId has a working token (a guest still waiting for approval has none). */
+function mb_agent_has_token(PDO $pdo, int $agentId): bool
+{
+    $q = $pdo->prepare("SELECT 1 FROM tokens WHERE principal_id = ? AND kind = 'agent' AND revoked_at IS NULL LIMIT 1");
+    $q->execute([$agentId]);
+    return (bool) $q->fetchColumn();
+}
+
+/**
+ * A request code for $principalId's request to join $padId: what a waiting
+ * agent keeps in place of a token. Issuing a new one replaces any earlier one.
+ */
+function mb_receipt_issue(PDO $pdo, int $padId, int $principalId): string
+{
+    $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    $code = '';
+    for ($i = 0; $i < 12; $i++) {
+        $code .= $alphabet[random_int(0, strlen($alphabet) - 1)] . ($i === 3 || $i === 7 ? '-' : '');
+    }
+    $pdo->prepare('INSERT INTO join_receipts (pad_id, principal_id, code_hash) VALUES (?, ?, ?)
+                   ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), collected_at = NULL, created_at = UTC_TIMESTAMP()')
+        ->execute([$padId, $principalId, hash('sha256', mb_lobby_normalize($code), true)]);
+    return $code;
+}
+
+/**
+ * An agent presents its request code. Returns:
+ *   ['state' => 'ready', 'agent', 'pad', 'token']   approved: here is your token (the code is now used up)
+ *   ['state' => 'waiting', 'agent', 'pad']          the owner hasn't answered yet; keep the code
+ *   ['state' => 'invalid']                          unknown, used, declined, or the link was withdrawn
+ */
+function mb_receipt_collect(PDO $pdo, string $code): array
+{
+    $norm = mb_lobby_normalize($code);
+    if (strlen($norm) !== 12) {
+        return ['state' => 'invalid'];
+    }
+    $pdo->beginTransaction();
+    try {
+        $q = $pdo->prepare('SELECT * FROM join_receipts WHERE code_hash = ? AND collected_at IS NULL FOR UPDATE');
+        $q->execute([hash('sha256', $norm, true)]);
+        $r = $q->fetch();
+        $agent = $r ? mb_principal($pdo, (int) $r['principal_id']) : null;
+        $pad   = $r ? mb_pad_by_id($pdo, (int) $r['pad_id']) : null;
+        if (!$r || !$agent || !$pad || $agent['kind'] !== 'agent' || $agent['disabled_at'] !== null) {
+            $pdo->commit();
+            return ['state' => 'invalid'];
+        }
+        if (!mb_membership($pdo, (int) $pad['id'], (int) $agent['id'])) {
+            $waiting = mb_join_pending($pdo, (int) $pad['id'], (int) $agent['id']);
+            $pdo->commit();
+            return $waiting ? ['state' => 'waiting', 'agent' => $agent, 'pad' => $pad] : ['state' => 'invalid'];
+        }
+        $token = mb_issue_agent_token($pdo, (int) $agent['id']);
+        $pdo->prepare('UPDATE join_receipts SET collected_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$r['id']]);
+        mb_audit($pdo, (int) $agent['id'], 'invite.collect', 'pad:' . $pad['id']);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+    return ['state' => 'ready', 'agent' => $agent, 'pad' => $pad, 'token' => $token];
 }

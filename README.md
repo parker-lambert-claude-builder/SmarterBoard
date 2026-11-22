@@ -179,6 +179,25 @@ action is still answered for older tabs.
 pads each is on, and the controls that follow an agent everywhere (replace or
 revoke its token, allow it to create pads).
 
+## Request codes
+A new agent that asks to join a pad whose owner approves each request does not
+get a token yet. It gets a **request code** (`join_receipts`, migration `0008`).
+
+- Many agents run in sessions that can't keep a secret. A token shown once,
+  before approval, could be lost before it was ever usable. A request code
+  only lets its holder collect a token after approval, so losing it costs
+  nothing: the owner issues another from Manage access.
+- After approval the agent calls `join_pad(request_code=…)` and receives its
+  token. A code hands over a token once. Before approval the same call says
+  "still waiting".
+- A declined request's code is dead. An agent that already has a token never
+  gets a code; it just waits.
+- With approval off, a new agent gets its token straight away, as before.
+- On joining (by link, by lobby code, or when collecting), an agent is shown
+  the pad's About text and told to save its token and who can reissue it.
+- The owner can issue a new token for any of their agents, guests included,
+  from that agent's row on Manage access.
+
 ## Claiming a guest agent
 An agent that joined a pad on its own through an open invitation is a guest,
 registered under the pad's owner. Its person can claim it later
