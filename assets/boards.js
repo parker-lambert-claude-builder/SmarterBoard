@@ -202,7 +202,7 @@ function appendMessages(msgs, fresh) {
   t.querySelector('.empty')?.remove();
   for (const m of msgs) {
     if (m.kind === 'event') {          // something that happened on the pad (a join, a request): a line, not a post
-      t.insertAdjacentHTML('beforeend', `<p class="pad-event${fresh ? ' fresh' : ''}" id="m${m.id}" data-author=""><span class="event-text">${esc(m.body)}</span> <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time></p>`);
+      t.insertAdjacentHTML('beforeend', `<p class="pad-event${fresh ? ' fresh' : ''}" id="m${m.id}" data-author=""><span class="event-text">${esc(m.body)}</span> <time class="when" datetime="${new Date(m.ts * 1000).toISOString()}" title="${esc(fullTime(m.ts))}" data-ts="${m.ts}">${ago(m.ts)}</time><span class="event-actions" data-event="${m.id}"></span></p>`);
       continue;
     }
     if (state.threaded) {              // under the message it answers, or at the end if that one isn't on the page
@@ -278,6 +278,7 @@ async function showBoard(slug, navigation) {
   renderBrief();
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
+  state.pending = {}; syncRequests(d.pending_requests);
   bindComposer(slug);
   const linkedMessage = /^#m\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (linkedMessage) linkedMessage.scrollIntoView();
@@ -392,6 +393,7 @@ async function pollBoard() {
     }
     const hm = document.getElementById('head-meta');
     if (hm) hm.innerHTML = headMeta(d);
+    syncRequests(d.pending_requests || (d.owned && d.is_owner ? {} : null));
     if (d.owned && (d.brief_version || 0) !== state.briefVersion) {
       if (state.briefMode === 'edit') {
         // Don't touch what is being typed; the save will be refused and show the newer version.
@@ -408,6 +410,44 @@ async function pollBoard() {
     state.polling = false;
   }
   document.querySelectorAll('time[data-ts]').forEach(t => { t.textContent = ago(Number(t.dataset.ts)); });
+}
+
+/* ---------- requests to join, answered in the conversation ----------
+   The pad's owner gets Approve and Decline on the event that announced a request,
+   for as long as it is waiting. Everyone else sees the line without them. */
+state.pending = {};
+function syncRequests(pending) {
+  if (pending) state.pending = pending;                 // only the owner is sent this
+  document.querySelectorAll('.event-actions').forEach(slot => {
+    const request = state.pending[slot.dataset.event];
+    const want = request ? String(request) : '';
+    if ((slot.dataset.request || '') === want) return;   // leave focus alone unless something changed
+    slot.dataset.request = want;
+    slot.innerHTML = request
+      ? `<button type="button" class="event-approve" data-decide="approve" data-request="${request}">Approve</button><button type="button" class="quiet" data-decide="decline" data-request="${request}">Decline</button>`
+      : '';
+  });
+}
+
+async function decideRequest(button) {
+  const approve = button.dataset.decide === 'approve';
+  const slug = state.slug, navigation = state.navigation, line = button.closest('.pad-event');
+  if (!approve && !(await window.mashpadConfirm({ title: 'Decline this request?', body: 'They are not added to the pad. They can ask again with the same invitation link.', action: 'Decline', danger: true }))) return;
+  line?.querySelector('.form-error')?.remove();
+  line?.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try {
+    await getJSON(`${API}?action=request`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board: slug, request: Number(button.dataset.request), approve }) });
+    if (navigation !== state.navigation) return;
+    delete state.pending[line?.querySelector('.event-actions')?.dataset.event];
+    syncRequests();
+    await pollBoard();
+    loadBoards();
+  } catch (err) {
+    if (navigation !== state.navigation) return;
+    line?.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    line?.insertAdjacentHTML('beforeend', `<span class="form-error" role="alert"> ${esc(err.message)}</span>`);
+  }
 }
 
 /* ---------- reply boxes ----------
@@ -639,6 +679,8 @@ function route() {
 }
 
 document.addEventListener('click', e => {
+  const decide = e.target.closest('[data-decide]');
+  if (decide) return decideRequest(decide);
   const cancel = e.target.closest('[data-reply-cancel]');
   if (cancel) return setReplyOpen(cancel.dataset.replyCancel, false);
   const replyTo = e.target.closest('[data-reply-to]');

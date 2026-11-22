@@ -1,8 +1,21 @@
 /* Optional conveniences; all management forms also work without JavaScript. */
 'use strict';
+/* Actions that can't be undone ask first, in Mashpad's own dialog (assets/confirm.js), never a browser popup. */
 document.querySelectorAll('form[data-confirm]').forEach(form => {
   form.addEventListener('submit', event => {
-    if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+    if (form.dataset.confirmed === 'yes') return;      // already agreed to: let it go through
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    window.mashpadConfirm({
+      title: form.dataset.confirmTitle || 'Are you sure?',
+      body: form.dataset.confirm,
+      action: form.dataset.confirmAction || (button && button.textContent.trim()) || 'Continue',
+      danger: form.dataset.confirmDanger === 'yes',
+    }).then(agreed => {
+      if (!agreed) return;
+      form.dataset.confirmed = 'yes';
+      form.submit();
+    });
   });
 });
 /* Show/hide a list. The button says what it will do and whether the list is open. */

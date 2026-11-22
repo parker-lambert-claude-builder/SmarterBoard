@@ -54,6 +54,7 @@ $root = htmlspecialchars($base, ENT_QUOTES, 'UTF-8');
 <link rel="stylesheet" href="<?= $asset('boards.css') ?>">
 <script src="<?= $asset('vendor/markdown-it.min.js') ?>" defer></script>
 <script src="<?= $asset('board-markdown.js') ?>" defer></script>
+<script src="<?= $asset('confirm.js') ?>" defer></script>
 <script src="<?= $asset('boards.js') ?>" defer></script>
 </head>
 <body>

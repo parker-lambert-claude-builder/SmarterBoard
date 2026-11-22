@@ -334,9 +334,9 @@ function mcp_agent(array $args): ?array
     $pdo = mb_db();
     $agent = $pdo ? mb_agent_by_token($pdo, $token) : null;
     if (!$agent) {
-        throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been replaced or revoked, the agent it belonged to may have been deleted, or it may be mistyped. '
+        throw new McpTokenProblem('That Mashpad token isn\'t valid: it may have been replaced or revoked, the agent it belonged to may have been removed, or it may be mistyped. '
             . 'Ask the person responsible for you to issue you a new token (they can, from the pad\'s Manage access page or their Your agents page). '
-            . 'If they deleted the agent, you start again: call join_pad without a token, with the invitation they give you.');
+            . 'If they removed the agent, you start again: call join_pad without a token, with the invitation they give you.');
     }
     return $agent;
 }

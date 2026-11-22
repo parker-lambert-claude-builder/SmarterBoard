@@ -5,6 +5,7 @@
  *   GET  api/?action=read&board=<pad>[&since=<id>]
  *   GET  api/?action=me     signed-in account, if any
  *   GET  api/?action=member&board=<pad>&handle=<name>   who one participant of a private pad is
+ *   POST api/?action=request { board, request, approve }  the pad's owner approves or declines a request to join
  *   GET  api/?action=export&board=<pad>[&format=json]   download a pad (Markdown by default)
  *   POST api/?action=post   { board, author, message }  (author ignored when signed in)
  *   GET  api/?action=brief&board=<pad>[&version=<n>][&history=1]   "About this pad" (private pads)
@@ -20,6 +21,7 @@ require_once __DIR__ . '/../lib.php';
 require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
+require_once __DIR__ . '/../src/invites.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -88,7 +90,9 @@ try {
             // Every read says which brief version is current; the text comes with a full load only.
             $brief = mb_brief($w[1], (int) $w[2]['id']);
             $extra = ['brief_version' => $brief['version'] ?? 0, 'can_edit_about' => mb_can_edit_about($w[2], (array) mb_current_user())]
-                   + ($since === null ? ['brief' => $brief] : []);
+                   + ($since === null ? ['brief' => $brief] : [])
+                   // The owner is told which events are requests still waiting, so the viewer can offer Approve and Decline on them.
+                   + (($w[2]['my_role'] ?? '') === 'owner' ? ['pending_requests' => (object) mb_join_request_events($w[1], (int) $w[2]['id'])] : []);
             out(['now' => time()] + mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES) + $extra);
         }
         $r = $w[0] === 'open' ? mb_read((string) ($_GET['board'] ?? ''), $since, MB_MAX_MESSAGES, false) : null;
@@ -152,6 +156,23 @@ try {
         $u = mb_current_user();
         out($u ? ['signed_in' => true, 'handle' => $u['handle'], 'display_name' => $u['display_name'], 'is_admin' => (bool) $u['is_admin']]
                : ['signed_in' => false, 'accounts' => mb_config() !== null]);
+    }
+
+    if ($action === 'request' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        // The pad's owner answers a request to join from the conversation.
+        $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+        $w  = which_pad((string) ($in['board'] ?? ''));
+        if ($w[0] !== 'owned') {
+            out(['error' => 'not_found'], 404);
+        }
+        if (!mb_same_origin() || stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== 0) {
+            out(['error' => 'Requests must be answered from the Mashpad viewer.'], 403);
+        }
+        if (($w[2]['my_role'] ?? '') !== 'owner') {
+            out(['error' => 'Only the pad\'s owner can answer a request to join.'], 403);
+        }
+        $said = mb_join_decide($w[1], $w[2], (int) ($in['request'] ?? 0), !empty($in['approve']), (int) mb_current_user()['id']);
+        out(['ok' => true, 'message' => $said]);
     }
 
     if ($action === 'member') {

@@ -57,7 +57,7 @@ check('a wrong, malformed or empty token finds nothing', mb_invite_by_token($pdo
 // A person asks to join; the owner approves
 check('with approval on, a person who uses the link is asked to wait', mb_invite_use($pdo, $inv, $pad, $sam) === 'requested' && mb_pad_for($pdo, 'dylan/my-schedule', $samId) === null);
 check('using it again does not create a second request', mb_invite_use($pdo, $inv, $pad, $sam) === 'requested' && count(mb_join_requests($pdo, $padId)) === 1 && mb_join_pending($pdo, $padId, $samId));
-check('the request is recorded in the pad as an event', $events() === ['@sam asked to join through the invite link. The owner can approve or decline on the members page.']);
+check('the request is recorded in the pad as an event', $events() === ['@sam asked to join through the invite link. The owner can approve or decline here, or on the pad\'s Manage access page.']);
 $req = mb_join_requests($pdo, $padId)[0];
 check('the owner sees who is asking', $req['handle'] === 'sam' && $req['kind'] === 'human' && $req['display_name'] === 'Sam Rivera');
 check('approving admits them and says so', mb_join_decide($pdo, $pad, (int) $req['request_id'], true, $dylanId) === '@sam is now on this pad.' && mb_pad_for($pdo, 'dylan/my-schedule', $samId) !== null);
@@ -93,9 +93,10 @@ check('with approval off, the same guest joins straight away', mb_invite_use($pd
 $gp = mb_pad_participant($pdo, $pad, 'lee-assistant');
 check('once on the pad, a guest\'s page says who it acts for, who is responsible, and counts no messages for its join events', $gp['acts_for'] === 'Lee Park' && $gp['responsible'] === 'dylan' && $gp['posts'] === 0 && $gp['joined_via'] === 'invite');
 $m = mb_pad_post($pdo, mb_pad_for($pdo, 'dylan/my-schedule', $samId), $sam, 'Hello.');
-check('events take message numbers but are not posts: the first real post is not throttled by them', $m['id'] === 5);
+check('events take message numbers but are not posts: the first real post is not throttled by them', $m['id'] === 6);
 $r = mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/my-schedule', $dylanId), null, 50);
-check('a read marks events apart from posts', array_column($r['messages'], 'kind') === ['event', 'event', 'event', 'event', 'post']);
+check('a read marks events apart from posts', array_column($r['messages'], 'kind') === ['event', 'event', 'event', 'event', 'event', 'post']);
+check('declining is recorded in the pad too, so everyone sees the outcome', in_array('@lee-assistant (an agent acting for Lee Park)\'s request to join was declined by @dylan.', $events(), true));
 $before = $pdo->query("SELECT last_activity_at FROM pads WHERE id = $padId")->fetchColumn();
 $pdo->exec("UPDATE pads SET last_activity_at = last_activity_at - INTERVAL 3 DAY WHERE id = $padId");
 mb_pad_event($pdo, $pad, $dylanId, 'Test event.');
@@ -147,27 +148,45 @@ mb_revoke_agent_tokens($pdo, (int) $bodhi['id']);
 mb_remove_member($pdo, $dpad, (int) $bodhi['id'], $dylanId);
 $stuck = err(fn () => mb_invite_guest_agent($pdo, $dpad, ['handle' => 'bodhi', 'acts_for' => 'Dylan']));
 check('removed from the pad with a dead token, the same name still can\'t register, and the refusal says how to get unstuck', str_contains($stuck, 'already an agent called @bodhi')
-      && str_contains($stuck, 'issue a new one') && str_contains($stuck, 'delete the old agent'), $stuck);
+      && str_contains($stuck, 'issue a new one') && str_contains($stuck, 'remove the old agent'), $stuck);
 check('only its responsible person can delete it', str_contains(err(fn () => mb_delete_agent($pdo, $samId, (int) $bodhi['id'])), 'isn\'t one of your agents') && mb_principal($pdo, (int) $bodhi['id'])['handle'] === 'bodhi');
 mb_add_member($pdo, $dpad, (int) $bodhi['id'], 'added');
 $gone = mb_delete_agent($pdo, $dylanId, (int) $bodhi['id']);
 $old  = mb_principal($pdo, (int) $bodhi['id']);
 check('deleting takes it off its pads, kills its token and frees the name', $gone['handle'] === 'bodhi' && $gone['pads'] === ['dylan/start-over'] && mb_pad_for($pdo, 'dylan/start-over', (int) $bodhi['id']) === null
-      && mb_agent_by_token($pdo, $bodhiToken) === null && !mb_agent_has_token($pdo, (int) $bodhi['id']) && $old['disabled_at'] !== null && $old['handle'] === 'bodhi-deleted-' . $bodhi['id']);
+      && mb_agent_by_token($pdo, $bodhiToken) === null && !mb_agent_has_token($pdo, (int) $bodhi['id']) && $old['disabled_at'] !== null && $old['handle'] === 'bodhi-removed-' . $bodhi['id']);
 check('it is gone from its person\'s agents and can\'t be acted on again', !in_array((int) $bodhi['id'], array_map('intval', array_column(mb_agents_of($pdo, $dylanId), 'id')), true)
       && mb_owned_agent($pdo, $dylanId, (int) $bodhi['id']) === null && str_contains(err(fn () => mb_delete_agent($pdo, $dylanId, (int) $bodhi['id'])), 'isn\'t one of your agents'));
 $dr = mb_pad_read($pdo, mb_pad_for($pdo, 'dylan/start-over', $dylanId), null, 50);
 $post = array_values(array_filter($dr['messages'], fn ($m) => $m['body'] === 'Hello from the first bodhi.'))[0];
-check('its earlier message stays, now signed with the closed name', $post['author'] === 'bodhi-deleted-' . $bodhi['id']);
-check('the pad records the deletion', str_contains(end($dr['messages'])['body'], '@bodhi was deleted by @dylan and is no longer on this pad. Its earlier messages now show as @bodhi-deleted-'));
+check('its earlier message stays, now signed with the closed name', $post['author'] === 'bodhi-removed-' . $bodhi['id']);
+check('the pad records the deletion', str_contains(end($dr['messages'])['body'], '@bodhi was removed from Mashpad by @dylan and is no longer on this pad. Its earlier messages now show as @bodhi-removed-'));
 [$bodhi2, $token2] = mb_invite_guest_agent($pdo, $dpad, ['handle' => 'bodhi', 'acts_for' => 'Dylan']);
 check('a brand-new @bodhi can now register and join from square zero, as a different agent', (int) $bodhi2['id'] !== (int) $bodhi['id'] && mb_invite_use($pdo, $dinv, $dpad, $bodhi2) === 'joined'
       && (int) mb_agent_by_token($pdo, $token2)['id'] === (int) $bodhi2['id'] && mb_pad_participant($pdo, $dpad, 'bodhi')['posts'] === 0);
 $long = str_repeat('a', 40);
 [$longId] = mb_create_agent($pdo, $dylanId, ['handle' => $long]);
 $lg = mb_delete_agent($pdo, $dylanId, $longId);
-check('a 40-character name still fits once closed', strlen($lg['now']) <= 40 && str_ends_with($lg['now'], '-deleted-' . $longId) && (bool) preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $lg['now']));
+check('a 40-character name still fits once closed', strlen($lg['now']) <= 40 && str_ends_with($lg['now'], '-removed-' . $longId) && (bool) preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $lg['now']));
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$dpad['id']]);
+
+// Answering from the conversation: each waiting request is tied to the event that announced it
+$epad = mb_create_pad($pdo, $dylan, 'Events');
+$einv = mb_invite_make($pdo, $epad, $dylanId);
+[$ea] = mb_invite_guest_agent($pdo, $epad, ['handle' => 'first-asker', 'acts_for' => 'A'], false);
+[$eb] = mb_invite_guest_agent($pdo, $epad, ['handle' => 'second-asker', 'acts_for' => 'B'], false);
+mb_invite_use($pdo, $einv, $epad, $ea);
+mb_invite_use($pdo, $einv, $epad, $eb);
+$map  = mb_join_request_events($pdo, (int) $epad['id']);
+$reqs = array_column(mb_join_requests($pdo, (int) $epad['id']), 'request_id', 'handle');
+check('each waiting request is keyed by the number of its own event', $map === [1 => (int) $reqs['first-asker'], 2 => (int) $reqs['second-asker']], json_encode($map));
+mb_invite_use($pdo, $einv, $epad, $ea);
+check('asking again doesn\'t move a request to a different event', mb_join_request_events($pdo, (int) $epad['id']) === $map);
+mb_join_decide($pdo, $epad, (int) $reqs['first-asker'], true, $dylanId);
+check('an answered request is no longer offered; the other still is', mb_join_request_events($pdo, (int) $epad['id']) === [2 => (int) $reqs['second-asker']]);
+mb_join_decide($pdo, $epad, (int) $reqs['second-asker'], false, $dylanId);
+check('once all are answered nothing is offered', mb_join_request_events($pdo, (int) $epad['id']) === []);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$epad['id']]);
 
 // Off, on, reset
 mb_invite_set($pdo, $pad, $dylanId, false, null);

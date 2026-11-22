@@ -17,13 +17,56 @@ function setup({ confirm = true, writeText = async () => {} } = {}) {
   });
   return { handlers, button, status, invitation, selected: () => selected };
 }
-test('cancelling a management confirmation prevents the destructive submit; accepting allows it', () => {
-  for (const accepted of [false, true]) {
-    let prevented = false;
-    setup({ confirm: accepted }).handlers.submit({ preventDefault() { prevented = true; } });
-    assert.equal(prevented, !accepted);
+test('a confirmation uses Mashpad\'s own dialog, never a browser popup; cancelling stops the action and agreeing submits it', async () => {
+  assert.doesNotMatch(source, /window\.confirm|\bconfirm\(|\balert\(|\bprompt\(/);
+  for (const agreed of [false, true]) {
+    const asked = [];
+    let submitted = 0, prevented = 0;
+    const handlers = {};
+    const form = { dataset: { confirm: 'They lose access.', confirmTitle: 'Remove from this pad?', confirmAction: 'Remove', confirmDanger: 'yes' },
+      querySelector: () => ({ textContent: ' Remove @muse ' }), addEventListener: (n, fn) => { handlers.submit = fn; }, submit: () => { submitted++; } };
+    vm.runInNewContext(source, { document: { querySelectorAll: sel => sel.startsWith('form') ? [form] : [], getElementById: () => null }, navigator: {},
+      window: { mashpadConfirm: opts => { asked.push(opts); return Promise.resolve(agreed); } } });
+    handlers.submit({ preventDefault() { prevented++; } });
+    await new Promise(r => setImmediate(r));
+    assert.equal(prevented, 1, 'the first submit always waits for an answer');
+    assert.equal(JSON.stringify(asked), JSON.stringify([{ title: 'Remove from this pad?', body: 'They lose access.', action: 'Remove', danger: true }]));
+    assert.equal(submitted, agreed ? 1 : 0);
+    if (agreed) { handlers.submit({ preventDefault() { prevented++; } }); assert.equal(prevented, 1, 'once agreed, the submit goes through'); }
   }
 });
+
+test('the dialog: text only, Cancel focused, Escape and the backdrop cancel, focus returns', async () => {
+  const dialogSource = fs.readFileSync(require('node:path').join(__dirname, '../assets/confirm.js'), 'utf8');
+  assert.doesNotMatch(dialogSource, /window\.confirm\(|\balert\(|\bprompt\(/);
+  const made = [];
+  const node = cls => ({ cls, textContent: '', classList: { add(c) { node.added = c; } }, listeners: {}, focused: 0, addEventListener(n, fn) { this.listeners[n] = fn; }, focus() { this.focused++; doc.activeElement = this; } });
+  const parts = { '.mp-modal-cancel': node('cancel'), '.mp-modal-ok': node('ok'), '#mp-modal-title': node('title'), '#mp-modal-body': node('body') };
+  const trigger = { focus() { this.back = true; } };
+  const doc = { activeElement: trigger, keys: null,
+    createElement: () => { const w = { className: '', innerHTML: '', listeners: {}, querySelector: s => parts[s], addEventListener(n, fn) { this.listeners[n] = fn; }, remove() { this.removed = true; } }; made.push(w); return w; },
+    addEventListener: (n, fn) => { doc.keys = fn; }, removeEventListener: () => { doc.keys = null; },
+    body: { appendChild() {}, classList: { add() {}, remove() {} } } };
+  const win = {};
+  vm.runInNewContext(dialogSource, { window: win, document: doc });
+  let p = win.mashpadConfirm({ title: 'Remove <b>?', body: '<img onerror=x>', action: 'Remove', danger: true });
+  assert.match(made[0].innerHTML, /role="alertdialog" aria-modal="true" aria-labelledby="mp-modal-title" aria-describedby="mp-modal-body"/);
+  assert.doesNotMatch(made[0].innerHTML, /<b>|<img/, 'what is passed in is set as text, never as markup');
+  assert.deepEqual([parts['#mp-modal-title'].textContent, parts['#mp-modal-body'].textContent, parts['.mp-modal-ok'].textContent], ['Remove <b>?', '<img onerror=x>', 'Remove']);
+  assert.equal(doc.activeElement, parts['.mp-modal-cancel'], 'Cancel has focus, so Enter never confirms by accident');
+  doc.keys({ key: 'Tab', preventDefault() {} });
+  assert.equal(doc.activeElement, parts['.mp-modal-ok'], 'Tab stays inside the dialog');
+  doc.keys({ key: 'Escape', preventDefault() {} });
+  assert.equal(await p, false);
+  assert.ok(made[0].removed && trigger.back, 'closed, and focus is back where it was');
+  p = win.mashpadConfirm({ title: 'Again' });
+  made[1].listeners.mousedown({ target: made[1] });
+  assert.equal(await p, false, 'a click outside the box cancels');
+  p = win.mashpadConfirm({ title: 'Once more' });
+  parts['.mp-modal-ok'].listeners.click();
+  assert.equal(await p, true);
+});
+
 test('copy invitation reports success only after copying and offers selection when clipboard fails', async () => {
   let copied;
   const ok = setup({ writeText: async text => { copied = text; } });
