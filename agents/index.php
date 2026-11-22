@@ -46,9 +46,10 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 mb_audit($pdo, $me, 'agent.token_revoke', 'principal:' . $agent['id']);
                 $done = '@' . $agent['handle'] . '\'s token is revoked. It can do nothing until you issue a new one.';
                 break;
-            case 'agent_delete':
+            case 'agent_remove':
+            case 'agent_delete':                    // the action's first name; older tabs still send it
                 $gone = mb_delete_agent($pdo, $me, (int) $agent['id']);
-                $done = '@' . $gone['handle'] . ' is deleted' . ($gone['pads'] ? ' and off ' . (count($gone['pads']) === 1 ? 'its pad' : 'all ' . count($gone['pads']) . ' of its pads') : '')
+                $done = '@' . $gone['handle'] . ' is removed from your workspace' . ($gone['pads'] ? ' and off ' . (count($gone['pads']) === 1 ? 'its pad' : 'all ' . count($gone['pads']) . ' of its pads') : '')
                       . '. The name @' . $gone['handle'] . ' is free to use again. Its earlier messages now show as @' . $gone['now'] . '.';
                 break;
             case 'agent_permission':
@@ -79,8 +80,9 @@ $padsOf = function (int $agentId) use ($pdo): array {
     $q->execute([$agentId]);
     return $q->fetchAll();
 };
-$button = function (string $act, string $label, int $agentId, array $fields = [], string $class = '', string $confirm = '') use ($csrf, $base): string {
-    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($base) . 'agents/" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
+/** $ask, when given, is [title, what will happen, the action button, destructive?] for Mashpad's own confirmation dialog. */
+$button = function (string $act, string $label, int $agentId, array $fields = [], string $class = '', ?array $ask = null) use ($csrf, $base): string {
+    $h = '<form' . ($ask ? ' data-confirm="' . mb_e($ask[1]) . '" data-confirm-title="' . mb_e($ask[0]) . '" data-confirm-action="' . mb_e($ask[2]) . '"' . (!empty($ask[3]) ? ' data-confirm-danger="yes"' : '') : '') . ' method="post" action="' . mb_e($base) . 'agents/" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
        . '<input type="hidden" name="act" value="' . mb_e($act) . '"><input type="hidden" name="agent" value="' . $agentId . '">';
     foreach ($fields as $k => $v) {
         $h .= '<input type="hidden" name="' . mb_e($k) . '" value="' . mb_e($v) . '">';
@@ -95,7 +97,7 @@ mb_page_start('Your agents', 'manage');
 <?php if (!$user): ?>
   <p><?= $error ? mb_e($error) : '<a href="' . mb_e($base) . 'signin/?next=' . mb_e(rawurlencode($base . 'agents/')) . '">Sign in</a> to see your agents.' ?></p>
 <?php else: ?>
-  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Delete agent</strong> here removes it from your workspace altogether. To add an agent, open a pad's <strong>Manage access</strong> page and use the secure agent invitation.</p>
+  <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Remove agent</strong> here removes it from your workspace altogether. To add an agent, open a pad's <strong>Manage access</strong> page and use the secure agent invitation.</p>
   <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <?php if ($shown): ?>
@@ -129,10 +131,10 @@ mb_page_start('Your agents', 'manage');
       <span class="member-line muted">On <?= $pads ? implode(', ', array_map(fn ($p) => '<a href="' . mb_e($base . 'pads/' . $p['ref']) . '">' . mb_e($p['ref']) . '</a>', $pads)) : 'no pads' ?></span>
       <span class="member-line muted"><?= $a['token_issued'] ? 'Token issued ' . mb_e($when($a['token_issued'])) . ', last used ' . mb_e($when($a['token_used'])) : 'Token revoked: it can\'t connect' ?> · <?= $can ? 'May create pads for you' : 'May not create pads' ?></span>
       <div class="agent-controls">
-        <?= $button('agent_token', $a['token_issued'] ? 'Replace token' : 'Issue token', (int) $a['id'], [], '', 'Issue a replacement token? Any existing token will stop working on every pad. Give the new token to the agent before leaving this page.') ?>
-        <?= $a['token_issued'] ? $button('agent_revoke', 'Revoke token', (int) $a['id'], [], 'danger', 'Revoke this agent’s token on every pad? It will lose access until you issue a new token.') : '' ?>
+        <?= $button('agent_token', $a['token_issued'] ? 'Replace token' : 'Issue token', (int) $a['id'], [], '', ['Issue a new token for @' . $a['handle'] . '?', 'Any token it has now stops working on every pad. Give the new one to the agent before leaving the page.', 'Issue new token', false]) ?>
+        <?= $a['token_issued'] ? $button('agent_revoke', 'Revoke token', (int) $a['id'], [], 'danger', ['Revoke @' . $a['handle'] . '’s token?', 'It loses access to every pad until you issue it a new token. It stays a member of its pads.', 'Revoke token', true]) : '' ?>
         <?= $button('agent_permission', $can ? 'Stop it creating pads' : 'Let it create pads', (int) $a['id'], ['can_create_pads' => $can ? '' : '1']) ?>
-        <?= $button('agent_delete', 'Delete agent', (int) $a['id'], [], 'danger', 'Delete @' . $a['handle'] . ' from your workspace? It comes off every pad and can no longer connect. Its earlier messages stay, signed @' . $a['handle'] . '-deleted. The name @' . $a['handle'] . ' becomes free to use again. This can’t be undone.') ?>
+        <?= $button('agent_delete', 'Remove agent', (int) $a['id'], [], 'danger', ['Remove @' . $a['handle'] . ' from your workspace?', 'It comes off every pad and can no longer connect. Its earlier messages stay, signed @' . $a['handle'] . '-removed. The name @' . $a['handle'] . ' becomes free to use again. This can’t be undone.', 'Remove agent', true]) ?>
       </div>
     </li>
   <?php endforeach; ?>

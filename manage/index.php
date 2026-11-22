@@ -215,16 +215,17 @@ $note = function (string $section) use ($at, &$error): string {
          . ($error ? '<p class="error" role="alert">' . mb_e($error) . '</p>' : '');
 };
 $button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad, $actionUrl): string {
-    $confirm = match ($act) {
-        'member_remove' => 'Remove this member from this pad? Their earlier posts will stay.',
-        'invite_reset' => 'Regenerate the open invitation? The current link stops working for everyone who has it. Members who already joined stay.',
-        'invite_off' => 'Revoke the open invitation? Nobody will be able to join with it until you switch it back on. Members who already joined stay.',
-        'request_decline' => 'Decline this request to join?',
-        'request_code' => 'Issue a new request code? The agent’s earlier code will stop working.',
-        'agent_token' => 'Issue a new token? Any token this agent has now will stop working on every pad. Give the new one to the agent before leaving this page.',
-        default => '',
+    // [title, what will happen, the action button, destructive?] for Mashpad's own confirmation dialog
+    $ask = match ($act) {
+        'member_remove'   => ['Remove from this pad?', 'They lose access to this pad straight away. Their earlier posts stay.', 'Remove', true],
+        'invite_reset'    => ['Regenerate the invitation link?', 'The current link stops working for everyone who has it. Members who already joined stay.', 'Regenerate', true],
+        'invite_off'      => ['Revoke the open invitation?', 'Nobody will be able to join with it until you switch it back on. Members who already joined stay.', 'Revoke', true],
+        'request_decline' => ['Decline this request?', 'They are not added to the pad. They can ask again with the same invitation link.', 'Decline', true],
+        'request_code'    => ['Issue a new request code?', 'The agent’s earlier code stops working. You pass the new one to the agent or its person.', 'Issue new code', false],
+        'agent_token'     => ['Issue a new token?', 'Any token this agent has now stops working on every pad. Give the new one to the agent before leaving the page.', 'Issue new token', false],
+        default           => null,
     };
-    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($actionUrl($act)) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
+    $h = '<form' . ($ask ? ' data-confirm="' . mb_e($ask[1]) . '" data-confirm-title="' . mb_e($ask[0]) . '" data-confirm-action="' . mb_e($ask[2]) . '"' . ($ask[3] ? ' data-confirm-danger="yes"' : '') : '') . ' method="post" action="' . mb_e($actionUrl($act)) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
        . '<input type="hidden" name="b" value="' . mb_e(mb_pad_ref($pad)) . '"><input type="hidden" name="act" value="' . mb_e($act) . '">';
     foreach ($fields as $k => $v) {
         $h .= '<input type="hidden" name="' . mb_e($k) . '" value="' . mb_e($v) . '">';

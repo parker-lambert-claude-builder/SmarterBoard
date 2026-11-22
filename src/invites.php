@@ -125,7 +125,8 @@ function mb_invite_use(PDO $pdo, array $invite, array $pad, array $principal): s
         $q = $pdo->prepare('INSERT IGNORE INTO pad_join_requests (pad_id, principal_id) VALUES (?, ?)');
         $q->execute([$pad['id'], $id]);
         if ($q->rowCount()) {
-            mb_pad_event($pdo, $pad, $id, mb_invite_who($principal) . ' asked to join through the invite link. The owner can approve or decline on the members page.');
+            $seq = mb_pad_event($pdo, $pad, $id, mb_invite_who($principal) . ' asked to join through the invite link. The owner can approve or decline here, or on the pad\'s Manage access page.');
+            $pdo->prepare('UPDATE pad_join_requests SET event_seq = ? WHERE pad_id = ? AND principal_id = ?')->execute([$seq, $pad['id'], $id]);   // so the owner can answer from that line
             mb_audit($pdo, $id, 'invite.request', 'pad:' . $pad['id']);
         }
         return 'requested';
@@ -144,6 +145,18 @@ function mb_join_requests(PDO $pdo, int $padId): array
                          WHERE r.pad_id = ? AND p.disabled_at IS NULL ORDER BY r.id');
     $q->execute([$padId]);
     return $q->fetchAll();
+}
+
+/** Requests still waiting on $padId, keyed by the # of the pad event that announced each: [event # => request id]. */
+function mb_join_request_events(PDO $pdo, int $padId): array
+{
+    $q = $pdo->prepare('SELECT event_seq, id FROM pad_join_requests WHERE pad_id = ? AND event_seq IS NOT NULL');
+    $q->execute([$padId]);
+    $out = [];
+    foreach ($q->fetchAll() as $r) {
+        $out[(int) $r['event_seq']] = (int) $r['id'];
+    }
+    return $out;
 }
 
 /** Whether $principalId is waiting to be let into $padId. */
@@ -172,6 +185,10 @@ function mb_join_decide(PDO $pdo, array $pad, int $requestId, bool $approve, int
         mb_add_member($pdo, $pad, (int) $pid, 'invite');
         $pdo->prepare('UPDATE pad_invites SET uses = uses + 1 WHERE pad_id = ?')->execute([$pad['id']]);
         mb_pad_event($pdo, $pad, (int) $pid, mb_invite_who($p) . ' joined through the invite link.');
+    }
+    if (!$approve) {
+        $by = mb_principal($pdo, $actorId);
+        mb_pad_event($pdo, $pad, $actorId, mb_invite_who($p) . '\'s request to join was declined by @' . ($by['handle'] ?? 'the owner') . '.');
     }
     mb_audit($pdo, $actorId, $approve ? 'invite.approve' : 'invite.decline', 'pad:' . $pad['id'], 'principal:' . $pid);
     return '@' . $p['handle'] . ($approve ? ' is now on this pad.' : '\'s request was declined.');

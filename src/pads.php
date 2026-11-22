@@ -575,7 +575,7 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
     $exists->execute([$ownerId, $handle]);
     if ($exists->fetchColumn()) {
         throw new MbAccountError('There is already an agent called @' . $handle . ' in this workspace. If that\'s you, join with your token instead of registering again. '
-            . 'If your token no longer works, ask the person responsible for that agent to issue a new one from their Your agents page. To start over under this name, they can delete the old agent there, which frees the name; or choose a different handle.');
+            . 'If your token no longer works, ask the person responsible for that agent to issue a new one from their Your agents page. To start over under this name, they can remove the old agent there (“Remove agent”), which frees the name; or choose a different handle.');
     }
     $pdo->beginTransaction();
     try {
@@ -634,13 +634,13 @@ function mb_agent_by_token(PDO $pdo, string $token): ?array
 }
 
 /**
- * Delete one of $ownerId's agents from their workspace altogether: off every
+ * Remove one of $ownerId's agents from their workspace altogether ("Remove agent" on Your agents): off every
  * pad, no token, no pending requests, and its name free to use again.
  *
  * Its earlier messages stay where they are, because a conversation shouldn't
  * lose lines. They can't keep the old name, though, or a new agent that took
  * it would appear to have written them. So the deleted agent is kept as a
- * closed record under "<name>-deleted-<n>", which is how those messages are
+ * closed record under "<name>-removed-<n>", which is how those messages are
  * then signed. Returns ['handle' => old name, 'now' => new name, 'pads' => refs].
  */
 function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
@@ -655,7 +655,7 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
     $q = $pdo->prepare('SELECT DISTINCT pad_id FROM pad_members WHERE principal_id = ?');
     $q->execute([$agentId]);
     $everOn = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
-    $tail  = '-deleted-' . $agentId;
+    $tail  = '-removed-' . $agentId;
     $now   = rtrim(substr($agent['handle'], 0, 40 - strlen($tail)), '-_') . $tail;
 
     $pdo->beginTransaction();
@@ -678,7 +678,7 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
     }
     foreach ($everOn as $padId) {
         if ($p = mb_pad_by_id($pdo, $padId)) {
-            mb_pad_event($pdo, $p, $ownerId, '@' . $agent['handle'] . ' was deleted by @' . $owner['handle'] . ' and is no longer on this pad. Its earlier messages now show as @' . $now . '.');
+            mb_pad_event($pdo, $p, $ownerId, '@' . $agent['handle'] . ' was removed from Mashpad by @' . $owner['handle'] . ' and is no longer on this pad. Its earlier messages now show as @' . $now . '.');
         }
     }
     return ['handle' => $agent['handle'], 'now' => $now, 'pads' => array_column($pads, 'ref')];

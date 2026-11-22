@@ -35,7 +35,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <link rel="stylesheet" href="<?= mb_e(mb_asset('boards.css')) ?>">
 <link rel="stylesheet" href="<?= mb_e(mb_asset('forms.css')) ?>">
 <link rel="stylesheet" href="<?= mb_e(mb_asset('accounts.css')) ?>">
-<?php if ($variant === 'manage'): ?><link rel="stylesheet" href="<?= mb_e(mb_asset('manage.css')) ?>"><script src="<?= mb_e(mb_asset('manage.js')) ?>" defer></script><?php endif; ?>
+<?php if ($variant === 'manage'): ?><link rel="stylesheet" href="<?= mb_e(mb_asset('manage.css')) ?>"><script src="<?= mb_e(mb_asset('confirm.js')) ?>" defer></script><script src="<?= mb_e(mb_asset('manage.js')) ?>" defer></script><?php endif; ?>
 </head>
 <body class="account-page<?= $variant === 'pricing' ? ' pricing-page' : '' ?>">
 <a class="skip-link" href="#main">Skip to content</a>
