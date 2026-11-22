@@ -437,6 +437,35 @@ test('a pad nobody can see is described the same way whether or not it exists', 
   assert.doesNotMatch(seen[0], /as soon as an agent posts/);
 });
 
+test('a private pad shows its brief above the conversation; an open pad has none', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text.replace(/</g, '&lt;')}</p>`;
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, brief_version: 3, brief: { version: 3, body: 'Ship <it>.', author: 'muse', author_kind: 'agent', ts: 1700000000 } });
+  context.location.pathname = '/mashpad/pads/alice/launch';
+  await api.route();
+  const main = element('main').innerHTML;
+  assert.ok(main.indexOf('id="brief"') > 0 && main.indexOf('id="brief"') < main.indexOf('id="transcript"'));
+  const brief = element('brief').innerHTML;
+  assert.match(brief, /Version 3 · saved by @muse/);
+  assert.match(brief, /<p>Ship &lt;it>\.<\/p>/);
+  assert.match(brief, /data-brief="edit">Edit brief</);
+  assert.equal(api.state.briefVersion, 3);
+  context.fetch = async () => reply(pad());
+  context.location.pathname = '/mashpad/pads/'; context.location.search = '?b=launch-review';
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /id="brief"/);
+});
+
+test('a pad with no brief, or a cleared one, offers to write it', async () => {
+  const { api, context, element } = await app();
+  context.fetch = async () => reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, brief_version: 2, brief: { version: 2, body: '', author: 'alice', author_kind: 'human', ts: 1700000000 } });
+  context.location.pathname = '/mashpad/pads/alice/launch';
+  await api.route();
+  assert.match(element('brief').innerHTML, /No brief yet\./);
+  assert.match(element('brief').innerHTML, /data-brief="history">History</);
+  assert.equal(api.state.briefVersion, 2);
+});
+
 test('open pads show no private marker or members link', async () => {
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'open', name: 'Open', total: 1, last_activity: 0, authors: [] }];
@@ -495,4 +524,36 @@ test('the site .htaccess serves pad and manage addresses and /mcp without a redi
   assert.match(ht, /RewriteRule \^\(pads\|manage\)\//);
   assert.match(ht, /<IfModule mod_rewrite\.c>/);
   assert.doesNotMatch(ht, /^\s*RewriteBase/m);
+});
+
+test('the pad list never falls back to ?b= for a private pad', async () => {
+  const { api, context } = await app();
+  api.state.boards = [{ slug: 'launch', owner: 'alice', name: 'Launch', total: 1, last_activity: 0, authors: ['alice'], private: true }];
+  const noKey = api.boardListHTML();
+  assert.match(noKey, /class="board-link" href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch"/);
+  assert.doesNotMatch(noKey, /\?b=/);
+  // A list entry that only knows the bare name is corrected as soon as the pad itself answers.
+  api.state.boards = [{ slug: 'launch', name: 'Launch', total: 1, last_activity: 0, authors: [], private: true }];
+  context.history = { replaceState() {}, pushState() {} };
+  context.fetch = async url => /action=boards/.test(url)
+    ? reply({ boards: api.state.boards, ttl: 1 })
+    : reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true });
+  context.location.search = '?b=launch';
+  await api.route();
+  assert.doesNotMatch(api.boardListHTML(), /\?b=/);
+  assert.match(api.boardListHTML(), /pads\/alice\/launch\?view=settings/);
+});
+
+test('a tab that predates a deploy stops intercepting pad links, so the next click loads the new script', async () => {
+  const { api, listeners } = await app();
+  const link = { getAttribute: () => 'https://example.test/mashpad/pads/alice/launch' };
+  const click = () => { let prevented = false; listeners.click({ target: { closest: s => s === 'a[data-nav]' ? link : null }, button: 0, preventDefault() { prevented = true; } }); return prevented; };
+  api.state.stale = true;
+  assert.equal(click(), false);
+});
+
+test('the viewer reports and compares its build', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.match(read('api/index.php'), /'build' => \$build/);
+  assert.match(read('assets/boards.js'), /state\.stale = !!\(BUILD && d\.build && d\.build !== BUILD\);/);
 });

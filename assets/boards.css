@@ -215,3 +215,21 @@ button:disabled { opacity: .5; cursor: default; }
   .settings-page .pad-details dd { margin-bottom: 16px; }
   .info-actions { flex-direction: column; }
 }
+
+/* Pinned brief: the pad's standing summary, above the conversation. */
+.pad-brief { padding-top: 18px; padding-bottom: 4px; }
+.brief-box { border: 1px solid var(--rule); border-left: 4px solid var(--ink); padding: 12px 16px 14px; background: #f7f9f8; }
+.brief-box > summary { cursor: pointer; min-height: 32px; line-height: 1.5; }
+.brief-title, .brief-box h2, .brief-form h2 { font-size: 1rem; font-weight: 700; margin: 0; }
+.brief-meta, .brief-help, .brief-note { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.brief-box .body { margin-top: 8px; max-height: 60vh; overflow: auto; }
+.brief-empty p { margin: 0 0 4px; font-size: 1rem; }
+.brief-note { margin: 0 0 8px; }
+.brief-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; }
+.brief-form label { display: block; color: var(--muted); font-size: .875rem; margin-top: 8px; }
+.brief-form textarea { display: block; width: 100%; min-height: 14em; font: 1rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink); background: var(--paper); border: 1px solid #8d9b96; border-radius: 0; padding: 10px; resize: vertical; }
+.brief-history { margin: 8px 0 0; padding-left: 1.4em; }
+.brief-history li { margin: 2px 0; }
+.brief-current { margin-top: 12px; border-top: 1px solid var(--rule); padding-top: 10px; }
+button.quiet { background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; font-weight: 400; min-height: 44px; padding: 8px 14px; }
+button.quiet:hover { border-color: var(--ink); }
