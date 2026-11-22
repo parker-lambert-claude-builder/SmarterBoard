@@ -511,57 +511,64 @@ async function showSettings(slug, navigation) {
   </div>`;
 }
 
-/* ---------- agent info (placeholder profile, scoped to the selected pad) ---------- */
+/* ---------- participant info ----------
+   Who someone on the pad is: a person, or an agent with what it says it does and
+   who is responsible for it. Real data for private pads. On an older open pad
+   names are only signatures, and the page says so. */
+const VIA = { created: 'Created this pad', added: 'Added by a member', lobby: 'Joined with a lobby code', invite: 'Joined with the invite link' };
+const dateOnly = ts => new Date(ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
 async function showAgent(slug, agent, navigation) {
   state.slug = slug; state.view = 'agent';
   document.getElementById('board-nav').innerHTML = boardListHTML();
-  document.title = 'Agent info · Mashpad';
+  document.title = 'Participant · Mashpad';
   const main = document.getElementById('main');
-  main.innerHTML = '<div class="inner home"><p role="status">Loading agent info…</p></div>';
-  let d;
-  try {
-    d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=0`);
-  } catch (e) {
-    if (navigation !== state.navigation) return;
-    main.innerHTML = '<div class="inner home"><a href="${PADS}" data-nav="">All pads</a><h1>Agent info</h1><p role="alert">Agent info couldn’t be loaded. Return to your pads and try again.</p></div>';
-    return;
+  const here = padURL(slug);
+  const back = `<a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a>`;
+  main.innerHTML = '<div class="inner home"><p role="status">Loading…</p></div>';
+  const name = cleanHandle(agent || '');
+  let d = null, failed = false;
+  if (name && isOwnedKey(slug)) {
+    try { d = await getJSON(`${API}?action=member&board=${encodeURIComponent(slug)}&handle=${encodeURIComponent(name)}`); }
+    catch (e) { failed = e.status !== 404; }
   }
   if (navigation !== state.navigation) return;
-  const here = padURL(slug);
-  // Names are currently message signatures, not verified agent identities.
-  const known = d.messages.some(m => cleanHandle(m.author) === cleanHandle(agent || '')) || (d.members || []).some(m => cleanHandle(m) === cleanHandle(agent || ''));
-  if (!agent || !known) {
-    main.innerHTML = `<div class="inner home"><a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a><h1>Agent info</h1><p role="alert">This name was not found in this pad.</p></div>`;
+  if (failed) {
+    main.innerHTML = `<div class="inner home">${back}<h1>${esc(displayName(name))}</h1><p role="alert">This page couldn’t be loaded. Please try again.</p></div>`;
     return;
   }
-  document.title = `${displayName(agent)} · Agent info · Mashpad`;
+  if (!d) {
+    // An older open pad (names are not verified), or nobody by that name on this pad.
+    main.innerHTML = `<div class="inner home">${back}<h1>${esc(name ? displayName(name) : 'Participant')}</h1>
+      <p class="empty">${name && !isOwnedKey(slug)
+        ? 'On this older open pad a name is only a signature typed with each message. It doesn’t identify a verified person or agent.'
+        : 'Nobody by that name is on this pad.'}</p></div>`;
+    return;
+  }
+  const m = d.member, isAgent = m.kind === 'agent';
+  const row = (label, value) => value ? `<dt>${label}</dt><dd>${value}</dd>` : '';
+  const responsible = m.responsible ? `<a href="${esc(padURL(slug, { view: 'agent', agent: m.responsible }))}" data-nav="${esc(slug)}">${esc(displayName(m.responsible))}</a>` : '';
+  document.title = `${displayName(m.handle)} · ${d.pad_name} · Mashpad`;
   main.innerHTML = `<div class="inner settings-page agent-page">
-    <a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a>
-    <h1>${esc(displayName(agent))}</h1>
-    <p class="settings-name">Agent info</p>
-    <p class="preview-note">Profile preview. The name and pad below come from this conversation. All other details are placeholders.</p>
+    ${back}
+    <h1>${esc(displayName(m.handle))}</h1>
+    <p class="settings-name">${isAgent ? 'AI agent' : 'Person'}${m.display_name && cleanHandle(m.display_name) !== m.handle ? ' · ' + esc(m.display_name) : ''}</p>
+    ${m.on_pad ? '' : '<p class="preview-note" role="status">No longer on this pad. Their earlier messages stay.</p>'}
     <section class="settings-section" aria-labelledby="agent-details">
       <h2 id="agent-details">At a glance</h2>
       <dl class="pad-details">
-        <dt>Display name</dt><dd>${esc(displayName(agent))}</dd>
-        <dt>Pad</dt><dd><a href="${esc(here)}" data-nav="${esc(slug)}">${esc(d.name || d.slug)}</a></dd>
-        <dt>Role</dt><dd>Project assistant <span class="placeholder-label">(placeholder)</span></dd>
-        <dt>Model</dt><dd>Model name will appear here <span class="placeholder-label">(placeholder)</span></dd>
-        <dt>Managed by</dt><dd>Owner name will appear here <span class="placeholder-label">(placeholder)</span></dd>
+        ${row('On this pad', m.on_pad ? (m.pad_role === 'owner' ? 'Owner' : 'Member') + (m.is_creator && m.pad_role !== 'owner' ? ' · created this pad' : '') : '')}
+        ${isAgent ? row('Role', m.role ? esc(m.role) + (m.self_described ? ' <span class="placeholder-label">(as the agent describes itself)</span>' : '') : '') : ''}
+        ${isAgent ? row('Runs on', m.platform ? esc(m.platform) : '') : ''}
+        ${isAgent ? row('Responsible person', responsible) : ''}
+        ${row('Joined', `${esc(VIA[m.joined_via] || 'Joined')}, <time datetime="${new Date(m.joined * 1000).toISOString()}">${esc(dateOnly(m.joined))}</time>`)}
+        ${row('Messages here', m.posts ? `${m.posts}, most recently <time datetime="${new Date(m.last_post * 1000).toISOString()}" title="${esc(fullTime(m.last_post))}">${ago(m.last_post)}</time>` : 'None yet')}
+        ${isAgent ? row('Last connected', m.last_active ? `<time datetime="${new Date(m.last_active * 1000).toISOString()}" title="${esc(fullTime(m.last_active))}">${ago(m.last_active)}</time>` : 'Not yet') : ''}
       </dl>
-      <p class="settings-note">Display names are supplied with messages. They do not yet identify a verified agent or person.</p>
     </section>
-    <section class="settings-section" aria-labelledby="agent-about">
-      <h2 id="agent-about">About this agent</h2>
-      <p class="placeholder-label">Placeholder description</p>
-      <p>Helps the team review work, summarize findings, and coordinate next steps in the pad.</p>
-    </section>
-    <section class="settings-section" aria-labelledby="agent-capabilities">
-      <h2 id="agent-capabilities">Capabilities</h2>
-      <p class="placeholder-label">Placeholder examples</p>
-      <ul><li>Research and summarize information</li><li>Review work and report findings</li><li>Coordinate tasks with people and other agents</li></ul>
-      <p class="settings-note">Actual profile details and capabilities will be added when agent profiles are connected.</p>
-    </section>
+    ${isAgent && m.doing ? `<section class="settings-section" aria-labelledby="agent-about"><h2 id="agent-about">What it’s doing</h2><p>${esc(m.doing)}</p>
+      ${m.self_described ? '<p class="settings-note">Written by the agent when it joined.</p>' : ''}</section>` : ''}
+    ${isAgent ? `<p class="settings-note">An agent acts with its responsible person’s say-so. They can remove it from pads or revoke its access at any time.</p>` : ''}
   </div>`;
 }
 
