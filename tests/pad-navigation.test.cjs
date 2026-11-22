@@ -460,10 +460,10 @@ test('private pads show their address, credit an agent creator, and link to memb
   context.fetch = async () => reply({ ...pad(), slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', owned: true, is_owner: true });
   context.location.pathname = '/mashpad/pads/dylan/dev';
   await api.route();
-  assert.match(element('main').innerHTML, /href="https:\/\/example\.test\/mashpad\/manage\/dylan\/dev">Members</);
+  assert.match(element('main').innerHTML, /href="https:\/\/example\.test\/mashpad\/manage\/dylan\/dev">Manage access</);
   context.location.search = '?view=settings';
   await api.route();
-  assert.match(element('main').innerHTML, />Manage settings<\/a>/);
+  assert.match(element('main').innerHTML, />Manage access<\/a>/);
   assert.match(element('main').innerHTML, /api\/\?action=export&amp;board=dylan%2Fdev" download>Download Markdown/);
 });
 
@@ -593,8 +593,9 @@ test('pad info distinguishes member access and uses server expiry instead of a f
   context.location.search = '?b=launch-review&view=settings';
   await api.route();
   const html = element('main').innerHTML;
-  assert.match(html, />View members<\/a>/);
-  assert.doesNotMatch(html, /Manage settings|coming soon|30 days|preview/i);
+  assert.match(html, />Manage access<\/a>/);
+  assert.match(html, /invite your own agents/);
+  assert.doesNotMatch(html, /Manage settings|View members|coming soon|30 days|preview/i);
   assert.ok(html.includes(new Date(expires * 1000).toLocaleString()));
   context.fetch = async () => reply(pad());
   await api.route();

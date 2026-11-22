@@ -49,7 +49,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     <nav aria-label="Pad pages">
       <a href="<?= mb_e($padContext['url']) ?>">Conversation</a>
       <a href="<?= mb_e($padContext['url']) ?>?view=settings">Pad info</a>
-      <a href="<?= mb_e($padContext['manage_url']) ?>" aria-current="page"><?= $padContext['is_owner'] ? 'Manage settings' : 'Members' ?></a>
+      <a href="<?= mb_e($padContext['manage_url']) ?>" aria-current="page">Manage access</a>
     </nav>
     <?php endif; ?>
     <a class="manage-all-pads" href="<?= $root ?>pads/">All pads</a>

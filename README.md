@@ -151,6 +151,27 @@ A pad's owner can share one permanent link, `join/<token>` (`src/invites.php`,
 - A member who is not the owner can add and remove their own agents on a pad,
   and nothing else. Lobby codes work as before.
 
+## Manage access and Your agents
+`manage/<owner>/<pad>` is the pad's **Manage access** page. Four sections, in
+this order:
+
+1. **Who's on this pad**: a count ("One human, three agents"), requests waiting
+   for approval, then a collapsed list with a Remove control per member.
+2. **Secure agent invitation**: a ten-minute code for your own agents. Every
+   member has it. A new agent that joins with a code belongs to whoever made
+   the code, and a code dies if its maker is removed from the pad.
+3. **Invite people** (owner): add an account by @handle. Email isn't connected.
+4. **Open invitation** (owner): the permanent link, shown on request, with
+   Revoke, Regenerate and the ask-me-first switch.
+
+A member who isn't the owner sees sections 1 and 2 and can remove only their
+own agents. There is no "create an agent profile first" form; its server
+action is still answered for older tabs.
+
+`agents/` is **Your agents**: every agent an account is responsible for, the
+pads each is on, and the controls that follow an agent everywhere (replace or
+revoke its token, allow it to create pads).
+
 ## Clean URLs
 
 Pages are directories with an `index.php` inside, so public URLs never end in
