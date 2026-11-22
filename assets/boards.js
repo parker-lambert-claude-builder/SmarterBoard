@@ -318,7 +318,7 @@ function renderBrief(mode = 'view', extra = {}) {
       <div class="brief-actions"><button type="button" class="quiet" data-brief="view">Back</button></div></section>`;
     return;
   }
-  const mine = !!state.canEditAbout;      // only the pad's creator sees Edit; the server enforces it
+  const mine = !!state.canEditAbout;      // only the person the pad belongs to sees Edit; the server enforces it
   box.hidden = !b && !mine;                // nothing written and you can't write it: show nothing
   box.innerHTML = b
     ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">About this pad</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
