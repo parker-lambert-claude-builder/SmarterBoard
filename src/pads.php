@@ -11,6 +11,8 @@
  * - An agent is one identity (one token) across all the pads it belongs to.
  * - Lobby codes last 10 minutes, admit several agents, and admit them at once.
  * - Handles are unique among a pad's active members.
+ * - A pad's address is <owner handle>/<pad name>, shown as /pads/<owner>/<pad>.
+ *   The pad name is unique per owner, so two people can each have a "launch".
  */
 declare(strict_types=1);
 
@@ -20,6 +22,27 @@ require_once __DIR__ . '/../lib.php';
 const MB_LOBBY_SECONDS  = 600;
 const MB_TOKEN_PREFIX   = 'mp_a_';
 const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
+
+/**
+ * Pad names nobody can use: every top-level page and folder, plus words kept for
+ * pages that may later sit under a pad's own address. One list, used at creation.
+ */
+const MB_RESERVED_PAD_NAMES = [
+    'admin', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'manage', 'mcp',
+    'members', 'migrations', 'new', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin',
+    'signout', 'src', 'terms', 'tests',
+];
+
+/** A bare pad name that matches more than one of the caller's pads. */
+class MbAmbiguousPad extends MbAccountError
+{
+    /** @param string[] $refs full owner/pad addresses */
+    public function __construct(string $name, public array $refs)
+    {
+        parent::__construct('More than one of your pads is called "' . $name . '": ' . implode(' and ', $refs)
+            . '. Nothing was read or posted. Use the full address, for example "' . $refs[0] . '".');
+    }
+}
 
 class MbThrottled extends MbAccountError
 {
@@ -40,13 +63,67 @@ function mb_principal(PDO $pdo, int $id): ?array
     return $q->fetch() ?: null;
 }
 
-function mb_pad_by_slug(PDO $pdo, string $slug): ?array
+const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds
+                         FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code';
+
+function mb_pad_by_id(PDO $pdo, int $id): ?array
 {
-    $q = $pdo->prepare('SELECT d.*, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds
-                          FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code
-                         WHERE d.slug = ?');
-    $q->execute([$slug]);
+    $q = $pdo->prepare(MB_PAD_SELECT . ' WHERE d.id = ?');
+    $q->execute([$id]);
     return $q->fetch() ?: null;
+}
+
+/** The pad at <owner handle>/<slug>, whoever is asking. */
+function mb_pad_by_address(PDO $pdo, string $ownerHandle, string $slug): ?array
+{
+    $q = $pdo->prepare(MB_PAD_SELECT . ' WHERE o.handle = ? AND d.slug = ?');
+    $q->execute([strtolower($ownerHandle), $slug]);
+    return $q->fetch() ?: null;
+}
+
+/** "dylan/launch": the address people and agents use for an owned pad. */
+function mb_pad_ref(array $pad): string
+{
+    return $pad['owner_handle'] . '/' . $pad['slug'];
+}
+
+/** Absolute link to an owned pad, e.g. https://mashpad.ai/pads/dylan/launch */
+function mb_pad_url(array $pad): string
+{
+    return mb_site_url() . 'pads/' . mb_pad_ref($pad);
+}
+
+/**
+ * Take apart whatever someone gave as a pad: a link (…/pads/<owner>/<pad>, or the
+ * older …/pads/?b=<pad>), "owner/pad", "@owner/pad", or a bare name.
+ * Returns ['owner' => handle|null, 'slug' => slug|null, 'flat' => slug of the whole text|null].
+ * 'flat' covers names that merely contain a slash ("A/B test" is the pad "a-b-test").
+ */
+function mb_parse_pad_address(string $address): array
+{
+    $address = trim($address);
+    if (preg_match('~^https?://~i', $address)) {
+        $path = (string) parse_url($address, PHP_URL_PATH);
+        if (preg_match('~/pads/([^/]+)/([^/]+)/?$~', $path, $m)) {
+            $address = rawurldecode($m[1]) . '/' . rawurldecode($m[2]);
+        } else {
+            parse_str((string) parse_url($address, PHP_URL_QUERY), $q);
+            $address = trim((string) ($q['b'] ?? ''));
+        }
+    }
+    $out = ['owner' => null, 'slug' => null, 'flat' => null];
+    try {
+        $out['flat'] = mb_slug($address);
+    } catch (MbError $e) {
+    }
+    if (preg_match('~^@?([A-Za-z0-9][A-Za-z0-9_-]{1,38}[A-Za-z0-9])/([^/]+)/?$~', $address, $m)) {
+        try {
+            $out['slug']  = mb_slug($m[2]);
+            $out['owner'] = strtolower($m[1]);
+        } catch (MbError $e) {
+        }
+    }
+    return $out;
 }
 
 function mb_membership(PDO $pdo, int $padId, int $principalId): ?array
@@ -56,20 +133,38 @@ function mb_membership(PDO $pdo, int $padId, int $principalId): ?array
     return $q->fetch() ?: null;
 }
 
-/** The pad if $principalId is an active member; null otherwise (same as "doesn't exist"). */
+/** Every pad matching $address that $principalId is an active member of. */
+function mb_pads_matching(PDO $pdo, string $address, int $principalId): array
+{
+    $a    = mb_parse_pad_address($address);
+    $sql  = str_replace('SELECT d.*', 'SELECT m.role AS my_role, d.*', MB_PAD_SELECT)
+          . ' JOIN pad_members m ON m.pad_id = d.id AND m.principal_id = ? AND m.removed_at IS NULL';
+    $rows = [];
+    if ($a['owner'] !== null) {
+        $q = $pdo->prepare($sql . ' WHERE o.handle = ? AND d.slug = ?');
+        $q->execute([$principalId, $a['owner'], $a['slug']]);
+        $rows = $q->fetchAll();
+    }
+    if (!$rows && $a['flat'] !== null) {
+        $q = $pdo->prepare($sql . ' WHERE d.slug = ? ORDER BY o.handle');
+        $q->execute([$principalId, $a['flat']]);
+        $rows = $q->fetchAll();
+    }
+    return $rows;
+}
+
+/**
+ * The pad if $principalId is an active member; null otherwise (same as "doesn't exist").
+ * $name is a full address or a bare name. A bare name that matches two of the
+ * caller's pads throws MbAmbiguousPad rather than guessing.
+ */
 function mb_pad_for(PDO $pdo, string $name, int $principalId): ?array
 {
-    try {
-        $slug = mb_slug($name);
-    } catch (MbError $e) {
-        return null;
+    $pads = mb_pads_matching($pdo, $name, $principalId);
+    if (count($pads) > 1) {
+        throw new MbAmbiguousPad(trim($name), array_map('mb_pad_ref', $pads));
     }
-    $pad = mb_pad_by_slug($pdo, $slug);
-    if (!$pad || !($m = mb_membership($pdo, (int) $pad['id'], $principalId))) {
-        return null;
-    }
-    $pad['my_role'] = $m['role'];
-    return $pad;
+    return $pads[0] ?? null;
 }
 
 function mb_not_found(string $name): MbAccountError
@@ -80,7 +175,7 @@ function mb_not_found(string $name): MbAccountError
 /** Pads $principalId belongs to, most recently active first. */
 function mb_pads_for(PDO $pdo, int $principalId): array
 {
-    $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
+    $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, o.handle AS owner_handle, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
                                pl.retention_days, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
                                (SELECT COUNT(*) FROM messages x WHERE x.pad_id = d.id) AS total
                           FROM pad_members m JOIN pads d ON d.id = m.pad_id
@@ -95,6 +190,7 @@ function mb_pads_for(PDO $pdo, int $principalId): array
     foreach ($pads as &$p) {
         $who->execute([$p['id']]);
         $p['members']       = $who->fetchAll(PDO::FETCH_COLUMN);
+        $p['ref']           = mb_pad_ref($p);
         $p['last_activity'] = strtotime($p['last_activity_at'] . ' UTC');
         $p['expires']       = $p['last_activity'] + 86400 * (int) ($p['retention_days'] ?? 30);
     }
@@ -116,11 +212,17 @@ function mb_pad_members(PDO $pdo, int $padId): array
 
 // ---------------------------------------------------------------- pads
 
-function mb_slug_taken(PDO $pdo, string $slug): bool
+/** The owner's existing pad with this name, if any. Names are unique per owner, not across the site. */
+function mb_owner_pad(PDO $pdo, int $ownerId, string $slug): ?array
 {
-    $q = $pdo->prepare('SELECT 1 FROM pads WHERE slug = ?');
-    $q->execute([$slug]);
-    return (bool) $q->fetchColumn() || is_file(mb_path($slug));   // legacy file pads share the address space
+    $q = $pdo->prepare(MB_PAD_SELECT . ' WHERE d.owner_id = ? AND d.slug = ?');
+    $q->execute([$ownerId, $slug]);
+    return $q->fetch() ?: null;
+}
+
+function mb_pad_name_taken(array $existing): MbAccountError
+{
+    return new MbAccountError('Not created: there is already a pad at ' . mb_pad_url($existing) . ' (' . mb_pad_ref($existing) . '). Pick another name.');
 }
 
 /**
@@ -134,6 +236,9 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
         throw new MbAccountError('Give the pad a name of up to 120 characters.');
     }
     $slug = mb_slug($name);
+    if (in_array($slug, MB_RESERVED_PAD_NAMES, true)) {
+        throw new MbAccountError('Not created: "' . $slug . '" is a name Mashpad keeps for its own pages. Pick another name.');
+    }
     if ($creator['kind'] === 'agent') {
         if (empty($creator['can_create_pads'])) {
             throw new MbAccountError('Not created: your responsible person hasn\'t allowed you to create pads. Ask them to switch on "Can create pads" on your agent profile, or to create the pad and add you.');
@@ -153,8 +258,8 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
             throw new MbAccountError("Not created: this account's plan allows $max pads, and all are in use.");
         }
     }
-    if (mb_slug_taken($pdo, $slug)) {
-        throw new MbAccountError('A pad with the address "' . $slug . '" already exists. Please pick another name.');
+    if ($existing = mb_owner_pad($pdo, $ownerId, $slug)) {
+        throw mb_pad_name_taken($existing);
     }
 
     $pdo->beginTransaction();
@@ -172,12 +277,12 @@ function mb_create_pad(PDO $pdo, array $creator, string $name): array
         $pdo->commit();
     } catch (PDOException $e) {
         $pdo->rollBack();
-        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
-            throw new MbAccountError('A pad with the address "' . $slug . '" already exists. Please pick another name.');
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062 && ($existing = mb_owner_pad($pdo, $ownerId, $slug))) {
+            throw mb_pad_name_taken($existing);
         }
         throw $e;
     }
-    return mb_pad_by_slug($pdo, $slug);
+    return mb_pad_by_id($pdo, $padId);
 }
 
 /** Messages in the same shape as the file-based pads: id (the per-pad #), author, body, ts. */
@@ -204,6 +309,8 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
     return [
         'name'          => $pad['name'],
         'slug'          => $pad['slug'],
+        'owner'         => $pad['owner_handle'],
+        'key'           => mb_pad_ref($pad),
         'owned'         => true,
         'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
         'created'       => strtotime($pad['created_at'] . ' UTC'),
@@ -473,17 +580,6 @@ function mb_lobby_revoke(PDO $pdo, int $padId, int $lobbyId, int $actorId): void
     mb_audit($pdo, $actorId, 'lobby.revoke', 'pad:' . $padId);
 }
 
-/** Accept a pad address as slug or a pad URL (…/pads/?b=slug). */
-function mb_pad_from_address(string $address): string
-{
-    $address = trim($address);
-    if (preg_match('~^https?://~i', $address)) {
-        parse_str((string) parse_url($address, PHP_URL_QUERY), $q);
-        $address = (string) ($q['b'] ?? '');
-    }
-    return $address;
-}
-
 /**
  * Join a pad with a lobby code. With $agent (an existing agent identified by its
  * token) the agent joins as itself; otherwise a new agent is registered under the
@@ -492,21 +588,19 @@ function mb_pad_from_address(string $address): string
 function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, array $in): array
 {
     $generic = new MbAccountError('That lobby code isn\'t valid for this pad. Codes last 10 minutes; ask the pad\'s owner for a fresh one.');
-    try {
-        $slug = mb_slug(mb_pad_from_address($address));
-    } catch (MbError $e) {
+    // The code picks the pad; the address must then agree with it. A joining agent
+    // isn't a member yet, so a bare name can't be resolved through its memberships.
+    $q = $pdo->prepare('SELECT id, pad_id FROM lobby_codes WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
+    $q->execute([hash('sha256', mb_lobby_normalize($code), true)]);
+    $lobby = $q->fetch();
+    $pad   = $lobby ? mb_pad_by_id($pdo, (int) $lobby['pad_id']) : null;
+    $a     = mb_parse_pad_address($address);
+    $named = $pad && (($a['owner'] !== null && $a['owner'] === $pad['owner_handle'] && $a['slug'] === $pad['slug'])
+                   || ($a['flat'] !== null && $a['flat'] === $pad['slug']));
+    if (!$named) {
         throw $generic;
     }
-    $pad = mb_pad_by_slug($pdo, $slug);
-    if (!$pad) {
-        throw $generic;
-    }
-    $q = $pdo->prepare('SELECT id FROM lobby_codes WHERE pad_id = ? AND code_hash = ? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP()');
-    $q->execute([$pad['id'], hash('sha256', mb_lobby_normalize($code), true)]);
-    $lobbyId = $q->fetchColumn();
-    if (!$lobbyId) {
-        throw $generic;
-    }
+    $lobbyId = (int) $lobby['id'];
     $token = null;
     if ($agent === null) {
         // Check the pad's handles first, so a refused join never leaves an identity behind.

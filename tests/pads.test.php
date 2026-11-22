@@ -50,10 +50,15 @@ $eve     = mb_principal($pdo, $eveId);
 $pad = mb_create_pad($pdo, $dylan, 'Mashpad Dev');
 check('human creates a pad; address from the name', $pad && $pad['slug'] === 'mashpad-dev' && (int) $pad['owner_id'] === $dylanId);
 check('creator is the owner member', (mb_membership($pdo, (int) $pad['id'], $dylanId)['role'] ?? '') === 'owner');
-check('same name refused', str_contains(err(fn () => mb_create_pad($pdo, $eve, 'mashpad dev')), 'already exists'));
-@mkdir("$root/data/boards", 0775, true);
-file_put_contents($legacy, '{}');
-check('address of an account-less pad refused', str_contains(err(fn () => mb_create_pad($pdo, $dylan, 'zz legacy taken')), 'already exists'));
+check('pad knows its address and link', mb_pad_ref($pad) === 'dylan/mashpad-dev' && mb_pad_url($pad) === 'http://localhost/pads/dylan/mashpad-dev');
+$again = err(fn () => mb_create_pad($pdo, $dylan, 'mashpad dev'));
+check('A2: same owner, same name refused, naming the existing pad\'s full address', str_contains($again, 'Not created') && str_contains($again, 'http://localhost/pads/dylan/mashpad-dev') && str_contains($again, 'dylan/mashpad-dev'));
+foreach (MB_RESERVED_PAD_NAMES as $word) {
+    if (!str_contains(err(fn () => mb_create_pad($pdo, $dylan, strtoupper($word))), 'keeps for its own pages')) { $bad[] = $word; }
+}
+check('A3: every reserved name is refused with an explanation', empty($bad) && count(array_intersect(['create', 'manage', 'settings'], MB_RESERVED_PAD_NAMES)) === 3, implode(',', $bad ?? []));
+$pages = array_map('basename', array_filter(glob("$root/*"), 'is_dir'));
+check('A3: the reserved list covers every top-level folder', array_diff($pages, MB_RESERVED_PAD_NAMES) === [], implode(',', array_diff($pages, MB_RESERVED_PAD_NAMES)));
 check('empty name refused', str_contains(err(fn () => mb_create_pad($pdo, $dylan, '   ')), 'Give the pad a name'));
 
 // Privacy
@@ -156,18 +161,73 @@ check('plan pad limit enforced', str_contains(err(fn () => mb_create_pad($pdo, $
 $pdo->exec("UPDATE plans SET max_owned_pads = NULL WHERE code = 'free'");
 
 // Removal
-mb_remove_member($pdo, mb_pad_by_slug($pdo, 'mashpad-dev'), (int) $meta['id'], $dylanId);
+mb_remove_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), (int) $meta['id'], $dylanId);
 check('removed member loses access at once', mb_pad_for($pdo, 'mashpad-dev', (int) $meta['id']) === null);
 check('removed member\'s posts stay', true);
-check('owner cannot be removed', str_contains(err(fn () => mb_remove_member($pdo, mb_pad_by_slug($pdo, 'mashpad-dev'), $dylanId, $dylanId)), 'can\'t be removed'));
-mb_add_member($pdo, mb_pad_by_slug($pdo, 'mashpad-dev'), (int) $meta['id'], 'added');
+check('owner cannot be removed', str_contains(err(fn () => mb_remove_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), $dylanId, $dylanId)), 'can\'t be removed'));
+mb_add_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), (int) $meta['id'], 'added');
 check('re-adding restores access', mb_pad_for($pdo, 'mashpad-dev', (int) $meta['id']) !== null);
 
 // Retention
 $pdo->exec("UPDATE pads SET last_activity_at = UTC_TIMESTAMP() - INTERVAL 31 DAY WHERE slug = 'second-pad'");
 $gone = mb_prune_owned($pdo, true);
-check('pads past plan retention are deleted with their messages', $gone === 1 && !mb_pad_by_slug($pdo, 'second-pad') && mb_pad_by_slug($pdo, 'mashpad-dev'));
-check('pad address helper', mb_pad_from_address('https://x.test/message-board/pads/?b=abc-def&view=settings') === 'abc-def' && mb_pad_from_address('plain') === 'plain');
+check('pads past plan retention are deleted with their messages', $gone === 1 && !mb_pad_by_address($pdo, 'dylan', 'second-pad') && mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'));
+
+// Pad addresses: <owner>/<name>
+$parse = fn ($x) => mb_parse_pad_address($x);
+check('address forms parse', $parse('https://x.test/message-board/pads/Dylan/Abc-Def/?view=settings#m3') === ['owner' => 'dylan', 'slug' => 'abc-def', 'flat' => 'dylan-abc-def']
+      && $parse('https://x.test/pads/?b=abc-def&view=settings') === ['owner' => null, 'slug' => null, 'flat' => 'abc-def']
+      && $parse('@Dylan/PixelBrief QA')['slug'] === 'pixelbrief-qa' && $parse('plain')['owner'] === null && $parse('A/B test')['flat'] === 'a-b-test');
+
+$dLaunch = mb_create_pad($pdo, $dylan, 'Launch');
+$eLaunch = mb_create_pad($pdo, $eve, 'Launch');
+check('A1: two owners each have a pad called launch', mb_pad_ref($dLaunch) === 'dylan/launch' && mb_pad_ref($eLaunch) === 'eve/launch' && (int) $dLaunch['id'] !== (int) $eLaunch['id']);
+check('A1: neither owner sees the other\'s, by name or by full address', (int) mb_pad_for($pdo, 'launch', $dylanId)['id'] === (int) $dLaunch['id']
+      && (int) mb_pad_for($pdo, 'launch', $eveId)['id'] === (int) $eLaunch['id']
+      && mb_pad_for($pdo, 'eve/launch', $dylanId) === null && mb_pad_for($pdo, 'dylan/launch', $eveId) === null
+      && !in_array('eve/launch', array_column(mb_pads_for($pdo, $dylanId), 'ref'), true));
+check('A10: a pad you can\'t see and a pad that doesn\'t exist are the same answer', mb_pad_for($pdo, 'eve/launch', $dylanId) === mb_pad_for($pdo, 'eve/never-made', $dylanId)
+      && mb_not_found('eve/launch')->getMessage() === str_replace('never-made', 'launch', mb_not_found('eve/never-made')->getMessage()));
+
+$muse = mb_agent_by_token($pdo, $museToken);
+mb_add_member($pdo, $dLaunch, $museId, 'added');
+$post = mb_pad_post($pdo, mb_pad_for($pdo, 'dylan/launch', $museId), $muse, 'By full address.');
+$forms = ['dylan/launch', '@dylan/launch', 'Launch', 'https://mashpad.ai/pads/dylan/launch', 'https://mashpad.ai/pads/dylan/launch/?view=settings', 'https://mashpad.ai/pads/?b=launch'];
+$ids   = array_map(fn ($f) => (int) (mb_pad_for($pdo, $f, $museId)['id'] ?? 0), $forms);
+check('A8: address, bare name and link all reach the same pad and sequence', array_unique($ids) === [(int) $dLaunch['id']]
+      && mb_pad_read($pdo, mb_pad_for($pdo, 'launch', $museId), null, 50)['latest_id'] === $post['id'], implode(',', $ids));
+check('read result carries the full address', mb_pad_read($pdo, mb_pad_for($pdo, 'launch', $museId), null, 50)['key'] === 'dylan/launch');
+
+[$eCode] = mb_lobby_create($pdo, $eLaunch, $eveId);
+[$joined, $none, $jp] = mb_join_pad($pdo, 'https://mashpad.ai/pads/eve/launch', $eCode, $muse, []);
+check('existing agent joins another owner\'s pad by its link', (int) $jp['id'] === (int) $eLaunch['id'] && $none === null);
+check('a code only opens the pad it was made for', str_contains(err(fn () => mb_join_pad($pdo, 'dylan/launch', $eCode, null, ['handle' => 'stray'])), 'isn\'t valid')
+      && !str_contains(err(fn () => mb_join_pad($pdo, 'launch', $eCode, null, ['handle' => 'barejoin'])), 'isn\'t valid'));
+$before = (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn();
+$amb = null;
+try { mb_pad_for($pdo, 'launch', $museId); } catch (MbAmbiguousPad $e) { $amb = $e; }
+check('A9: a bare name on two of the agent\'s pads is refused, listing both addresses', $amb !== null && $amb->refs === ['dylan/launch', 'eve/launch']
+      && str_contains($amb->getMessage(), 'dylan/launch and eve/launch') && str_contains($amb->getMessage(), 'Nothing was read or posted')
+      && (int) $pdo->query('SELECT COUNT(*) FROM messages')->fetchColumn() === $before);
+check('A9: the full address still works for each', (int) mb_pad_for($pdo, 'eve/launch', $museId)['id'] === (int) $eLaunch['id'] && (int) mb_pad_for($pdo, 'dylan/launch', $museId)['id'] === (int) $dLaunch['id']);
+check('A12: the pad list gives full addresses', array_intersect(['dylan/launch', 'eve/launch'], array_column(mb_pads_for($pdo, $museId), 'ref')) === ['dylan/launch', 'eve/launch']
+      || count(array_intersect(['dylan/launch', 'eve/launch'], array_column(mb_pads_for($pdo, $museId), 'ref'))) === 2);
+
+$slash = mb_create_pad($pdo, $eve, 'A/B test');
+check('a name that merely contains a slash is still one pad', $slash['slug'] === 'a-b-test' && (int) mb_pad_for($pdo, 'A/B test', $eveId)['id'] === (int) $slash['id']);
+
+$code = '';
+foreach (array_merge(glob("$root/src/*.php"), glob("$root/*/index.php")) as $f) { $code .= file_get_contents($f); }
+check('A4: nothing in the app can change a handle', !preg_match('/UPDATE\s+principals\s+SET[^;]*\bhandle\s*=/i', $code));
+
+// A13: open pads can still be used while they last, but never created
+@mkdir("$root/data/boards", 0775, true);
+$ghost = 'zz-never-made-' . getmypid();
+check('A13: posting to an open pad that isn\'t there is refused and creates nothing', str_contains(err(fn () => mb_post($ghost, 'builder', 'hi', false)), 'open pads can no longer be created') && !is_file(mb_path($ghost)));
+check('A13: reading one creates nothing either', mb_read($ghost, null, 50, false) === null && !is_file(mb_path($ghost)));
+file_put_contents($legacy, json_encode(['name' => 'zz-legacy-taken', 'slug' => 'zz-legacy-taken', 'created' => time(), 'next_id' => 1, 'messages' => []]));
+[, $lm] = mb_post('zz-legacy-taken', 'builder', 'still works', false);
+check('A13: an existing open pad still takes posts', $lm['id'] === 1);
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail ? 1 : 0);

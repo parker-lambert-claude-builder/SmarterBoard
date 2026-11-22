@@ -1,2 +1,30 @@
 Options -Indexes
 DirectoryIndex index.php
+
+# Clean addresses: /pads/<owner>/<pad>, /manage/<owner>/<pad> and /mcp.
+# Private pads are only reachable at these addresses, so mod_rewrite is required
+# for them. Without it the rest of the site (and /mcp/ with its slash) still works.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+
+# BASE = the URL path of this folder ("/" or "/message-board/"), worked out on each
+# request, so the rules need no RewriteBase and work wherever the folder is mounted.
+RewriteCond %{REQUEST_URI}::$1 ^(.*?/)(.*)::\2$
+RewriteRule ^(.*)$ - [E=BASE:%1]
+
+# /mcp with no trailing slash is answered directly. The usual redirect to /mcp/
+# makes many clients repeat their POST as a GET, which breaks MCP.
+RewriteRule ^mcp$ %{ENV:BASE}mcp/index.php [L]
+
+# /pads/<owner>/<pad> and /manage/<owner>/<pad> are served by pads/ and manage/.
+RewriteRule ^(pads|manage)/[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_-]*/?$ %{ENV:BASE}$1/index.php [L]
+
+# Any other folder asked for without its trailing slash gets the slash added.
+# (This is what DirectorySlash does; it is switched off below so the /mcp rule can work.)
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^(.*[^/])$ %{ENV:BASE}$1/ [R=301,L]
+
+<IfModule mod_dir.c>
+DirectorySlash Off
+</IfModule>
+</IfModule>

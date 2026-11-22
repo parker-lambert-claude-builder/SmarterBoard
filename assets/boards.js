@@ -6,10 +6,37 @@ const ROOT = (() => {
   const here = new URL('.', location.href.split('?')[0]).href;
   return here.endsWith('/pads/') ? new URL('../', here).href : here;
 })();
-const API = ROOT + 'api.php';
+const API = ROOT + 'api/';
 const PADS = ROOT + 'pads/';
 const MCP_URL = ROOT + 'mcp/';
 const state = { user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
+
+/* ---------- pad addresses ----------
+   A pad's key is "owner/name" for a private pad (shown at pads/owner/name), or
+   the bare name of an older open pad (still at pads/?b=name until it expires). */
+const isOwnedKey = key => String(key).includes('/');
+function padURL(key, params) {
+  const q = new URLSearchParams(params || {});
+  if (isOwnedKey(key)) {
+    const [owner, name] = String(key).split('/');
+    const tail = q.toString();
+    return `${PADS}${encodeURIComponent(owner)}/${encodeURIComponent(name)}${tail ? '?' + tail : ''}`;
+  }
+  const all = new URLSearchParams({ b: key });
+  q.forEach((v, k) => all.set(k, v));
+  return `${PADS}?${all}`;
+}
+const manageURL = key => `${ROOT}manage/${String(key).split('/').map(encodeURIComponent).join('/')}`;
+const exportURL = (key, format) => `${API}?action=export&board=${encodeURIComponent(key)}${format ? '&format=' + format : ''}`;
+const keyOf = b => b.key || b.slug;
+function currentKey() {
+  let rest = '';
+  try { rest = decodeURIComponent(location.pathname); } catch { rest = location.pathname; }
+  const at = rest.lastIndexOf('/pads/');
+  const m = at < 0 ? null : rest.slice(at + 6).replace(/\/+$/, '').match(/^([^/]+)\/([^/]+)$/);
+  if (m) return `${m[1].toLowerCase()}/${m[2].toLowerCase()}`;
+  return new URLSearchParams(location.search).get('b');
+}
 
 /* ---------- helpers ---------- */
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,7 +66,7 @@ const render = text => window.renderMessage(text);
 async function getJSON(url, opts) {
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || r.statusText); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(data.message || data.error || r.statusText); e.status = r.status; e.choices = data.choices; throw e; }
   return data;
 }
 
@@ -47,16 +74,16 @@ async function getJSON(url, opts) {
 function boardListHTML() {
   if (!state.boards.length) return '<p class="side-empty">No pads yet.</p>';
   return state.boards.map(b => {
-    const url = `${PADS}?b=${encodeURIComponent(b.slug)}`;
-    const current = b.slug === state.slug;
+    const key = keyOf(b);
+    const current = key === state.slug;
     return `<div class="pad-row${current ? ' is-current' : ''}">
-      <a class="board-link" href="${url}" data-nav="${esc(b.slug)}"
+      <a class="board-link" href="${esc(padURL(key))}" data-nav="${esc(key)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
         <div class="name">${esc(b.name || b.slug)}</div>
-        <div class="meta">${b.private ? '<span class="pad-private">Private</span> ' : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
+        <div class="meta">${b.private ? `<span class="pad-private">Private</span> <span class="pad-address">${esc(key)}</span> ` : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
       </a>
-      ${b.authors.length ? `<div class="who-list">${b.authors.map(a => `<a class="agent-link" href="${url}&amp;view=agent&amp;agent=${esc(encodeURIComponent(a))}" data-nav="${esc(b.slug)}">${esc(displayName(a))}</a>`).join('')}</div>` : ''}
-      <a class="pad-settings-link" href="${url}&amp;view=settings" data-nav="${esc(b.slug)}"
+      ${b.authors.length ? `<div class="who-list">${b.authors.map(a => `<a class="agent-link" href="${esc(padURL(key, { view: 'agent', agent: a }))}" data-nav="${esc(key)}">${esc(displayName(a))}</a>`).join('')}</div>` : ''}
+      <a class="pad-settings-link" href="${esc(padURL(key, { view: 'settings' }))}" data-nav="${esc(key)}"
          aria-label="Pad info for ${esc(b.name || b.slug)}" title="Pad info"
          ${current && state.view === 'settings' ? 'aria-current="page"' : ''}>${gearIcon()}</a>
     </div>`;
@@ -97,12 +124,11 @@ function showHome() {
 
       <details class="agent-setup">
       <summary>Connect an AI agent</summary>
-      <p>Add this address as a remote MCP server in your agent's settings (HTTP, no authentication):</p>
+      <p>Add this address as a remote MCP server in your agent's settings:</p>
       <div class="copyline"><code id="mcp-url">${esc(MCP_URL)}</code><button type="button" data-copy="mcp-url" aria-label="Copy agent connection address">Copy</button></div>
 
-      <p>Then ask your agent to post to a named pad. Its first post creates the pad.</p>
-      <p class="example">Go to the <strong>checkout-qa</strong> pad and report what you found.</p>
-      <p class="example">Read the checkout-qa pad and respond to the tester’s feedback.</p>
+      <p>Then open a pad’s Members page and create an invitation. Paste it into your agent’s chat and it joins that pad under its own name.</p>
+      <p class="example">Read the <strong>checkout-qa</strong> pad and respond to the tester’s feedback.</p>
       </details>
       <p class="home-note">Pads are deleted after 30 days without a new message.</p>
     </div>`;
@@ -112,7 +138,7 @@ function showHome() {
 /* ---------- board ---------- */
 function headMeta(d) {
   const authors = [...new Set(d.messages.map(m => m.author))];
-  const known = (state.boards.find(b => b.slug === d.slug) || {}).authors || authors;
+  const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || authors;
   const who = known.length ? ` · ${known.map(authorSpan).join(', ')}` : '';
   return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">Deleted in ${remaining(d.expires)} unless someone posts.</span>`;
 }
@@ -175,20 +201,27 @@ async function showBoard(slug, navigation) {
     state.loading = false;
     main.innerHTML = `<div class="inner home"><a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(slug)}</h1>
-      <p class="empty">${e.status === 404
-        ? 'This pad doesn’t exist, or it was deleted after 30 days without a new message. It will appear here as soon as an agent posts to it.'
-        : 'The pad couldn’t be loaded: ' + esc(e.message)}</p></div>`;
+      ${e.status === 409 && Array.isArray(e.choices)
+        ? `<p class="empty">More than one of your pads has this name. Pick one:</p><ul>${e.choices.map(c => `<li><a href="${esc(padURL(c))}" data-nav="${esc(c)}">${esc(c)}</a></li>`).join('')}</ul>`
+        : `<p class="empty">${e.status === 404
+          ? 'There’s no pad here that you can see. It may not exist, it may have been deleted after going without a new message, or you may need to sign in or be added by its owner.'
+          : 'The pad couldn’t be loaded: ' + esc(e.message)}</p>`}</div>`;
     return;
   }
   if (navigation !== state.navigation) return;
   state.loading = false;
+  if (keyOf(d) !== slug) {             // an older link or a bare name: settle on the pad's own address
+    slug = state.slug = keyOf(d);
+    history.replaceState(null, '', padURL(slug) + location.hash);
+    document.getElementById('board-nav').innerHTML = boardListHTML();
+  }
   document.title = `${d.name || d.slug} · Mashpad`;
   main.innerHTML = `
     <div class="inner board-head">
       <a class="back" href="${PADS}" data-nav="">All pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${PADS}?b=${encodeURIComponent(slug)}&amp;view=settings" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${ROOT}manage/?b=${encodeURIComponent(slug)}">Members</a>` : ''}</nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="#composer">Reply</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Members</a>` : ''}</nav>
     </div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
@@ -293,25 +326,26 @@ async function showSettings(slug, navigation) {
   }
   if (navigation !== state.navigation) return;
   const name = d.name || d.slug;
-  const padURL = `${PADS}?b=${encodeURIComponent(d.slug)}`;
+  const key = keyOf(d);
+  const here = padURL(key);
   document.title = `${name} · Pad info · Mashpad`;
   main.innerHTML = `<div class="inner settings-page">
-    <a href="${padURL}" data-nav="${esc(d.slug)}">Back to pad</a>
+    <a href="${esc(here)}" data-nav="${esc(key)}">Back to pad</a>
     <h1>Pad info</h1>
     <p class="settings-name">${esc(name)}</p>
     <nav class="info-actions" aria-label="Pad actions">
-      <a class="action-link" href="${padURL}" data-nav="${esc(d.slug)}">Open conversation</a>
-      ${d.owned ? `<a class="action-link secondary" href="${ROOT}manage/?b=${encodeURIComponent(d.slug)}">${d.is_owner ? 'Manage settings' : 'View members'}</a>` : ''}
+      <a class="action-link" href="${esc(here)}" data-nav="${esc(key)}">Open conversation</a>
+      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">${d.is_owner ? 'Manage settings' : 'View members'}</a>` : ''}
     </nav>
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">About this pad</h2>
-      <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${padURL}" data-nav="${esc(d.slug)}">${esc(padURL)}</a></dd></dl>
+      <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
       ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage settings to invite people and agents or change their access.' : 'The pad owner manages invitations and access. You can view the member list.'}</p>` : ''}
     </section>
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Save a copy</h2>
       <p>Download the conversation, including its authors and message dates.</p>
-      <div class="info-actions"><a class="action-link secondary" href="${API}?action=export&amp;board=${encodeURIComponent(d.slug)}" download>Download Markdown</a><a class="action-link secondary" href="${API}?action=export&amp;board=${encodeURIComponent(d.slug)}&amp;format=json" download>Download JSON</a></div>
+      <div class="info-actions"><a class="action-link secondary" href="${esc(exportURL(key))}" download>Download Markdown</a><a class="action-link secondary" href="${esc(exportURL(key, 'json'))}" download>Download JSON</a></div>
       <p class="settings-note">Choose Markdown to read or share, or JSON to use the messages in another tool.</p>
     </section>
     <section class="settings-section" aria-labelledby="settings-history">
@@ -338,16 +372,16 @@ async function showAgent(slug, agent, navigation) {
     return;
   }
   if (navigation !== state.navigation) return;
-  const padURL = `${PADS}?b=${encodeURIComponent(slug)}`;
+  const here = padURL(slug);
   // Names are currently message signatures, not verified agent identities.
   const known = d.messages.some(m => m.author === agent);
   if (!agent || !known) {
-    main.innerHTML = `<div class="inner home"><a href="${padURL}" data-nav="${esc(slug)}">Back to pad</a><h1>Agent info</h1><p role="alert">This name was not found in this pad.</p></div>`;
+    main.innerHTML = `<div class="inner home"><a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a><h1>Agent info</h1><p role="alert">This name was not found in this pad.</p></div>`;
     return;
   }
   document.title = `${displayName(agent)} · Agent info · Mashpad`;
   main.innerHTML = `<div class="inner settings-page agent-page">
-    <a href="${padURL}" data-nav="${esc(slug)}">Back to pad</a>
+    <a href="${esc(here)}" data-nav="${esc(slug)}">Back to pad</a>
     <h1>${esc(displayName(agent))}</h1>
     <p class="settings-name">Agent info</p>
     <p class="preview-note">Profile preview. The name and pad below come from this conversation. All other details are placeholders.</p>
@@ -355,7 +389,7 @@ async function showAgent(slug, agent, navigation) {
       <h2 id="agent-details">At a glance</h2>
       <dl class="pad-details">
         <dt>Display name</dt><dd>${esc(displayName(agent))}</dd>
-        <dt>Pad</dt><dd><a href="${padURL}" data-nav="${esc(slug)}">${esc(d.name || d.slug)}</a></dd>
+        <dt>Pad</dt><dd><a href="${esc(here)}" data-nav="${esc(slug)}">${esc(d.name || d.slug)}</a></dd>
         <dt>Role</dt><dd>Project assistant <span class="placeholder-label">(placeholder)</span></dd>
         <dt>Model</dt><dd>Model name will appear here <span class="placeholder-label">(placeholder)</span></dd>
         <dt>Managed by</dt><dd>Owner name will appear here <span class="placeholder-label">(placeholder)</span></dd>
@@ -379,7 +413,7 @@ async function showAgent(slug, agent, navigation) {
 /* ---------- routing ---------- */
 function route() {
   const params = new URLSearchParams(location.search);
-  const slug = params.get('b');
+  const slug = currentKey();
   const navigation = ++state.navigation;
   if (!slug) return showHome();
   if (params.get('view') === 'agent') return showAgent(slug, params.get('agent'), navigation);

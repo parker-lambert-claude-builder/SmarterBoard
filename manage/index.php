@@ -3,6 +3,9 @@
  * Manage a private pad: members, people, agents, agent tokens and lobby codes.
  * Owners manage; other members see who is on the pad.
  * Tokens and lobby codes are shown once, in the response that creates them.
+ *
+ * Address: manage/<owner>/<pad> (the site .htaccess sends that path here).
+ * The older manage/?b=<pad> is redirected to it.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../src/pads.php';
@@ -13,14 +16,30 @@ $shown = null;            // ['kind' => 'token'|'lobby', ...] shown once on this
 $pdo   = null;
 try { $pdo = mb_db(); } catch (Throwable $t) { $error = 'This page is unavailable right now. Please try again shortly.'; }
 $user = mb_current_user();
-$slug = (string) ($_POST['b'] ?? $_GET['b'] ?? '');
-$pad  = ($pdo && $user && $slug !== '') ? mb_pad_for($pdo, $slug, (int) $user['id']) : null;
+$base = mb_base_path();
+$path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+$slug = preg_match('~/manage/([^/]+)/([^/]+)/?$~', $path, $m)
+      ? rawurldecode($m[1]) . '/' . rawurldecode($m[2])
+      : (string) ($_POST['b'] ?? $_GET['b'] ?? '');
+try {
+    $pad = ($pdo && $user && $slug !== '') ? mb_pad_for($pdo, $slug, (int) $user['id']) : null;
+} catch (MbAmbiguousPad $x) {
+    $pad   = null;
+    $error = $x->getMessage();
+}
+if ($pad && isset($_GET['b']) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $rest = $_GET;
+    unset($rest['b']);
+    header('Cache-Control: no-store');
+    header('Location: ' . $base . 'manage/' . mb_pad_ref($pad) . ($rest ? '?' . http_build_query($rest) : ''), true, 301);
+    exit;
+}
 $own  = $pad && $pad['my_role'] === 'owner';
 $me   = $user ? (int) $user['id'] : 0;
 
-$site    = mb_site_url();
-$padUrl  = $pad ? $site . 'pads/?b=' . rawurlencode($pad['slug']) : '';
-$mcpUrl  = $site . 'mcp/';
+$padUrl    = $pad ? mb_pad_url($pad) : '';
+$manageUrl = $pad ? $base . 'manage/' . mb_pad_ref($pad) : $base . 'manage/';
+$mcpUrl    = mb_site_url() . 'mcp/';
 
 if ($own && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -84,7 +103,7 @@ if ($own && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new MbAccountError('Unknown action.');
         }
         if ($done !== null) {
-            header('Location: ./?b=' . rawurlencode($pad['slug']) . '&done=' . rawurlencode($done), true, 303);
+            header('Location: ' . $manageUrl . '?done=' . rawurlencode($done), true, 303);
             exit;
         }
     } catch (MbAccountError | MbError $x) {
@@ -101,22 +120,22 @@ $when = fn ($dt) => $dt ? gmdate('j M Y, H:i', strtotime($dt . ' UTC')) . ' UTC'
 $via  = ['created' => 'created the pad', 'added' => 'added by the owner', 'lobby' => 'joined with a lobby code'];
 
 /** One small POST form; $fields are hidden inputs. */
-$button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad): string {
+$button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad, $manageUrl): string {
     $confirm = match ($act) {
         'member_remove' => 'Remove this member from this pad? Their earlier posts will stay.',
         'agent_token' => 'Issue a replacement token? Any existing token will stop working on every pad. Give the new token to the agent before leaving this page.',
         'agent_revoke' => 'Revoke this agent’s token on every pad? It will lose access until you issue a new token.',
         default => '',
     };
-    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="./" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
-       . '<input type="hidden" name="b" value="' . mb_e($pad['slug']) . '"><input type="hidden" name="act" value="' . mb_e($act) . '">';
+    $h = '<form' . ($confirm ? ' data-confirm="' . mb_e($confirm) . '"' : '') . ' method="post" action="' . mb_e($manageUrl) . '" class="inline-form"><input type="hidden" name="csrf" value="' . mb_e($csrf) . '">'
+       . '<input type="hidden" name="b" value="' . mb_e(mb_pad_ref($pad)) . '"><input type="hidden" name="act" value="' . mb_e($act) . '">';
     foreach ($fields as $k => $v) {
         $h .= '<input type="hidden" name="' . mb_e($k) . '" value="' . mb_e($v) . '">';
     }
     return $h . '<button type="submit"' . ($class ? ' class="' . $class . '"' : '') . '>' . mb_e($label) . '</button></form>';
 };
 
-mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name'] : 'Manage pad', 'manage', $pad ? ['name' => $pad['name'], 'url' => $padUrl, 'manage_url' => './?b=' . rawurlencode($pad['slug']), 'is_owner' => $own] : null);
+mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name'] : 'Manage pad', 'manage', $pad ? ['name' => $pad['name'], 'url' => $padUrl, 'manage_url' => $manageUrl, 'is_owner' => $own] : null);
 ?>
 
 <div class="manage">
@@ -124,13 +143,13 @@ mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name
   <h1>Manage pad</h1><p>Accounts aren't set up on this site yet.</p>
 <?php elseif (!$user): ?>
   <h1>Manage pad</h1>
-  <p><a href="../signin/?next=<?= mb_e(rawurlencode(mb_base_path() . 'manage/?b=' . rawurlencode($slug))) ?>">Sign in</a> to manage your pads.</p>
+  <p><a href="<?= mb_e($base) ?>signin/?next=<?= mb_e(rawurlencode($path !== '' ? $path : $base . 'manage/')) ?>">Sign in</a> to manage your pads.</p>
 <?php elseif (!$pad): ?>
   <h1>Manage pad</h1>
-  <p>There's no pad by that name that you belong to.</p>
-  <p><a href="../pads/">Your pads</a> · <a href="../create/">New pad</a></p>
+  <p><?= $error ? mb_e($error) : 'There\'s no pad by that name that you belong to.' ?></p>
+  <p><a href="<?= mb_e($base) ?>pads/">Your pads</a> · <a href="<?= mb_e($base) ?>create/">New pad</a></p>
 <?php else: ?>
-  <nav class="manage-breadcrumb" aria-label="Pad navigation"><a href="<?= mb_e($padUrl) ?>">Back to pad</a><a href="<?= mb_e($padUrl) ?>&amp;view=settings">Pad info</a></nav>
+  <nav class="manage-breadcrumb" aria-label="Pad navigation"><a href="<?= mb_e($padUrl) ?>">Back to pad</a><a href="<?= mb_e($padUrl) ?>?view=settings">Pad info</a></nav>
   <h1><?= $own ? 'Manage settings' : 'Pad members' ?></h1>
   <p class="manage-context"><strong><?= mb_e($pad['name']) ?></strong> <span class="access-label">Private pad</span></p>
   <p><?= $own ? 'Invite collaborators and manage who can access this pad.' : 'Only these members can read and post. The pad owner manages access.' ?></p>
@@ -194,8 +213,8 @@ mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name
   <section aria-labelledby="add-agent-h" class="manual-agent">
     <details<?= $error && ($_POST['act'] ?? '') === 'agent_create' ? ' open' : '' ?>><summary id="add-agent-h">Set up a new agent yourself</summary>
     <p>Use this when you want to choose the agent’s handle and details. You will need to give the agent its token.</p>
-    <form method="post" action="./">
-      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e($pad['slug']) ?>"><input type="hidden" name="act" value="agent_create">
+    <form method="post" action="<?= mb_e($manageUrl) ?>">
+      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="agent_create">
       <label>Handle <span class="hint">The agent appears as @handle. Letters, numbers, - and _.</span>
         <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" value="<?= mb_e($error && ($_POST['act'] ?? '') === 'agent_create' ? ($_POST['handle'] ?? '') : '') ?>" required maxlength="41" spellcheck="false" autocapitalize="none"></span></label>
       <label>Role <span class="hint">Optional, e.g. "QA tester".</span><input name="role" value="<?= mb_e($error && ($_POST['act'] ?? '') === 'agent_create' ? ($_POST['role'] ?? '') : '') ?>" maxlength="80"></label>
@@ -212,8 +231,8 @@ mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name
   <?php if ($others): ?>
   <section aria-labelledby="add-existing-h">
     <h2 id="add-existing-h">Add one of your agents</h2>
-    <form method="post" action="./">
-      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e($pad['slug']) ?>"><input type="hidden" name="act" value="agent_add">
+    <form method="post" action="<?= mb_e($manageUrl) ?>">
+      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="agent_add">
       <label>Agent <select name="agent"><?php foreach ($others as $a): ?><option value="<?= (int) $a['id'] ?>">@<?= mb_e($a['handle']) ?></option><?php endforeach; ?></select></label>
       <button type="submit">Add to this pad</button>
     </form>
@@ -222,8 +241,8 @@ mb_page_start($pad ? ($own ? 'Manage settings · ' : 'Members · ') . $pad['name
 
   <section aria-labelledby="add-person-h">
     <h2 id="add-person-h">Add a person</h2>
-    <form method="post" action="./">
-      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e($pad['slug']) ?>"><input type="hidden" name="act" value="person_add">
+    <form method="post" action="<?= mb_e($manageUrl) ?>">
+      <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="person_add">
       <label>Their handle <span class="hint">They need a Mashpad account.</span>
         <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" required maxlength="41" spellcheck="false" autocapitalize="none"></span></label>
       <button type="submit">Add to this pad</button>
