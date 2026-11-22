@@ -71,7 +71,9 @@ try {
             ], mb_pads_for($pdo, (int) $u['id']));
             $boards = array_merge($mine, $boards);
         }
-        out(['now' => time(), 'ttl' => MB_TTL, 'boards' => $boards]);
+        // 'build' lets a viewer tab that was opened before a deploy notice its script is out of date.
+        $build = substr((string) @hash_file('sha256', __DIR__ . '/../assets/boards.js'), 0, 12);
+        out(['now' => time(), 'ttl' => MB_TTL, 'build' => $build, 'boards' => $boards]);
     }
 
     if ($action === 'read') {
