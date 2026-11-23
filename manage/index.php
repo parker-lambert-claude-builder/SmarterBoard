@@ -304,8 +304,14 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
             <?php if ($m['agent_role']): ?><span class="member-line muted"><?= mb_e($m['agent_role']) ?><?= $m['self_described'] ? ' (self-described)' : '' ?></span><?php endif; ?>
             <?php if ($m['kind'] === 'agent' && !empty($m['acts_for'])): ?><span class="member-line muted">Guest: says it acts for <?= mb_e($m['acts_for']) ?></span><?php endif; ?>
             <span class="member-line muted"><?= mb_e(ucfirst($via[$m['joined_via']] ?? $m['joined_via'])) ?>, <?= mb_e(gmdate('j M Y', strtotime($m['joined_at'] . ' UTC'))) ?><?= $m['kind'] === 'agent' ? ' · last active ' . mb_e($when($m['last_active_at'])) : '' ?></span>
-            <?php if ($m['kind'] === 'agent'): $lr = mb_last_read_line($m['last_read_at'] ? strtotime($m['last_read_at'] . ' UTC') : null, strtotime($m['joined_at'] . ' UTC'), mb_check_interval($pad)); ?>
+            <?php if ($m['kind'] === 'agent'): $lr = mb_last_read_line($m['last_read_at'] ? strtotime($m['last_read_at'] . ' UTC') : null, strtotime($m['joined_at'] . ' UTC'), mb_check_interval($pad), null, $m['checks'] ?? null); ?>
               <span class="member-line muted<?= $lr['overdue'] ? ' overdue' : '' ?>"><?= mb_e($lr['text']) ?></span>
+              <?php if (($m['checks'] ?? null) === 'sessions' && !empty($m['checks_note'])): ?><span class="member-line muted">It says: “<?= mb_e($m['checks_note']) ?>”</span><?php endif; ?>
+              <?php if (($lr['overdue'] || ($m['checks'] ?? null) === 'sessions') && ($own || $mine)): ?>
+                <div class="ask-schedule"><span class="member-line muted">Ask it to check on a schedule:</span>
+                  <code id="ask-<?= (int) $m['id'] ?>">Check “<?= mb_e(mb_pad_ref($pad)) ?>” every <?= mb_e(mb_interval_words(mb_check_interval($pad))) ?> with a scheduled task, and tell me when something new arrives.</code>
+                  <button type="button" class="quiet" data-copy="ask-<?= (int) $m['id'] ?>" data-copied="Copied. Paste it into your agent’s chat." hidden>Copy</button><p class="copy-status" role="status"></p></div>
+              <?php endif; ?>
             <?php endif; ?></div>
           <div class="member-actions"><?= $mine ? $button('agent_token', 'Issue a new token', ['agent' => $m['id']]) : '' ?><?= $m['role'] !== 'owner' && ($own || $mine) ? $button('member_remove', 'Remove @' . $m['handle'], ['member' => $m['id']], 'danger') : '' ?></div>
         </li>

@@ -759,6 +759,15 @@ test('a participant page says when an agent last read this pad, and marks it whe
   context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: member({ ts: 1700000000, text: 'Last read 2 days ago. Its check may have stopped.', overdue: true }) });
   await api.route();
   assert.match(element('main').innerHTML, /<span class="overdue">Last read 2 days ago\. Its check may have stopped\.<\/span>/);
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...member({ ts: 1700000000, text: 'Reads only when its person starts a session. Last read 5 days ago.', overdue: false }), checks: 'sessions', checks_note: 'searched <tools> for schedule, cron: none' } });
+  await api.route();
+  html = element('main').innerHTML;
+  assert.match(html, /Reads only when its person starts a session\. Last read 5 days ago\./);
+  assert.match(html, /It says: “searched &lt;tools&gt; for schedule, cron: none”/, 'what it said it looked for is shown, escaped');
+  assert.doesNotMatch(html, /class="overdue"/, 'and it is not marked late');
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...member({ ts: 1700000000, text: 'Last read 5 days ago. Its check may have stopped.', overdue: true }), checks: 'recurring', checks_note: null } });
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /It says:/, 'no note unless it said sessions');
   context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...member(null), kind: 'human', last_read: undefined } });
   await api.route();
   assert.doesNotMatch(element('main').innerHTML, /Reading this pad/, 'a person has no such line');
