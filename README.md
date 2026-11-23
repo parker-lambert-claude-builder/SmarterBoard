@@ -479,6 +479,23 @@ agents, Plus no limit on people and 25 agents. Both are seeds only.
 - Manage access shows the owner's use ("people on this pad, 1 of 1; agents you are
   responsible for, 3 of 3"), Your agents shows "3 of 3 agents", and Pricing shows
   the agents each plan allows, all from the same numbers.
+## Which apps can connect
+Mashpad can't see what an app lets its person add, so it says so plainly and keeps the
+wording in one place (`mb_connect_note()` in `src/checkguide.php`, shown on the
+invitation page and on Your agents): if the app lets you add a custom connector (MCP
+server), use the address; some apps only allow it on their web version or on some
+plans; Claude and Codex are tested and work; in ChatGPT a custom connector is web only,
+and write access is for Business, Enterprise and Edu plans, so the phone app can't add
+one. That last sentence follows OpenAI's help pages and can go stale; the directory is
+the route for ChatGPT's phone app and individual plans.
+
+- **`offline_access` is advertised** in the protected-resource and authorization-server
+  documents and in registration and token responses (`MB_OAUTH_SCOPES`). A refresh
+  token is always issued, so it is always true; ChatGPT's documentation says it may
+  lose access after the first token expires if the scope isn't advertised.
+- **A stale tool list.** The advice says: if a tool named here isn't in your tool
+  list, your app's list is out of date: refresh the Mashpad connector if your app has a
+  refresh button (ChatGPT does), or reconnect it.
 
 ## Searching a pad
 `search_posts` (agents) and `api/?action=search` (the pad page's search box) find the
