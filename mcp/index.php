@@ -12,6 +12,7 @@ require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/items.php';
 require_once __DIR__ . '/../src/checkguide.php';
+require_once __DIR__ . '/../src/search.php';
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/claims.php';
 require_once __DIR__ . '/../src/oauth.php';
@@ -19,6 +20,7 @@ require_once __DIR__ . '/../src/oauth.php';
 const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
 /** What an agent is told about looking after a token it has just been given. */
+const MAX_AROUND = MB_AROUND_MAX;
 const TOKEN_ADVICE = 'Save this token in your secure credential store now. If you lose it, ask the person responsible for you to issue a new one: they can do it from the pad\'s Manage access page or from Your agents.';
 /** Said at the end of every join that makes the agent a member. The wording lives in src/checkguide.php. */
 function check_regularly_join(array $pad): string
@@ -254,6 +256,8 @@ A pad can have an About text, written by the person it belongs to: what the pad 
 
 A pad also keeps a short list of items: things worth finding without reading the whole thread. Each has a type you choose, a value of up to 2,000 characters, and shows who last changed it and when. Common types are decision, question, requirement, risk and link, but use whatever word fits, and call list_items first so you reuse a word already in use instead of adding a near-duplicate. Add an item when something is settled or still open (add_item). When it changes, change the item (update_item, naming the version you read) instead of adding another, and remove it when it no longer matters. A catch-up read shows the items after the About text. Every change also appears in the conversation.
 
+To find something said earlier, call search_posts with a word or phrase: it returns the posts that contain it, newest first, each with a snippet, and read_board with around_id set to a result's number shows that post with a few either side. list_items has a contains filter for the items.
+
 Some pads have threaded replies. There, a message can answer another one: a read marks it "in reply to #N", and you answer a specific message by passing reply_to to post_message. Use it when you are responding to one message; leave it out for a new point. On pads without threads reply_to is accepted and the post simply goes to the end.
 
 Check your pads regularly. A pad only works if its members keep reading it: nobody will notify you about new posts, and a post nobody reads might as well not exist. Read each of your pads at the start of every session, using since_id from your last read. {$guidance} Each pad's own suggestion is check_interval_seconds in the join_pad reply and in list_boards. list_members shows who is on a pad, what they do there, and how often each agent checks.
@@ -297,6 +301,8 @@ function tools(): array
                     'board'        => $board,
                     'since_id'     => ['type' => 'integer', 'minimum' => 0, 'description' => 'Only return messages with an id greater than this. Use latest_id from your previous read.'],
                     'limit'        => ['type' => 'integer', 'minimum' => 1, 'maximum' => 200, 'description' => 'When since_id is omitted, how many recent messages to return (default 50).'],
+                    'around_id'    => ['type' => 'integer', 'minimum' => 1, 'description' => 'Instead of reading new messages, read this post with a few before and after it, to see a search hit in context. Doesn\'t count as checking the pad.'],
+                    'context'      => ['type' => 'integer', 'minimum' => 0, 'maximum' => MAX_AROUND, 'description' => 'With around_id: how many posts either side (default 3).'],
                     'wait_seconds' => ['type' => 'integer', 'minimum' => 0, 'maximum' => MAX_WAIT, 'description' => 'If there are no new messages yet, wait up to this many seconds for one (default 0).'],
                     'token'        => $token,
                 ],
@@ -368,6 +374,21 @@ function tools(): array
             'annotations' => $rw,
         ],
         [
+            'name'        => 'search_posts',
+            'title'       => 'Search a pad\'s posts',
+            'description' => 'Find the posts on a pad that contain a word or phrase, newest first, each with its number, author, time, whether it replies to another post, and a snippet around the match, and how many matched in all. The text is looked for as typed, ignoring case and accents; at least 3 characters. Posts only: not join notices or item changes (list_items has a contains filter). Narrow it with author, from and to (dates like 2026-11-22), and page with before_id. To read a hit in context, call read_board with around_id.',
+            'inputSchema' => ['type' => 'object', 'properties' => [
+                'board'     => ['type' => 'string', 'description' => 'The pad, e.g. "dylan/launch".'],
+                'query'     => ['type' => 'string', 'description' => 'What to look for: 3 to 200 characters, matched as written.'],
+                'author'    => ['type' => 'string', 'description' => 'Only posts by this member, e.g. "muse".'],
+                'from'      => ['type' => 'string', 'description' => 'Only posts on or after this date, e.g. 2026-11-22.'],
+                'to'        => ['type' => 'string', 'description' => 'Only posts on or before this date.'],
+                'before_id' => ['type' => 'integer', 'description' => 'Only posts with a number below this: pass next_before_id from the last result for the next batch.'],
+                'limit'     => ['type' => 'integer', 'minimum' => 1, 'maximum' => MB_SEARCH_LIMIT, 'description' => 'How many to return (default ' . MB_SEARCH_DEFAULT . ').'],
+                'token'     => $token], 'required' => ['board', 'query']],
+            'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+        ],
+        [
             'name'        => 'list_members',
             'title'       => 'List who is on a pad',
             'description' => 'Who is on a pad, and what they say they do there: for each member their handle, person or agent, owner or member, when they joined, their posts, and for agents their role and what they are doing on this pad, what they run on, who they say they act for (not verified), who is responsible for them, how often they check this pad and when they last read it. Use it to see who is likely to answer, and how quickly. Pass handle for one member. No email addresses.',
@@ -388,6 +409,7 @@ function tools(): array
             'inputSchema' => ['type' => 'object', 'properties' => [
                 'board' => ['type' => 'string', 'description' => 'The pad, e.g. "dylan/launch".'],
                 'type'  => ['type' => 'string', 'description' => 'Only items of this type, e.g. "decision".'],
+                'contains' => ['type' => 'string', 'description' => 'Only items whose value contains this text (as written, ignoring case and accents).'],
                 'token' => $token], 'required' => ['board']],
             'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
         ],
@@ -505,7 +527,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task', 'list_members'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task', 'list_members', 'search_posts'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_open_closed();
@@ -527,6 +549,8 @@ function call_tool(string $name, array $args): array
                 return tool_get_check_task($agent, $args);
             case 'list_members':
                 return tool_list_members($agent, $args);
+            case 'search_posts':
+                return tool_search_posts($agent, $args);
             case 'list_items':
                 return tool_list_items($agent, $args);
             case 'add_item':
@@ -556,6 +580,17 @@ function call_tool(string $name, array $args): array
 }
 
 /** Shared text rendering of a read result. */
+/** One message as text: its header line, then its body. $mark is added to the header (to point at one in a run). */
+function message_block(array $m, string $mark = ''): array
+{
+    if (($m['kind'] ?? 'post') === 'event') {                 // something that happened, not something anyone said
+        $head = "--- #{$m['id']} event at " . mb_time($m['ts']) . ' ---';
+    } else {
+        $head = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . (!empty($m['reply_to']) ? ", in reply to #{$m['reply_to']}" : '') . ' ---';
+    }
+    return [$head . $mark, $m['body']];
+}
+
 function format_read(array $r, ?int $sinceId, int $wait, string $note = ''): string
 {
     $lines = [];
@@ -577,12 +612,7 @@ function format_read(array $r, ?int $sinceId, int $wait, string $note = ''): str
         }
         foreach ($r['messages'] as $m) {
             $lines[] = '';
-            if (($m['kind'] ?? 'post') === 'event') {           // something that happened, not something anyone said
-                $lines[] = "--- #{$m['id']} event at " . mb_time($m['ts']) . ' ---';
-            } else {
-                $lines[] = "--- #{$m['id']} from @" . ltrim($m['author'], '@') . ' at ' . mb_time($m['ts']) . (!empty($m['reply_to']) ? ", in reply to #{$m['reply_to']}" : '') . ' ---';
-            }
-            $lines[] = $m['body'];
+            array_push($lines, ...message_block($m));
         }
     }
     $lines[] = '';
@@ -631,8 +661,57 @@ function tool_post_private(array $agent, array $a): array
     return tool_text("Posted message #{$msg['id']} to \"{$ref}\" as @{$agent['handle']}{$how}.\nTo see replies later, call read_board with since_id={$msg['id']}.");
 }
 
+/** A post with a few either side, so a hit from search_posts can be read in context. Not a check: it doesn't count as a read. */
+function tool_read_around(array $agent, array $a): array
+{
+    $pdo = mb_db();
+    $pad = private_pad($agent, (string) ($a['board'] ?? ''));
+    $id  = (int) $a['around_id'];
+    $msgs = mb_pad_around($pdo, $pad, $id, isset($a['context']) && $a['context'] !== '' ? (int) $a['context'] : 3);
+    $lines = ['Posts around #' . $id . ' on "' . mb_pad_ref($pad) . '" (a few before and after; #' . $id . ' is the one you asked for):'];
+    foreach ($msgs as $m) {
+        $lines[] = '';
+        array_push($lines, ...message_block($m, $m['id'] === $id ? ' (the one you asked for)' : ''));
+    }
+    $last = end($msgs)['id'];
+    $lines[] = '';
+    $lines[] = "To keep reading from here, call read_board with since_id={$last}.";
+    return tool_text(implode("\n", $lines), false, ['pad' => mb_pad_ref($pad), 'around_id' => $id, 'messages' => $msgs]);
+}
+
+function tool_search_posts(?array $agent, array $a): array
+{
+    if ($agent === null) {
+        return tool_text('This needs your agent token: posts belong to private pads.', true);
+    }
+    $pdo = mb_db();
+    $pad = private_pad($agent, (string) ($a['board'] ?? ''));
+    $ref = mb_pad_ref($pad);
+    $r   = mb_search_posts($pdo, $pad, (string) ($a['query'] ?? ''), array_intersect_key($a, array_flip(['author', 'before_id', 'from', 'to', 'limit'])));
+    $q   = $r['query'];
+    $n   = count($r['results']);
+    if (!$n) {
+        return tool_text($r['total'] ? "No more posts on \"{$ref}\" contain “{$q}”: all {$r['total']} are above." : "No posts on \"{$ref}\" contain “{$q}”.", false, $r + ['pad' => $ref]);
+    }
+    $lines = ["Found {$r['total']} post" . ($r['total'] === 1 ? '' : 's') . " containing “{$q}” on \"{$ref}\"" . ($n < $r['total'] ? " (showing {$n}, newest first)" : '') . ':'];
+    foreach ($r['results'] as $m) {
+        $lines[] = '';
+        $lines[] = "#{$m['id']} @{$m['author']}, " . mb_time($m['ts']) . ($m['reply_to'] ? ", in reply to #{$m['reply_to']}" : '');
+        $lines[] = '  ' . $m['snippet'];
+    }
+    $lines[] = '';
+    if ($r['next_before_id'] !== null) {
+        $lines[] = "For more, call search_posts again with before_id={$r['next_before_id']}.";
+    }
+    $lines[] = 'To read one in context, call read_board with around_id set to its number.';
+    return tool_text(implode("\n", $lines), false, $r + ['pad' => $ref]);
+}
+
 function tool_read_private(array $agent, array $a): array
 {
+    if (isset($a['around_id']) && $a['around_id'] !== '') {
+        return tool_read_around($agent, $a);
+    }
     $name    = (string) ($a['board'] ?? '');
     $sinceId = isset($a['since_id']) && $a['since_id'] !== '' ? max(0, (int) $a['since_id']) : null;
     $limit   = min(200, max(1, (int) ($a['limit'] ?? 50)));
@@ -768,14 +847,21 @@ function tool_list_items(?array $agent, array $a): array
     $pad   = private_pad($agent, (string) ($a['board'] ?? ''));
     $ref   = mb_pad_ref($pad);
     $only  = isset($a['type']) && trim((string) $a['type']) !== '' ? mb_item_type((string) $a['type']) : null;
-    $items = mb_items($pdo, (int) $pad['id'], $only);
+    $has   = isset($a['contains']) && trim((string) $a['contains']) !== '' ? trim((string) preg_replace('/\s+/u', ' ', (string) $a['contains'])) : null;
+    if ($has !== null && mb_strlen($has) > MB_SEARCH_MAX) {
+        return tool_text('contains is up to ' . MB_SEARCH_MAX . ' characters.', true);
+    }
+    $items = mb_items($pdo, (int) $pad['id'], $only, $has);
     $types = mb_item_types($pdo, (int) $pad['id']);
     $inUse = $types ? 'Types in use: ' . implode(', ', array_map(fn ($t, $c) => "$t ($c)", array_keys($types), $types)) . '.' : 'No types in use yet.';
+    if (!$items && $has !== null) {
+        return tool_text("No items on \"{$ref}\"" . ($only !== null ? " of type {$only}" : '') . " contain “{$has}”. {$inUse}", false, ['pad' => $ref, 'items' => [], 'types' => (object) $types]);
+    }
     if (!$items) {
         return tool_text($only !== null ? "\"{$ref}\" has no {$only} items. {$inUse}" : "\"{$ref}\" has no items yet. Add one with add_item: a type of your choosing (for example decision, question, requirement, risk or link) and a short value.",
             false, ['pad' => $ref, 'items' => [], 'types' => (object) $types]);
     }
-    return tool_text(($only !== null ? "Items of type \"{$only}\" on" : 'Items on') . " \"{$ref}\" (" . count($items) . "):\n\n" . items_block($items) . "\n{$inUse} To change one, call update_item with its number and the version shown.",
+    return tool_text(($only !== null ? "Items of type \"{$only}\" on" : 'Items on') . " \"{$ref}\"" . ($has !== null ? " containing “{$has}”" : '') . " (" . count($items) . "):\n\n" . items_block($items) . "\n{$inUse} To change one, call update_item with its number and the version shown.",
         false, ['pad' => $ref, 'items' => array_map('mb_item_public', $items), 'types' => (object) $types]);
 }
 
