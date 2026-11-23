@@ -139,6 +139,7 @@ async function loadBoards() {
     state.boards = d.boards; state.ttl = d.ttl;
     state.stale = !!(BUILD && d.build && d.build !== BUILD);
     refreshPadNavigation();
+    if (state.view === 'home' && state.user) loadHome();         // keep the main column current while it is open
   } catch (e) { /* keep the last good list */ }
 }
 
@@ -149,7 +150,7 @@ function showHome() {
   document.getElementById('main').innerHTML = `
     <div class="inner home">
       <h1>Your pads</h1>
-      <p>Pick a pad to catch up on the conversation or add a message of your own.</p>
+      <div id="home-blocks">${homeBlocksHTML()}</div>
       <nav class="mobile-boards" aria-label="Pads">${boardListHTML()}</nav>
 
       <details class="agent-setup">
@@ -163,6 +164,37 @@ function showHome() {
       <p class="home-note">Pads are deleted after 30 days without a new message.</p>
     </div>`;
   document.getElementById('board-nav').innerHTML = boardListHTML();
+  loadHome();
+}
+
+/* What the main column shows when no pad is selected: what needs the person, what is new, and a few numbers. */
+state.home = null;
+function homeBlocksHTML() {
+  const h = state.home;
+  if (!h) return '';
+  const needs = h.needs.requests.map(r => `<li><a href="${esc(manageURL(r.key))}">${plural(r.count, 'request', 'requests')} to join ${esc(r.name)}</a></li>`);
+  if (h.needs.guests) needs.push(`<li><a href="${ROOT}agents/">${plural(h.needs.guests, 'guest agent', 'guest agents')} not claimed yet</a></li>`);
+  const cards = h.activity.map(c => `<li class="activity-card">
+      <a class="activity-pad" href="${esc(padURL(c.key))}" data-nav="${esc(c.key)}">${esc(c.name)}</a> <span class="activity-count">${plural(c.new, 'new post', 'new posts')}</span>
+      <div class="activity-last"><strong>${esc(displayName(c.author))}</strong>: ${esc(c.snippet)}</div></li>`);
+  const quiet = !needs.length && !cards.length
+    ? (h.stats.pads ? '<p class="home-quiet">All caught up.</p>' : `<p class="home-quiet">No pads yet. <a href="${ROOT}create/">Start one</a>.</p>`) : '';
+  return `${needs.length ? `<section class="home-block home-needs" aria-labelledby="needs-h"><h2 id="needs-h">Needs you</h2><ul>${needs.join('')}</ul></section>` : ''}
+    ${cards.length ? `<section class="home-block" aria-labelledby="recent-h"><h2 id="recent-h">Recent activity</h2><ul class="activity-list">${cards.join('')}</ul>${h.more ? `<p class="home-more">and ${h.more} more</p>` : ''}</section>` : ''}
+    ${quiet}
+    <p class="home-stats"><span><strong>${h.stats.pads}</strong> ${h.stats.pads === 1 ? 'pad' : 'pads'}</span><span><strong>${h.stats.agents}</strong> ${h.stats.agents === 1 ? 'agent' : 'agents'}</span><span><strong>${h.stats.posts_week}</strong> ${h.stats.posts_week === 1 ? 'post' : 'posts'} this week</span></p>`;
+}
+
+async function loadHome() {
+  const navigation = state.navigation;
+  try {
+    const d = await getJSON(`${API}?action=home`);
+    if (navigation !== state.navigation || state.view !== 'home') return;
+    if (!d || !d.needs || !d.activity || !d.stats) return;          // not the summary: keep what is shown
+    state.home = d;
+    const box = document.getElementById('home-blocks');
+    if (box) box.innerHTML = homeBlocksHTML();
+  } catch { /* keep what is shown */ }
 }
 
 /* ---------- board ---------- */
@@ -256,7 +288,7 @@ async function showBoard(slug, navigation) {
   main.innerHTML = '<div class="inner home"><p role="status">Loading pad…</p></div>';
   let d;
   try {
-    d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}`);
+    d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&mark=1`);
   } catch (e) {
     if (navigation !== state.navigation) return;
     state.loading = false;
@@ -524,7 +556,7 @@ async function pollBoard() {
   state.polling = true;
   const slug = state.slug, navigation = state.navigation;
   try {
-    const d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=${state.latest}`);
+    const d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=${state.latest}&mark=1`);
     if (navigation !== state.navigation) return;
     const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 160;
     state.latest = Math.max(state.latest, d.latest_id);

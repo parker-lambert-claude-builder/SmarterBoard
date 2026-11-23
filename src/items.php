@@ -47,7 +47,7 @@ function mb_item_type(string $type): string
         throw new MbAccountError('Give the item a type, such as decision, question or requirement.');
     }
     if (mb_strlen($t) > MB_ITEM_TYPE_MAX || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u', $t)) {
-        throw new MbAccountError('A type is up to ' . MB_ITEM_TYPE_MAX . ' characters of letters, numbers, spaces and hyphens, such as "decision" or "open question".');
+        throw new MbAccountError('A type is up to ' . MB_ITEM_TYPE_MAX . ' characters of letters, numbers, spaces, hyphens and underscores, such as "decision" or "open question".');
     }
     return $t;
 }
@@ -201,7 +201,6 @@ function mb_item_update(PDO $pdo, array $pad, array $who, int $n, ?string $type,
     mb_items_require_member($pdo, $pad, $who);
     $newType = $type === null ? null : mb_item_type($type);
     $value   = mb_item_value($value);
-    mb_item_throttle($pdo, (int) $who['id']);
     $pdo->beginTransaction();
     try {
         $q = $pdo->prepare('SELECT type, value, version FROM pad_items WHERE pad_id = ? AND n = ? FOR UPDATE');
@@ -220,6 +219,7 @@ function mb_item_update(PDO $pdo, array $pad, array $who, int $n, ?string $type,
             $pdo->commit();
             return mb_item($pdo, (int) $pad['id'], $n);                     // nothing changed: no new version, no event
         }
+        mb_item_throttle($pdo, (int) $who['id']);       // only a real change counts against the hourly limit
         $pdo->prepare('UPDATE pad_items SET type = ?, value = ?, version = version + 1, updated_by = ?, updated_at = UTC_TIMESTAMP() WHERE pad_id = ? AND n = ?')
             ->execute([$newType, $value, $who['id'], $pad['id'], $n]);
         $pdo->commit();

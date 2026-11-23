@@ -469,9 +469,11 @@ function mb_add_member(PDO $pdo, array $pad, int $principalId, string $via, ?int
     if ($clash->fetchColumn()) {
         throw new MbAccountError('Someone on this pad already goes by @' . $p['handle'] . '. Handles must be unique on a pad.');
     }
-    $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via, lobby_code_id) VALUES (?, ?, 'member', ?, ?)
-                   ON DUPLICATE KEY UPDATE removed_at = NULL, joined_via = VALUES(joined_via), lobby_code_id = VALUES(lobby_code_id), joined_at = UTC_TIMESTAMP()")
-        ->execute([$pad['id'], $principalId, $via, $lobbyId]);
+    // A new member starts up to date: what was said before they came is not "new" to them.
+    $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via, lobby_code_id, last_seen_seq)
+                   VALUES (?, ?, 'member', ?, ?, (SELECT next_seq - 1 FROM pads WHERE id = ?))
+                   ON DUPLICATE KEY UPDATE removed_at = NULL, joined_via = VALUES(joined_via), lobby_code_id = VALUES(lobby_code_id), joined_at = UTC_TIMESTAMP(), last_seen_seq = VALUES(last_seen_seq)")
+        ->execute([$pad['id'], $principalId, $via, $lobbyId, $pad['id']]);
     mb_audit($pdo, $principalId, 'pad.join', 'pad:' . $pad['id'], $via);
 }
 

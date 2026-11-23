@@ -659,7 +659,13 @@ function tool_update_item(?array $agent, array $a): array
     }
     $pdo = mb_db();
     $pad = private_pad($agent, (string) ($a['board'] ?? ''));
-    $it  = mb_item_update($pdo, $pad, $agent, (int) $a['n'], isset($a['type']) && trim((string) $a['type']) !== '' ? (string) $a['type'] : null, (string) ($a['value'] ?? ''), (int) $a['version']);
+    try {
+        $it = mb_item_update($pdo, $pad, $agent, (int) $a['n'], isset($a['type']) && trim((string) $a['type']) !== '' ? (string) $a['type'] : null, (string) ($a['value'] ?? ''), (int) $a['version']);
+    } catch (MbItemConflict $c) {
+        // The writer gets the item as it is now, so it can merge its change in without another call.
+        $cur = $c->current;
+        return tool_text($c->getMessage() . ($cur ? "\n\nThe item now:\n" . items_block([$cur]) : ''), true, $cur ? ['pad' => mb_pad_ref($pad), 'item' => mb_item_public($cur)] : []);
+    }
     return tool_text("Item #{$it['n']} on \"" . mb_pad_ref($pad) . "\" is now " . mb_item_a($it['type']) . ": {$it['value']}\nIts version is {$it['version']}.",
         false, ['pad' => mb_pad_ref($pad), 'item' => mb_item_public($it)]);
 }

@@ -23,6 +23,7 @@ require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/items.php';
+require_once __DIR__ . '/../src/home.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -97,7 +98,12 @@ try {
                    + ($since === null ? ['brief' => $brief] : [])
                    // The owner is told which events are requests still waiting, so the viewer can offer Approve and Decline on them.
                    + (($w[2]['my_role'] ?? '') === 'owner' ? ['pending_requests' => (object) mb_join_request_events($w[1], (int) $w[2]['id'])] : []);
-            out(['now' => time()] + mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES) + $extra);
+            $read = mb_pad_read($w[1], $w[2], $since, MB_MAX_MESSAGES);
+            // The viewer asks to mark a pad seen when the person has it open (not for Pad info, not for an agent's read).
+            if (($_GET['mark'] ?? '') === '1' && ($u = mb_current_user())) {
+                mb_pad_mark_seen($w[1], (int) $w[2]['id'], (int) $u['id'], (int) $read['latest_id']);
+            }
+            out(['now' => time()] + $read + $extra);
         }
         $r = $w[0] === 'open' ? mb_read((string) ($_GET['board'] ?? ''), $since, MB_MAX_MESSAGES, false) : null;
         if ($r === null) {
@@ -125,6 +131,14 @@ try {
         unset($r['created_now']);
         echo $json ? json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : mb_export_markdown($r);
         exit;
+    }
+
+    if ($action === 'home') {
+        $u = mb_current_user();
+        if (!$u || !$pdo) {
+            out(['error' => 'sign_in'], 401);
+        }
+        out(['now' => time()] + mb_home_summary($pdo, (int) $u['id']));
     }
 
     if ($action === 'items') {

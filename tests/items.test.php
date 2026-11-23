@@ -110,6 +110,10 @@ check('removing one that is already gone says so', str_contains(err(fn () => mb_
 $pdo->exec("DELETE FROM audit_log WHERE action LIKE 'item.%'");
 for ($i = 0; $i < MB_ITEM_WRITES; $i++) { mb_audit($pdo, $museId, 'item.add', 'pad:' . $padId, 'x'); }
 check('thirty changes an hour is the limit for one person', str_contains(err(fn () => mb_item_add($pdo, $pad, $muse, 'decision', 'one too many')), 'Too many item changes: 30 an hour') && mb_item_add($pdo, $pad, $builder, 'decision', 'fine')['n'] > 0);
+$same = mb_item($pdo, $padId, $next['n']);
+check('at the limit a save that changes nothing is not refused, while a real change is', mb_item_update($pdo, $pad, $muse, $same['n'], null, $same['value'], $same['version'])['version'] === $same['version']
+      && str_contains(err(fn () => mb_item_update($pdo, $pad, $muse, $same['n'], null, 'a real change', $same['version'])), 'Too many item changes'));
+check('the type error names underscores as allowed', str_contains(err(fn () => mb_item_type('a/b')), 'hyphens and underscores'));
 $pdo->exec("DELETE FROM audit_log WHERE action LIKE 'item.%'");
 $count = (int) $pdo->query("SELECT COUNT(*) FROM pad_items WHERE pad_id = $padId")->fetchColumn();
 $ins = $pdo->prepare('INSERT INTO pad_items (pad_id, n, type, value, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)');
