@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/invites.php';
+require_once __DIR__ . '/../src/items.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -91,7 +92,8 @@ try {
         if ($w[0] === 'owned') {
             // Every read says which brief version is current; the text comes with a full load only.
             $brief = mb_brief($w[1], (int) $w[2]['id']);
-            $extra = ['brief_version' => $brief['version'] ?? 0, 'can_edit_about' => mb_can_edit_about($w[2], (array) mb_current_user())]
+            $extra = ['brief_version' => $brief['version'] ?? 0, 'can_edit_about' => mb_can_edit_about($w[2], (array) mb_current_user()),
+                      'items_stamp' => mb_items_stamp($w[1], (int) $w[2]['id'])]       // changes when any item does, so the viewer knows to reload them
                    + ($since === null ? ['brief' => $brief] : [])
                    // The owner is told which events are requests still waiting, so the viewer can offer Approve and Decline on them.
                    + (($w[2]['my_role'] ?? '') === 'owner' ? ['pending_requests' => (object) mb_join_request_events($w[1], (int) $w[2]['id'])] : []);
@@ -108,7 +110,8 @@ try {
     if ($action === 'export') {
         $w = which_pad((string) ($_GET['board'] ?? ''));
         $r = match ($w[0]) {
-            'owned' => mb_pad_read($w[1], $w[2], null, MB_MAX_MESSAGES) + ['brief' => mb_brief($w[1], (int) $w[2]['id'])],
+            'owned' => mb_pad_read($w[1], $w[2], null, MB_MAX_MESSAGES) + ['brief' => mb_brief($w[1], (int) $w[2]['id']),
+                       'items' => array_map('mb_item_public', mb_items($w[1], (int) $w[2]['id']))],
             'open'  => mb_read((string) ($_GET['board'] ?? ''), null, MB_MAX_MESSAGES, false),
             default => null,
         };
@@ -122,6 +125,51 @@ try {
         unset($r['created_now']);
         echo $json ? json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : mb_export_markdown($r);
         exit;
+    }
+
+    if ($action === 'items') {
+        $w = which_pad((string) ($_GET['board'] ?? ''));
+        if ($w[0] !== 'owned') {
+            out(['error' => 'not_found'], 404);       // open pads have no items; hidden pads look like no pad
+        }
+        [, $pdo, $pad] = $w;
+        $me = (array) mb_current_user();
+        out(['key' => mb_pad_ref($pad), 'stamp' => mb_items_stamp($pdo, (int) $pad['id']), 'types' => (object) mb_item_types($pdo, (int) $pad['id']),
+             'items' => array_map(fn ($it) => mb_item_public($it, $pad, $me), mb_items($pdo, (int) $pad['id']))]);
+    }
+
+    if ($action === 'item' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        // A member adds, changes or removes an item from the viewer.
+        if (!mb_same_origin() || stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== 0) {
+            out(['error' => 'Items must be changed from the Mashpad viewer.'], 403);       // checked first: a form post from another site gets nowhere
+        }
+        $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+        $w  = which_pad((string) ($in['board'] ?? ''));
+        if ($w[0] !== 'owned') {
+            out(['error' => 'not_found'], 404);
+        }
+        [, $pdo, $pad] = $w;
+        $me = (array) mb_current_user();
+        try {
+            switch ((string) ($in['op'] ?? '')) {
+                case 'add':
+                    $it = mb_item_add($pdo, $pad, $me, (string) ($in['type'] ?? ''), (string) ($in['value'] ?? ''));
+                    break;
+                case 'update':
+                    $it = mb_item_update($pdo, $pad, $me, (int) ($in['n'] ?? 0), isset($in['type']) && $in['type'] !== '' ? (string) $in['type'] : null, (string) ($in['value'] ?? ''), (int) ($in['version'] ?? 0));
+                    break;
+                case 'remove':
+                    mb_item_remove($pdo, $pad, $me, (int) ($in['n'] ?? 0));
+                    out(['ok' => true]);
+                default:
+                    out(['error' => 'Say what to do with the item: add, update or remove.'], 400);
+            }
+        } catch (MbItemConflict $c) {
+            out(['error' => 'conflict', 'message' => $c->getMessage(), 'item' => $c->current ? mb_item_public($c->current, $pad, $me) : null], 409);
+        } catch (MbAccountError $x) {
+            out(['error' => 'invalid', 'message' => $x->getMessage()], 400);
+        }
+        out(['ok' => true, 'item' => mb_item_public($it, $pad, $me)]);
     }
 
     if ($action === 'brief') {

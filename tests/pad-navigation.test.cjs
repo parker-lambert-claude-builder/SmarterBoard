@@ -33,7 +33,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief, renderItems, itemGroups, itemMeta};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -536,7 +536,7 @@ test('a private pad is addressed as pads/owner/name everywhere, never with ?b= o
     const html = list + element('main').innerHTML;
     assert.doesNotMatch(html, /\?b=|\.php/);
   }
-  assert.ok(requests.every(u => /\/api\/\?action=(read|brief)&board=alice%2Flaunch/.test(u)), requests.join(' '));
+  assert.ok(requests.every(u => /\/api\/\?action=(read|brief|items)&board=alice%2Flaunch/.test(u)), requests.join(' '));
 });
 
 test('a bare name that turns out to be a private pad settles on the pad\'s full address', async () => {
@@ -688,6 +688,34 @@ test('where two pads share a name the name carries a short owner label, and the 
   assert.doesNotMatch(html, /pad-address|>dylan\/launch<|>sam\/launch</);
   api.state.boards.splice(1, 2);
   assert.doesNotMatch(api.boardListHTML(), /owner-tag/, 'a name that is not shared carries no label');
+});
+
+test('the Items block groups items by type, shows who and when, and offers Remove only where it is allowed', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text.replace(/</g, '&lt;')}</p>`;
+  const items = [
+    { n: 1, type: 'decision', value: 'Free plan first <now>.', version: 1, added_by: 'muse', added_ts: 1700000000, updated_by: 'muse', updated_ts: 1700000000, can_remove: false },
+    { n: 2, type: 'question', value: 'Which date?', version: 3, added_by: 'builder', added_ts: 1700000000, updated_by: 'muse', updated_ts: 1700100000, can_remove: true },
+    { n: 3, type: 'decision', value: 'Launch on a Tuesday.', version: 1, added_by: 'dylan', added_ts: 1700000000, updated_by: 'dylan', updated_ts: 1700000000, can_remove: true },
+  ];
+  api.state.items = items; api.state.itemTypes = { decision: 2, question: 1 };
+  api.renderItems();
+  const html = element('items').innerHTML;
+  assert.match(html, /<span class="items-count">3 · decision 2 · question 1<\/span>/);
+  assert.equal((html.match(/<section class="item-group"/g) || []).length, 2, 'one group per type');
+  assert.match(html, /<h3>decision <span class="count">2<\/span><\/h3>/);
+  assert.ok(html.indexOf('Free plan first') < html.indexOf('Launch on a Tuesday') && html.indexOf('Launch on a Tuesday') < html.indexOf('Which date?'), 'items stay with their type, in order');
+  assert.match(html, /Free plan first &lt;now>\./, 'a value is escaped');
+  assert.match(html, /#1 · @muse · <time/);
+  assert.match(html, /#2 · @muse, added by @builder · <time/, 'who last changed it, and who added it when that differs');
+  assert.equal((html.match(/data-item-remove=/g) || []).length, 2, 'Remove only on the two that can be removed');
+  assert.equal((html.match(/data-item-edit=/g) || []).length, 3, 'any member can edit');
+  assert.match(html, /<datalist id="item-types"><option value="decision"><option value="question"><\/datalist>/, 'the types in use are offered');
+  assert.match(html, /<form class="item-add" id="item-add"/);
+  api.state.items = []; api.state.itemTypes = {};
+  api.renderItems();
+  assert.match(element('items').innerHTML, /<span class="items-count">none yet<\/span>/);
+  assert.equal(JSON.stringify(api.itemGroups([{ type: 'a' }, { type: 'b' }, { type: 'a' }]).map(g => [g.type, g.items.length])), '[["a",2],["b",1]]');
 });
 
 test('open pads show no private marker or members link', async () => {
