@@ -721,7 +721,7 @@ document.addEventListener('visibilitychange', () => {
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a><a href="${ROOT}agents/">Your agents</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
+    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a><a href="${ROOT}agents/">Your agents</a><a href="${ROOT}email/">Email settings</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
   }
   return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
 }

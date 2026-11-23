@@ -28,6 +28,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/pads.php';
+require_once __DIR__ . '/notify.php';
 
 const MB_INVITE_TOKEN_CHARS = 32;
 
@@ -127,6 +128,9 @@ function mb_invite_use(PDO $pdo, array $invite, array $pad, array $principal): s
         if ($q->rowCount()) {
             $seq = mb_pad_event($pdo, $pad, $id, mb_invite_who($principal) . ' asked to join through the invite link. The owner can approve or decline here, or on the pad\'s Manage access page.');
             $pdo->prepare('UPDATE pad_join_requests SET event_seq = ? WHERE pad_id = ? AND principal_id = ?')->execute([$seq, $pad['id'], $id]);   // so the owner can answer from that line
+            if (function_exists('mb_notify_join_request')) {
+                mb_notify_join_request($pdo, $pad, $principal);          // one email, for a new request only; never stops the request
+            }
             mb_audit($pdo, $id, 'invite.request', 'pad:' . $pad['id']);
         }
         return 'requested';

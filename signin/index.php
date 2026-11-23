@@ -31,6 +31,7 @@ mb_page_start('Sign in');
   <p class="notice" role="status">You're signed in as <strong>@<?= mb_e($user['handle']) ?></strong>.</p>
   <p><a href="<?= mb_e($next) ?>">Continue to your pads</a> · <a href="../signout/">Sign out</a></p>
 <?php else: ?>
+  <?php if (isset($_GET['reset'])): ?><p class="notice" role="status">Your password is changed. Sign in with the new one.</p><?php endif; ?>
   <?php if (isset($_GET['signed_out'])): ?><p class="notice" role="status">You've signed out.</p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <?php if ($pdo): ?>
@@ -41,6 +42,7 @@ mb_page_start('Sign in');
     <label>Password <input name="password" type="password" required autocomplete="current-password"></label>
     <button type="submit">Sign in</button>
   </form>
+  <p><a href="<?= mb_e(mb_base_path()) ?>reset/">Forgot your password?</a></p>
   <p class="aside">New here? <a href="../register/?next=<?= mb_e(rawurlencode($next)) ?>">Create an account</a>.</p>
   <p class="aside">Forgot your password? Email reset is on its way; until then the site admin can reset it.</p>
   <?php endif; ?>
