@@ -123,40 +123,46 @@ function mb_cimd_in_cidr(string $ip, string $cidr): bool
     return (ord($a[$whole]) & $mask) === (ord($b[$whole]) & $mask);
 }
 
-/** Whether an address a server may connect to: a public one. Anything internal, reserved or ambiguous is refused. */
+/**
+ * Whether an address a server may connect to: a public one. Anything internal, reserved or ambiguous is refused.
+ * An address that carries another inside it (IPv4-mapped, NAT64, 6to4) is judged by the address inside, and that
+ * comes first: PHP's own reserved-range filter refuses the whole of ::ffff:0:0/96, and which ranges it covers varies
+ * by PHP version, so Mashpad's own lists decide and PHP's filter is only a second opinion at the end.
+ */
 function mb_cimd_ip_ok(string $ip): bool
 {
-    if (!filter_var($ip, FILTER_VALIDATE_IP) || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
         return false;
     }
-    if (!str_contains($ip, ':')) {
+    if (str_contains($ip, ':')) {
+        $bin = inet_pton($ip);
+        if ($bin === false) {
+            return false;
+        }
+        if (substr($bin, 0, 12) === str_repeat("\0", 10) . "\xff\xff") {                // IPv4-mapped
+            return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 12)));
+        }
+        if (mb_cimd_in_cidr($ip, '64:ff9b::/96')) {                                     // NAT64
+            return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 12)));
+        }
+        if (mb_cimd_in_cidr($ip, '2002::/16')) {                                        // 6to4: the address is in bytes 2 to 5
+            return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 2, 4)));
+        }
+        foreach (['::/128', '::1/128', '64:ff9b:1::/48', '100::/64', '2001::/32', '2001:2::/48', '2001:10::/28', '2001:20::/28', '2001:db8::/32', '2620:4f:8000::/48', '3fff::/20',
+                  'fc00::/7', 'fe80::/10', 'fec0::/10', 'ff00::/8'] as $block) {
+            if (mb_cimd_in_cidr($ip, $block)) {
+                return false;
+            }
+        }
+    } else {
         foreach (['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24',
                   '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4'] as $block) {
             if (mb_cimd_in_cidr($ip, $block)) {
                 return false;
             }
         }
-        return true;
     }
-    $bin = inet_pton($ip);
-    if ($bin === false) {
-        return false;
-    }
-    if (substr($bin, 0, 12) === str_repeat("\0", 10) . "\xff\xff") {                    // IPv4-mapped: judge the address inside
-        return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 12)));
-    }
-    if (mb_cimd_in_cidr($ip, '64:ff9b::/96')) {                                          // NAT64: judge the address inside
-        return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 12)));
-    }
-    if (mb_cimd_in_cidr($ip, '2002::/16')) {                                             // 6to4: the address is in bytes 2 to 5
-        return mb_cimd_ip_ok((string) inet_ntop(substr($bin, 2, 4)));
-    }
-    foreach (['::/128', '::1/128', '100::/64', '2001::/32', '2001:db8::/32', '2001:10::/28', 'fc00::/7', 'fe80::/10', 'fec0::/10', 'ff00::/8'] as $block) {
-        if (mb_cimd_in_cidr($ip, $block)) {
-            return false;
-        }
-    }
-    return true;
+    return (bool) filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);       // PHP's own list, as a second opinion
 }
 
 /** The addresses a hostname resolves to. */

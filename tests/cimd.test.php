@@ -68,6 +68,8 @@ foreach (['127.0.0.1', '127.1.2.3', '10.0.0.1', '10.255.255.255', '172.16.0.1', 
     check("an internal or reserved address is refused: $priv", mb_cimd_ip_ok($priv) === false);
 }
 check('172.15 and 172.32 are public, 100.63 and 100.128 are public: the blocks are exact', mb_cimd_ip_ok('172.15.255.255') === true && mb_cimd_ip_ok('172.32.0.1') === true && mb_cimd_ip_ok('100.63.255.255') === true && mb_cimd_ip_ok('100.128.0.1') === true);
+foreach (['::ffff:93.184.216.34', '::ffff:8.8.8.8', '64:ff9b::5db8:d822', '2002:5db8:d822::1'] as $wrapped) { check("a public address inside another is allowed: $wrapped", mb_cimd_ip_ok($wrapped) === true); }
+foreach (['::ffff:192.168.1.1', '::ffff:172.16.0.1', '::ffff:100.64.0.1', '::ffff:0.0.0.0', '::ffff:224.0.0.1', '64:ff9b::a00:1', '64:ff9b::7f00:1', '64:ff9b::a9fe:a9fe', '2002:a00:1::1', '2002:a9fe:a9fe::1', '64:ff9b:1::1', '2001:2::1', '3fff::1', '2620:4f:8000::1'] as $wrapped) { check("an internal address inside another is refused: $wrapped", mb_cimd_ip_ok($wrapped) === false); }
 check('an IPv4-mapped public address is judged by the address inside', mb_cimd_ip_ok('::ffff:93.184.216.34') === true && mb_cimd_ip_ok('2002:5db8:d822::1') === true);
 
 // ---- the fetch: DNS first, every address checked, the connection pinned
