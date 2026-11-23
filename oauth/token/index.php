@@ -34,6 +34,8 @@ try {
     echo json_encode(mb_oauth_token($pdo, $in), JSON_UNESCAPED_SLASHES);
 } catch (MbOAuthError $e) {
     $fail($e->status, $e->error, $e->getMessage());
+} catch (MbCimdError $e) {
+    $e->transient ? $fail(503, 'temporarily_unavailable', $e->getMessage()) : $fail(401, 'invalid_client', $e->getMessage());
 } catch (Throwable $e) {
     $fail(500, 'server_error', 'The token request failed. Please try again.');
 }

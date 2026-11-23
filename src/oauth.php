@@ -22,6 +22,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/pads.php';
+require_once __DIR__ . '/cimd.php';
 
 const MB_OAUTH_PREFIX        = 'mp_o_';       // access tokens
 const MB_OAUTH_REFRESH       = 'mp_r_';       // refresh tokens
@@ -95,6 +96,7 @@ function mb_oauth_server_metadata(): array
         'authorization_endpoint'                         => $site . 'oauth/authorize/',
         'token_endpoint'                                 => $site . 'oauth/token/',
         'registration_endpoint'                          => $site . 'oauth/register/',
+        'client_id_metadata_document_supported'          => true,           // an app may use the https address of its metadata document as its client_id
         'response_types_supported'                       => ['code'],
         'response_modes_supported'                       => ['query'],
         'grant_types_supported'                          => ['authorization_code', 'refresh_token'],
@@ -170,6 +172,9 @@ function mb_oauth_register(PDO $pdo, array $in): array
 
 function mb_oauth_client(PDO $pdo, string $clientId): ?array
 {
+    if (mb_cimd_is_id($clientId)) {
+        return mb_cimd_client($pdo, $clientId);        // an app identified by a metadata document: fetched and kept; throws MbCimdError if it can't be used
+    }
     if ($clientId === '' || strlen($clientId) > 64) {
         return null;
     }
