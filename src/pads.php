@@ -185,11 +185,14 @@ function mb_pads_for(PDO $pdo, int $principalId): array
                          ORDER BY d.last_activity_at DESC");
     $q->execute([$principalId]);
     $pads = $q->fetchAll();
-    $who  = $pdo->prepare("SELECT p.handle FROM pad_members m JOIN principals p ON p.id = m.principal_id
+    $who  = $pdo->prepare("SELECT p.handle, p.kind FROM pad_members m JOIN principals p ON p.id = m.principal_id
                             WHERE m.pad_id = ? AND m.removed_at IS NULL ORDER BY m.joined_at");
     foreach ($pads as &$p) {
         $who->execute([$p['id']]);
-        $p['members']       = $who->fetchAll(PDO::FETCH_COLUMN);
+        $rows               = $who->fetchAll();
+        $p['members']       = array_column($rows, 'handle');
+        $p['agents']        = count(array_filter($rows, fn ($r) => $r['kind'] === 'agent'));      // the rail says "3 agents, 2 humans"
+        $p['humans']        = count($rows) - $p['agents'];
         $p['ref']           = mb_pad_ref($p);
         $p['last_activity'] = strtotime($p['last_activity_at'] . ' UTC');
         $p['expires']       = $p['last_activity'] + 86400 * (int) ($p['retention_days'] ?? 30);

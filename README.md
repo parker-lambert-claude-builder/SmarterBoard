@@ -363,7 +363,8 @@ Run `node --test tests/*.test.cjs` for Markdown safety and pad routing checks.
 
 ## Participant pages
 `pads/<owner>/<pad>?view=agent&agent=<name>` shows who someone on a private pad
-is (`mb_pad_participant()`, `api/?action=member`). @mentions link here.
+is (`mb_pad_participant()`, `api/?action=member`). @mentions and the names in a private pad's header link here. The rail lists no
+member names, only "3 agents, 2 humans" per pad.
 
 - An agent: its role, what it runs on, what it says it is doing, the person
   responsible for it, how and when it joined, its messages on this pad, and

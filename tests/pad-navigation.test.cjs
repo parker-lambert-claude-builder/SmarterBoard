@@ -33,7 +33,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -269,15 +269,26 @@ test('viewer links use the clean pads/ address from any page depth', async () =>
   assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/\?b=launch-review"/);
 });
 
-test('participant links are independent, encoded, and show a single @ prefix', async () => {
+test('a pad in the rail is three lines (name, messages and activity, who is on it) and never lists its members', async () => {
   const { api } = await app();
-  api.state.boards = [{ slug: 'launch-review', name: 'Launch', total: 2, last_activity: 0, authors: ['muse', '@tester', '<img " &'] }];
+  api.state.boards = [{ slug: 'launch-review', key: 'dylan/launch-review', name: 'Launch', total: 2, last_activity: 0, private: true, agents: 3, humans: 2,
+    authors: ['muse', '@tester', '<img " &'], created_by: 'muse' }];
   const html = api.boardListHTML();
-  assert.match(html, /<\/a>\s*<div class="who-list">/);
-  assert.match(html, /view=agent&amp;agent=muse[^>]*>@muse<\/a>/);
-  assert.match(html, /agent=%40tester[^>]*>@tester<\/a>/);
-  assert.doesNotMatch(html, /@@tester|<img/);
-  assert.match(html, /@&lt;img &quot; &amp;/);
+  assert.match(html, /<div class="name">Launch<\/div>\s*<div class="meta">2 messages, [^<]*<\/div>\s*<div class="who">3 agents, 2 humans<\/div>/);
+  assert.doesNotMatch(html, /agent-link|who-list|pad-address|created by|@muse|@tester|<img/, 'no handles, no address, no creator in the rail');
+  assert.doesNotMatch(html, /dylan\/launch-review</, 'the address is never shown as text');
+});
+
+test('the membership line reads naturally for one, none and older open pads', async () => {
+  const { api } = await app();
+  const line = b => { api.state.boards = [{ slug: 'p', key: 'o/p', name: 'P', total: 1, last_activity: 0, authors: [], ...b }]; return /class="who">([^<]*)</.exec(api.boardListHTML())[1]; };
+  assert.equal(line({ private: true, agents: 1, humans: 1 }), '1 agent, 1 human');
+  assert.equal(line({ private: true, agents: 0, humans: 2 }), '2 humans');
+  assert.equal(line({ private: true, agents: 4, humans: 0 }), '4 agents');
+  assert.equal(line({ private: true, agents: 0, humans: 0 }), 'No one yet');
+  assert.equal(line({ authors: ['a', 'b'] }), '2 participants');
+  assert.equal(line({ authors: ['a'] }), '1 participant');
+  assert.equal(line({ authors: [] }), 'No one yet');
 });
 
 test('a participant page shows real details for an agent on a private pad, with nothing made up', async () => {
@@ -376,8 +387,16 @@ test('signed in: account shown, composer name fixed to the handle, handle escape
   const { api, context, element } = await app();
   context.fetch = async url => /action=me/.test(url) ? reply({ signed_in: true, handle: 'dy<lan', display_name: 'Dylan' }) : reply(pad());
   await api.loadMe();
-  assert.match(api.accountHTML(), /Signed in as <strong>@dy&lt;lan<\/strong>/);
-  assert.match(api.accountHTML(), /signout\//);
+  const acct = api.accountHTML();
+  assert.match(acct, /<strong class="acct-handle">@dy&lt;lan<\/strong>/);
+  assert.doesNotMatch(acct, /Signed in as/, 'a person who sees their own handle knows they are signed in');
+  assert.match(acct, /<a class="acct-out" href="[^"]*signout\/">Sign out<\/a>/);
+  assert.match(acct, /<a class="new-pad-button" href="[^"]*create\/">New pad<\/a>/);
+  assert.match(acct, /<p class="acct-links"><a [^>]*>Your agents<\/a><a [^>]*>Email settings<\/a><\/p>/, 'one quiet row of account links');
+  assert.doesNotMatch(acct, />Admin</);
+  context.fetch = async url => /action=me/.test(url) ? reply({ signed_in: true, handle: 'dylan', display_name: 'Dylan', is_admin: true }) : reply(pad());
+  await api.loadMe();
+  assert.match(api.accountHTML(), /<a [^>]*admin\/">Admin<\/a><\/p>/, 'Admin joins the same row for an administrator');
   context.location.search = '?b=launch-review';
   await api.route();
   assert.doesNotMatch(element('main').innerHTML, /Reply as|reply-(top|bottom)-author/, 'signed in, a reply needs no name field');
@@ -439,7 +458,7 @@ test('the pad list no longer marks pads Private; mentions of people on the pad l
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true }];
   assert.doesNotMatch(api.boardListHTML(), /pad-private|Private/);
-  assert.match(api.boardListHTML(), /<span class="pad-address">dylan\/dev<\/span>/);
+  assert.doesNotMatch(api.boardListHTML(), /pad-address|>dylan\/dev</);
   const seen = [];
   context.renderMessage = (text, opts) => { seen.push(['muse', 'Reviewer', 'stranger'].map(h => opts.mention(h))); return ''; };
   context.fetch = async () => reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, members: ['dylan', 'muse', 'reviewer'],
@@ -485,12 +504,13 @@ test('pad settings offer Markdown and JSON export of the whole pad', async () =>
   assert.match(html, /action=export&amp;board=launch-review&amp;format=json" download>Download JSON/);
 });
 
-test('private pads show their address, credit an agent creator, and link to member management', async () => {
+test('a private pad\'s rail entry hides its address and creator, and Pad info links to member management', async () => {
   const { api, context, element } = await app();
-  api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], private: true, created_by: 'muse' }];
+  api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 2, last_activity: 0, authors: ['dylan', 'muse'], agents: 1, humans: 1, private: true, created_by: 'muse' }];
   const html = api.boardListHTML();
-  assert.match(html, /<div class="meta"><span class="pad-address">dylan\/dev<\/span> · 2 messages/);
-  assert.match(html, /created by @muse/);
+  assert.match(html, /<div class="meta">2 messages, /);
+  assert.match(html, /<div class="who">1 agent, 1 human<\/div>/);
+  assert.doesNotMatch(html, /created by|pad-address/);
   context.fetch = async () => reply({ ...pad(), slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', owned: true, is_owner: true });
   context.location.pathname = '/mashpad/pads/dylan/dev';
   await api.route();
@@ -507,7 +527,6 @@ test('a private pad is addressed as pads/owner/name everywhere, never with ?b= o
   const list = api.boardListHTML();
   assert.match(list, /class="board-link" href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch" data-nav="alice\/launch"/);
   assert.match(list, /href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch\?view=settings"/);
-  assert.match(list, /href="https:\/\/example\.test\/mashpad\/pads\/alice\/launch\?view=agent&amp;agent=alice"/);
   const requests = [];
   context.fetch = async url => { requests.push(url); return reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, is_owner: false }); };
   context.location.pathname = '/mashpad/pads/Alice/Launch/';
@@ -517,7 +536,7 @@ test('a private pad is addressed as pads/owner/name everywhere, never with ?b= o
     const html = list + element('main').innerHTML;
     assert.doesNotMatch(html, /\?b=|\.php/);
   }
-  assert.ok(requests.every(u => /\/api\/\?action=read&board=alice%2Flaunch/.test(u)), requests.join(' '));
+  assert.ok(requests.every(u => /\/api\/\?action=(read|brief)&board=alice%2Flaunch/.test(u)), requests.join(' '));
 });
 
 test('a bare name that turns out to be a private pad settles on the pad\'s full address', async () => {
@@ -600,6 +619,58 @@ test('with nothing written, only the pad\'s creator is invited to write About th
   await api.route();
   assert.equal(element('brief').innerHTML, '');
   assert.equal(element('brief').hidden, true);
+});
+
+test('Pad info shows the About text with the same editor as the header: the owner can edit, a member cannot', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text.replace(/</g, '&lt;')}</p>`;
+  const about = { version: 3, body: 'For <launch> planning.', author: 'dylan', author_kind: 'human', ts: 1700000000 };
+  const serve = (can, brief) => async url => /action=brief/.test(url) ? reply({ brief }) : reply({ ...pad('Launch'), slug: 'launch', key: 'alice/launch', owner: 'alice', owned: true, is_owner: can, brief_version: brief ? 3 : 0, can_edit_about: can });
+  context.location.pathname = '/mashpad/pads/alice/launch'; context.location.search = '?view=settings';
+  context.fetch = serve(true, about);
+  await api.route();
+  const main = element('main').innerHTML;
+  assert.ok(main.indexOf('id="brief"') > 0 && main.indexOf('id="brief"') < main.indexOf('id="settings-details"'), 'About comes before the details');
+  assert.match(main, /id="settings-details">Details</, 'the old details section no longer shares the About heading');
+  assert.doesNotMatch(main, /id="settings-details">About this pad</);
+  const box = element('brief').innerHTML;
+  assert.match(box, /id="brief-h">About this pad</);
+  assert.match(box, /<p>For &lt;launch> planning\.<\/p>/);
+  assert.match(box, /data-brief="edit">Edit<\/button><button type="button" class="quiet" data-brief="history">Earlier versions</);
+  api.renderBrief('edit');
+  assert.match(element('brief').innerHTML, /<form class="brief-form" id="brief-form"[\s\S]*maxlength="16000"/, 'the very same editor as above the conversation');
+  context.fetch = serve(false, about);
+  await api.route();
+  assert.doesNotMatch(element('brief').innerHTML, /data-brief="edit"|data-brief="history"/, 'a member reads it without Edit');
+  context.fetch = serve(false, null);
+  await api.route();
+  assert.equal(element('brief').hidden, false);
+  assert.match(element('brief').innerHTML, /The pad’s owner hasn’t written one yet\./);
+  context.fetch = serve(true, null);
+  await api.route();
+  assert.match(element('brief').innerHTML, /data-brief="edit">Write it</);
+});
+
+test('on a private pad the names in the header open each participant\'s page; on an open pad they are plain text', async () => {
+  const { api, context, element } = await app();
+  context.renderMessage = text => `<p>${text}</p>`;
+  api.state.boards = [{ slug: 'dev', key: 'dylan/dev', owner: 'dylan', name: 'Dev', total: 1, last_activity: 0, authors: ['dylan', 'muse', '<b>'], private: true, agents: 1, humans: 1 }];
+  context.fetch = async () => reply({ ...pad('Dev'), slug: 'dev', key: 'dylan/dev', owner: 'dylan', owned: true, members: ['dylan', 'muse'], total: 1, latest_id: 1,
+    messages: [{ id: 1, author: 'dylan', body: 'hi', ts: 1700000000 }] });
+  context.location.pathname = '/mashpad/pads/dylan/dev';
+  const transcript = element('transcript'); transcript.querySelector = () => null; transcript.lastElementChild = null;
+  context.document.createElement = () => ({ dataset: {}, style: { setProperty() {} }, insertAdjacentHTML() {} });
+  transcript.appendChild = node => { transcript.lastElementChild = node; };
+  await api.route();
+  const head = element('main').innerHTML;
+  assert.match(head, /<a class="author-link" href="[^"]*pads\/dylan\/dev\?view=agent&amp;agent=muse" data-nav="dylan\/dev"[^>]*>@muse<\/a>/);
+  assert.match(head, /agent=dylan"[^>]*>@dylan<\/a>/);
+  assert.doesNotMatch(head, /<b>/, 'a handle is escaped');
+  api.state.boards = [{ slug: 'old', name: 'Old', total: 1, last_activity: 0, authors: ['a'] }];
+  context.fetch = async () => reply({ ...pad('Old'), slug: 'old', total: 1, latest_id: 1, messages: [{ id: 1, author: 'a', body: 'hi', ts: 1700000000 }] });
+  context.location.pathname = '/mashpad/pads/'; context.location.search = '?b=old';
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /author-link/);
 });
 
 test('open pads show no private marker or members link', async () => {

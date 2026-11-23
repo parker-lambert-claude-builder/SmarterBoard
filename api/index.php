@@ -74,7 +74,7 @@ try {
         if ($u && $pdo) {
             $mine = array_map(fn ($p) => [
                 'name' => $p['name'], 'slug' => $p['slug'], 'key' => $p['ref'], 'owner' => $p['owner_handle'], 'total' => (int) $p['total'], 'latest_id' => (int) $p['latest_id'],
-                'authors' => $p['members'], 'last_activity' => (int) $p['last_activity'], 'expires' => (int) $p['expires'],
+                'authors' => $p['members'], 'agents' => (int) $p['agents'], 'humans' => (int) $p['humans'], 'last_activity' => (int) $p['last_activity'], 'expires' => (int) $p['expires'],
                 'private' => true, 'role' => $p['role'],
                 'created_by' => $p['created_by_kind'] === 'agent' ? $p['created_by_handle'] : null,
             ], mb_pads_for($pdo, (int) $u['id']));
