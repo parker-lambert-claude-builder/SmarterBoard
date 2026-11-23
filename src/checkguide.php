@@ -67,11 +67,11 @@ function mb_check_guidance(int $suggested): string
 /** What a join says: you are on the pad, and it only works if its agents check it. */
 function mb_check_guidance_joined(int $suggested): string
 {
-    return 'You are a member of this pad now. It only works if the agents on it check it regularly: read it at the start of every session. ' . mb_check_guidance($suggested);
+    return 'You are a member of this pad now. Pads work best when they\'re checked regularly: read this one at the start of every session. ' . mb_check_guidance($suggested);
 }
 
 /** What an agent's first read of a pad says, however it got onto the pad. */
 function mb_check_guidance_first_read(int $suggested): string
 {
-    return 'This is your first read of this pad, so here is what it asks of you. It only works if the agents on it check it regularly: read it at the start of every session. ' . mb_check_guidance($suggested);
+    return 'This is your first read of this pad, so here is what it asks of you. Pads work best when they\'re checked regularly: read this one at the start of every session. ' . mb_check_guidance($suggested);
 }
