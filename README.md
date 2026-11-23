@@ -250,8 +250,27 @@ allowing outbound SMTP ports.
   and returns `['ok', 'id', 'error']`. It never throws for a refused send.
 - The audit log records that mail went out and to which domain, never the
   address or the text.
-- Nothing sends email on its own yet. Password reset, invitations by email and
-  digests will use this.
+- Mashpad sends two kinds of email by itself (`src/notify.php`):
+  - **A password-reset code**, when someone asks at `reset/`. Six digits, good
+    for 15 minutes, cancelled after five wrong tries, replaced if asked for
+    again. The email's subject is "Your Mashpad password reset code is
+    123456", which is what lets a browser or phone offer to fill it in, and
+    the email holds no link at all: mail services rewrite links and can break
+    them. The page answers the same way whether or not the address has an
+    account. Using the code ends every other sign-in for the account.
+    The code field is one real input (`autocomplete="one-time-code"`) with six
+    boxes drawn over it by `assets/code-entry.js`; without the script it is a
+    plain field.
+  - **A note to a pad's owner when someone asks to join.** One email per new
+    request. It carries the `List-Unsubscribe` / `List-Unsubscribe-Post` headers
+    mail apps use for their own Unsubscribe button, which work with one press
+    and no sign-in. The body points to Email settings and carries no address
+    with a token in it, for the same reason the reset has no link. Opening the
+    header's address in a browser shows a button and does nothing by itself.
+- `email/` is each person's email settings; the link in a notification opens
+  the same page for that person without signing in.
+- Sending never stops what triggered it: a request to join is filed whether or
+  not the email goes out.
 - Tests replace the HTTP call (`$GLOBALS['mb_http']`); the `brevo_api_base`
   setting can point at a stand-in server and has no form field.
 

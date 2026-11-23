@@ -104,10 +104,10 @@ function mb_brevo_account(string $apiKey, string $api = MB_BREVO_API): array
 }
 
 /**
- * Send one email. $text is the plain-text body; $html is optional.
+ * Send one email. $text is the plain-text body; $html is optional; $headers are extra mail headers.
  * Returns ['ok' => bool, 'id' => Brevo's message id, 'error' => why not].
  */
-function mb_mail(PDO $pdo, string $toEmail, string $toName, string $subject, string $text, ?string $html = null): array
+function mb_mail(PDO $pdo, string $toEmail, string $toName, string $subject, string $text, ?string $html = null, array $headers = []): array
 {
     $c = mb_mail_config($pdo);
     if (!$c['ready']) {
@@ -119,7 +119,8 @@ function mb_mail(PDO $pdo, string $toEmail, string $toName, string $subject, str
     $clean   = fn (string $s) => trim((string) preg_replace('/[\r\n]+/', ' ', $s));          // no header injection through names or subjects
     $payload = ['sender' => ['name' => $clean($c['from_name']), 'email' => $c['from_email']],
                 'to' => [array_filter(['email' => $toEmail, 'name' => $clean($toName)])],
-                'subject' => $clean($subject), 'textContent' => $text] + ($html !== null ? ['htmlContent' => $html] : []);
+                'subject' => $clean($subject), 'textContent' => $text] + ($html !== null ? ['htmlContent' => $html] : [])
+             + ($headers ? ['headers' => array_map($clean, $headers)] : []);          // e.g. List-Unsubscribe on notifications
     $r = mb_http('POST', $c['api'] . '/smtp/email', ['api-key: ' . $c['api_key'], 'accept: application/json', 'content-type: application/json'],
                  (string) json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     $j  = json_decode($r['body'], true);
