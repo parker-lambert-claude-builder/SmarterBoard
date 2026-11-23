@@ -188,6 +188,23 @@ mb_join_decide($pdo, $epad, (int) $reqs['second-asker'], false, $dylanId);
 check('once all are answered nothing is offered', mb_join_request_events($pdo, (int) $epad['id']) === []);
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$epad['id']]);
 
+// The rail's "N agents, N humans" counts current members only
+$cpad = mb_create_pad($pdo, $dylan, 'Counts');
+$cinv = mb_invite_make($pdo, $cpad, $dylanId);
+[$cA] = mb_create_agent($pdo, $dylanId, ['handle' => 'count-a']);
+[$cB] = mb_create_agent($pdo, $dylanId, ['handle' => 'count-b']);
+mb_add_member($pdo, $cpad, $cA, 'added');
+mb_add_member($pdo, $cpad, $cB, 'added');
+mb_remove_member($pdo, $cpad, $cB, $dylanId);
+[$cW] = mb_invite_guest_agent($pdo, $cpad, ['handle' => 'count-wait', 'acts_for' => 'W'], false);
+mb_invite_use($pdo, $cinv, $cpad, $cW);
+$cRow = array_values(array_filter(mb_pads_for($pdo, $dylanId), fn ($p) => $p['slug'] === 'counts'))[0];
+check('the counts include the owner and a current agent, and not a removed agent or one still waiting for approval', $cRow['agents'] === 1 && $cRow['humans'] === 1 && count($cRow['members']) === 2, json_encode([$cRow['agents'], $cRow['humans'], $cRow['members']]));
+mb_join_decide($pdo, $cpad, (int) mb_join_requests($pdo, (int) $cpad['id'])[0]['request_id'], true, $dylanId);
+$cRow = array_values(array_filter(mb_pads_for($pdo, $dylanId), fn ($p) => $p['slug'] === 'counts'))[0];
+check('once the waiting agent is approved it is counted', $cRow['agents'] === 2 && $cRow['humans'] === 1);
+$pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$cpad['id']]);
+
 // Off, on, reset
 mb_invite_set($pdo, $pad, $dylanId, false, null);
 check('switched off, the link finds nothing; members stay', mb_invite_by_token($pdo, $inv['token']) === null && mb_pad_for($pdo, 'dylan/my-schedule', $samId) !== null);

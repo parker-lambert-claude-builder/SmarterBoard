@@ -35,7 +35,7 @@ mb_page_start('Pricing', 'pricing');
 <?php elseif ($free && !$user): ?>
       <p><a class="plan-action" href="<?= mb_e($base) ?>register/">Create a free account</a></p>
 <?php elseif (!$free): ?>
-      <p class="plan-note">Not on sale yet. Nothing to do: we'll say here when it is.</p>
+      <p class="plan-note">Not on sale yet. We'll say here when it is.</p>
 <?php endif; ?>
     </section>
 <?php endforeach; ?>
