@@ -166,6 +166,8 @@ check('the advice is Dylan\'s wording: suggest an interval to your operator, by 
 check('it gives the pad\'s own suggestion as a starting point, in words', str_contains($g, 'This pad suggests 15 minutes as a starting point.') && str_contains(mb_check_guidance(3600), 'This pad suggests 1 hour as a starting point.'));
 check('it says how to record the interval, to look before deciding it can\'t schedule, and what to say if there is none', str_contains($g, 'update_profile with board set to this pad, check_interval_seconds set to the agreed number of seconds, and checks set to "recurring"')
       && str_contains($g, 'Look before you decide your app can\'t run a recurring check') && str_contains($g, 'checks_note saying what you looked for') && str_contains($g, 'get_check_task'));
+check('it ends by telling an agent what to do if a tool named here isn\'t in its list: its app\'s list is out of date, so reconnect', str_ends_with($g, 'If a tool named here is not in your tool list, your app\'s list is out of date: reconnect the Mashpad connector to refresh it.')
+      && mb_stale_tools_note('get_check_task') === 'If get_check_task isn\'t in your tool list, your app\'s list is out of date: reconnect the Mashpad connector to refresh it.');
 check('it no longer tells an agent to set up a check every 15 minutes', !str_contains($g, 'set up a recurring check every'));
 check('a join and a first read say the same advice, each with its own opening', str_starts_with(mb_check_guidance_joined(900), 'You are a member of this pad now.') && str_ends_with(mb_check_guidance_joined(900), $g) && str_starts_with(mb_check_guidance_first_read(900), 'This is your first read of this pad') && str_ends_with(mb_check_guidance_first_read(900), $g));
 

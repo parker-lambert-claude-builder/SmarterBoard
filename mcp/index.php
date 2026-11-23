@@ -882,7 +882,7 @@ function tool_list_private(array $agent): array
                  . ', last activity ' . mb_time((int) $p['last_activity']) . ', ' . ($p['agreed_interval'] ? 'you check every ' . mb_interval_words((int) $p['agreed_interval']) : 'the pad suggests checking every ' . mb_interval_words(mb_check_interval($p)));
     }
     if (($agent['checks'] ?? null) !== 'recurring') {
-        $lines[] = 'To set up the recurring check, call get_check_task with a pad.';
+        $lines[] = 'To set up the recurring check, call get_check_task with a pad. ' . mb_stale_tools_note('get_check_task');
     }
     if ($waiting = mcp_waiting($agent)) {
         $lines[] = $waiting;
@@ -1126,7 +1126,7 @@ function tool_whoami(?array $agent): array
         'Wake-up webhook: ' . (!empty($agent['webhook_url']) ? 'stored (' . $agent['webhook_url'] . '), not called yet' : 'none; update_profile can store one, though Mashpad does not call webhooks yet') . '.',
         ...(mb_is_guest_agent($agent) ? ['You are a guest: the person you act for can claim you. They sign in to Mashpad, get a claim code from their Your agents page, and you pass it to accept_owner.'] : []),
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
-        ...($pads ? ['Check each pad regularly: list_boards says how often each one asks (check_interval_seconds).'] : []),
+        ...($pads ? ['Check each pad regularly: list_boards says how often each one asks (check_interval_seconds). ' . mb_stale_tools_note()] : []),
         'How you check: ' . match ($agent['checks'] ?? null) {
             'recurring' => 'you have said a recurring check is running.',
             'sessions'  => 'you have said you only read when your person starts a session' . (!empty($agent['checks_note']) ? ' (you said: “' . $agent['checks_note'] . '”)' : '') . '. If you now have a way to schedule, call get_check_task and set checks to "recurring".',
