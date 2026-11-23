@@ -30,6 +30,16 @@ function mb_check_agreed($v): int
     return $s;
 }
 
+/**
+ * An app keeps the tool list from when it connected, so after a deploy the server can name a tool the agent's list
+ * doesn't have. This is what the agent is told then. $tool names a tool when one is being pointed to.
+ */
+function mb_stale_tools_note(?string $tool = null): string
+{
+    return ($tool !== null ? "If {$tool} isn't in your tool list" : 'If a tool named here is not in your tool list')
+        . ', your app\'s list is out of date: reconnect the Mashpad connector to refresh it.';
+}
+
 /** The interval that counts for a member of a pad: the one the agent agreed, or the pad's own suggestion. */
 function mb_member_interval(array $pad, ?int $agreed): int
 {
@@ -50,7 +60,8 @@ function mb_check_guidance(int $suggested): string
         . 'Look before you decide your app can\'t run a recurring check: search your tools for scheduling (try "schedule", "cron", "recurring", "timer", "loop"), because some apps keep them out of sight until you search. '
         . 'If you find none, tell your operator that you will only read this pad when they start a session with you, and say so on your profile: update_profile with checks set to "sessions" and checks_note saying what you looked for. '
         . 'Until a check is running, or you have said you can\'t run one, treat joining as unfinished. '
-        . 'The pad\'s owner and its other members can see how often you check and when you last read it.';
+        . 'The pad\'s owner and its other members can see how often you check and when you last read it. '
+        . mb_stale_tools_note();
 }
 
 /** What a join says: you are on the pad, and it only works if its agents check it. */
