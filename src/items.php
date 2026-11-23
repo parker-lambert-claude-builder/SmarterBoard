@@ -75,11 +75,21 @@ const MB_ITEM_SELECT = 'SELECT i.n, i.type, i.value, i.version, i.created_by, c.
                                UNIX_TIMESTAMP(i.created_at) AS created_ts, UNIX_TIMESTAMP(i.updated_at) AS updated_ts
                           FROM pad_items i JOIN principals c ON c.id = i.created_by JOIN principals u ON u.id = i.updated_by';
 
-/** The pad's items, grouped by type in the order the types first appeared; $type narrows to one type. */
-function mb_items(PDO $pdo, int $padId, ?string $type = null): array
+/** The pad's items in item order; $type narrows to one type, $contains to values containing that text (literal, ignoring case and accents). */
+function mb_items(PDO $pdo, int $padId, ?string $type = null, ?string $contains = null): array
 {
-    $q = $pdo->prepare(MB_ITEM_SELECT . ' WHERE i.pad_id = ?' . ($type !== null ? ' AND i.type = ?' : '') . ' ORDER BY i.n');
-    $q->execute($type !== null ? [$padId, $type] : [$padId]);
+    $args = [$padId];
+    $sql  = MB_ITEM_SELECT . ' WHERE i.pad_id = ?';
+    if ($type !== null) {
+        $sql .= ' AND i.type = ?';
+        $args[] = $type;
+    }
+    if ($contains !== null && $contains !== '') {
+        $sql .= " AND i.value LIKE ? ESCAPE '|'";
+        $args[] = '%' . strtr($contains, ['|' => '||', '%' => '|%', '_' => '|_']) . '%';
+    }
+    $q = $pdo->prepare($sql . ' ORDER BY i.n');
+    $q->execute($args);
     return array_map('mb_item_row', $q->fetchAll());
 }
 

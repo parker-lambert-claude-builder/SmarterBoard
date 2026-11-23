@@ -320,7 +320,7 @@ async function showBoard(slug, navigation) {
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
       <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
-    ${d.owned ? '<div class="inner pad-brief" id="brief"></div><div class="inner pad-items" id="items"></div>' : ''}
+    ${d.owned ? '<div class="inner pad-brief" id="brief"></div><div class="inner pad-items" id="items"></div>' + searchBoxHTML() : ''}
     <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
@@ -329,6 +329,7 @@ async function showBoard(slug, navigation) {
     </div>`;
   state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
   renderBrief();
+  state.search = null;
   state.items = []; state.itemTypes = {}; state.itemEditing = null; state.itemsStamp = d.items_stamp || '';
   if (d.owned) loadItems(true);
   appendMessages(d.messages, false);
@@ -429,6 +430,90 @@ async function showBriefHistory(version) {
     renderBrief('history', { history: d.history, shown: version ? d.brief : null });
   } catch (e) {
     renderBrief('view', { note: 'The history couldn’t be loaded. Please try again.' });
+  }
+}
+
+/* ---------- search ----------
+   Find the posts on this pad that contain some text, newest first, each with a snippet around the match. A hit can be
+   opened in place ("Show post"); one that is already on the page can be jumped to. Members only, this pad only. */
+state.search = null;
+function searchBoxHTML() {
+  return `<div class="inner pad-search">
+      <form id="pad-search" role="search" aria-label="Search this pad">
+        <label class="visually-hidden" for="pad-search-q">Search this pad</label>
+        <input id="pad-search-q" name="q" type="search" minlength="3" maxlength="200" placeholder="Search this pad" autocomplete="off" required>
+        <button type="submit" class="quiet">Search</button>
+      </form>
+      <div id="search-results" aria-live="polite"></div>
+    </div>`;
+}
+
+/* The text with each match of the query marked. Matched as typed, ignoring case: what the server found by accent too is shown without a mark. */
+function highlight(text, q) {
+  const low = text.toLowerCase(), needle = q.toLowerCase();
+  let out = '', from = 0, at;
+  while (needle && (at = low.indexOf(needle, from)) !== -1) {
+    out += esc(text.slice(from, at)) + '<mark>' + esc(text.slice(at, at + needle.length)) + '</mark>';
+    from = at + needle.length;
+  }
+  return out + esc(text.slice(from));
+}
+
+function hitHTML(h, q) {
+  const onPage = !!document.getElementById(`m${h.id}`);
+  return `<li class="hit" data-hit="${h.id}">
+      <div class="hit-meta"><strong>${esc(displayName(h.author))}</strong> · ${esc(fullTime(h.ts))} · #${h.id}${h.reply_to ? ` · in reply to #${h.reply_to}` : ''}</div>
+      <div class="hit-snippet">${highlight(h.snippet, q)}</div>
+      <div class="hit-actions"><button type="button" class="quiet" data-hit-show="${h.id}" aria-expanded="false">Show post</button>${onPage ? `<a href="#m${h.id}" data-hit-jump="${h.id}">Jump to it</a>` : ''}</div>
+      <div class="hit-post" hidden></div>
+    </li>`;
+}
+
+function renderSearch(note = '') {
+  const box = document.getElementById('search-results');
+  if (!box) return;
+  const s = state.search;
+  if (!s) { box.innerHTML = ''; return; }
+  const n = s.results.length;
+  box.innerHTML = `<section class="search-panel" aria-labelledby="search-h">
+      <div class="search-head"><h2 id="search-h" tabindex="-1">${s.total ? `${plural(s.total, 'post', 'posts')} contain “${esc(s.q)}”` : `No posts contain “${esc(s.q)}”`}</h2>
+        <button type="button" class="quiet" data-search-close>Close</button></div>
+      ${n ? `<ul class="search-list">${s.results.map(h => hitHTML(h, s.q)).join('')}</ul>` : ''}
+      ${s.next ? `<button type="button" class="quiet" data-search-more>Show more</button>` : ''}
+      ${note ? `<p class="form-error" role="alert">${esc(note)}</p>` : ''}
+    </section>`;
+}
+
+async function runSearch(q, beforeId = null) {
+  const slug = state.slug, navigation = state.navigation;
+  const box = document.getElementById('search-results');
+  if (!box) return;
+  try {
+    const d = await getJSON(`${API}?action=search&board=${encodeURIComponent(slug)}&q=${encodeURIComponent(q)}${beforeId ? `&before_id=${beforeId}` : ''}`);
+    if (navigation !== state.navigation) return;
+    state.search = beforeId && state.search ? { q: d.query, total: d.total, results: state.search.results.concat(d.results), next: d.next_before_id } : { q: d.query, total: d.total, results: d.results, next: d.next_before_id };
+    renderSearch();
+    if (!beforeId) document.getElementById('search-h')?.focus();
+  } catch (err) {
+    if (navigation !== state.navigation) return;
+    if (state.search) renderSearch(err.message);
+    else box.innerHTML = `<p class="form-error" role="alert">${esc(err.message)}</p>`;
+  }
+}
+
+async function showHit(button) {
+  const li = button.closest('.hit'), post = li.querySelector('.hit-post');
+  if (!post.hidden) { post.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show post'; return; }
+  const slug = state.slug, navigation = state.navigation;
+  try {
+    const d = await getJSON(`${API}?action=around&board=${encodeURIComponent(slug)}&id=${li.dataset.hit}&context=0`);
+    if (navigation !== state.navigation) return;
+    const m = d.messages[0];
+    post.innerHTML = `<div class="hit-body">${render(m.body)}</div>`;
+    post.hidden = false; button.setAttribute('aria-expanded', 'true'); button.textContent = 'Hide post';
+  } catch (err) {
+    post.innerHTML = `<p class="form-error" role="alert">${esc(err.message)}</p>`;
+    post.hidden = false;
   }
 }
 
@@ -876,6 +961,16 @@ document.addEventListener('click', e => {
     });
     return;
   }
+  const hitShow = e.target.closest('[data-hit-show]');
+  if (hitShow) return showHit(hitShow);
+  if (e.target.closest('[data-search-close]')) { state.search = null; renderSearch(); document.getElementById('pad-search-q')?.focus(); return; }
+  if (e.target.closest('[data-search-more]')) return runSearch(state.search.q, state.search.results[state.search.results.length - 1].id);
+  const hitJump = e.target.closest('[data-hit-jump]');
+  if (hitJump) {
+    const el = document.getElementById(`m${hitJump.dataset.hitJump}`);
+    if (el) { e.preventDefault(); el.scrollIntoView({ block: 'center' }); el.classList.add('fresh'); setTimeout(() => el.classList.remove('fresh'), 1600); }
+    return;
+  }
   const itemEdit = e.target.closest('[data-item-edit]');
   if (itemEdit) {
     state.itemEditing = Number(itemEdit.dataset.itemEdit);
@@ -907,6 +1002,8 @@ document.addEventListener('focusout', () => {
   setTimeout(() => { if (state.itemsStale && !itemsBusy()) { renderItems(); state.itemsStale = false; } }, 0);
 });
 document.addEventListener('submit', e => {
+  const search = e.target.closest?.('#pad-search');
+  if (search) { e.preventDefault(); runSearch(search.elements.q.value); return; }
   const form = e.target.closest?.('#item-add, form[data-item-form]');
   if (!form) return;
   e.preventDefault();
