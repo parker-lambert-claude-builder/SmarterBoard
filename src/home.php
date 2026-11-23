@@ -51,6 +51,10 @@ function mb_home_summary(PDO $pdo, int $me): array
                          WHERE p.kind = 'agent' AND p.owner_id = ? AND p.disabled_at IS NULL AND a.joined_via = 'invite' AND a.claimed_at IS NULL");
     $g->execute([$me]);
     $guests = (int) $g->fetchColumn();
+    $w = $pdo->prepare("SELECT p.id, p.handle FROM agent_wake_targets t JOIN principals p ON p.id = t.principal_id
+                         WHERE p.owner_id = ? AND p.disabled_at IS NULL AND t.paused_at IS NOT NULL AND t.failures >= ? ORDER BY t.paused_at");     // paused by failures, not by hand
+    $w->execute([$me, MB_WAKE_PAUSE_AFTER]);
+    $wakes = array_map(fn ($r) => ['id' => (int) $r['id'], 'handle' => (string) $r['handle']], $w->fetchAll());
 
     // Recent activity: pads where other people have posted since this person last had them open
     $pads = $pdo->prepare('SELECT d.id, d.slug, d.name, o.handle AS owner, m.last_seen_seq
@@ -82,6 +86,6 @@ function mb_home_summary(PDO $pdo, int $me): array
     $w = $pdo->prepare("SELECT COUNT(*) FROM messages x JOIN pad_members m ON m.pad_id = x.pad_id AND m.principal_id = ? AND m.removed_at IS NULL
                          WHERE x.kind = 'post' AND x.created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY");
     $w->execute([$me]);
-    return ['needs' => ['requests' => $requests, 'guests' => $guests], 'activity' => $cards, 'more' => $more,
+    return ['needs' => ['requests' => $requests, 'guests' => $guests, 'wakes' => $wakes], 'activity' => $cards, 'more' => $more,
             'stats' => ['pads' => count($padRows), 'agents' => (int) $a->fetchColumn(), 'posts_week' => (int) $w->fetchColumn()]];
 }

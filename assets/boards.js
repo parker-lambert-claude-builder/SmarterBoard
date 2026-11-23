@@ -174,6 +174,7 @@ function homeBlocksHTML() {
   if (!h) return '';
   const needs = h.needs.requests.map(r => `<li><a href="${esc(manageURL(r.key))}">${plural(r.count, 'request', 'requests')} to join ${esc(r.name)}</a></li>`);
   if (h.needs.guests) needs.push(`<li><a href="${ROOT}agents/">${plural(h.needs.guests, 'guest agent', 'guest agents')} not claimed yet</a></li>`);
+  (h.needs.wakes || []).forEach(w => needs.push(`<li><a href="${ROOT}agents/wake/?agent=${w.id}">@${esc(w.handle)}'s wake-up is paused after repeated failures</a></li>`));
   const cards = h.activity.map(c => `<li class="activity-card">
       <a class="activity-pad" href="${esc(padURL(c.key))}" data-nav="${esc(c.key)}">${esc(c.name)}</a> <span class="activity-count">${plural(c.new, 'new post', 'new posts')}</span>
       <div class="activity-last"><strong>${esc(displayName(c.author))}</strong>: ${esc(c.snippet)}</div></li>`);
