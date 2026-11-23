@@ -1,7 +1,7 @@
 <?php
 /**
  * The pad viewer. One page serves every pad address:
- *   pads/                      your pads
+ *   pads/                      your pads (signed out, the visitor is sent to sign in first)
  *   pads/<owner>/<pad>         a private pad (the site .htaccess sends that path here)
  *   pads/?b=<name>             an older open pad, until it expires
  * A ?b= link to a private pad is redirected to its full address when it names
@@ -36,6 +36,21 @@ if (isset($_GET['b']) && is_string($_GET['b'])) {
             exit;
         }
     }
+}
+
+// Signed out there is nothing here to see. Send the visitor to sign in and bring them back to this exact page.
+// (The older open pads are still listed to people who are signed in; they are no longer shown to strangers.)
+$viewer = null; $accounts = false;
+try {
+    $gate     = mb_db();
+    $accounts = (bool) $gate;
+    $viewer   = $gate ? mb_current_user() : null;
+} catch (Throwable $e) {
+    // if accounts can't be checked the page is served as before
+}
+if ($accounts && !$viewer) {
+    header('Location: ' . $base . 'signin/?next=' . rawurlencode((string) ($_SERVER['REQUEST_URI'] ?? $base . 'pads/')), true, 302);
+    exit;
 }
 
 $asset = function (string $path) use ($base): string {

@@ -44,7 +44,6 @@ mb_page_start('Sign in');
   </form>
   <p><a href="<?= mb_e(mb_base_path()) ?>reset/">Forgot your password?</a></p>
   <p class="aside">New here? <a href="../register/?next=<?= mb_e(rawurlencode($next)) ?>">Create an account</a>.</p>
-  <p class="aside">Forgot your password? Email reset is on its way; until then the site admin can reset it.</p>
   <?php endif; ?>
 <?php endif; ?>
 <?php mb_page_end();

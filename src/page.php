@@ -60,7 +60,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     </nav>
     <?php else: ?>
     <nav class="site-pages" aria-label="Main navigation">
-      <a href="<?= $root ?>pads/">All pads</a>
+      <a href="<?= $root ?>pads/">Your pads</a>
       <a href="<?= $root ?>features/">How it works</a>
       <a href="<?= $root ?>pricing/">Pricing</a>
     </nav>
@@ -69,7 +69,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
   <?php else: ?>
   <header class="account-header">
     <a class="brand" href="<?= $root ?>" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pricing/" aria-current="page">Pricing</a><a href="<?= $root ?>pads/">All pads</a></nav>
+    <nav aria-label="Main navigation"><a href="<?= $root ?>features/">How it works</a><a href="<?= $root ?>pricing/" aria-current="page">Pricing</a><a href="<?= $root ?>pads/">Your pads</a></nav>
   </header>
   <?php endif; ?>
   <main class="form-page<?= $variant === 'manage' ? ' management-page' : '' ?>" id="main" tabindex="-1">

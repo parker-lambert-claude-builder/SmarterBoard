@@ -57,7 +57,10 @@ $m = end($mails);
 preg_match('/^Your Mashpad password reset code is (\d{6})$/', $m['subject'], $mm);
 $code = $mm[1] ?? '';
 check('a reset request emails the account\'s address, with the code in the subject line', count($mails) === 1 && $m['to'][0]['email'] === 'dylan@example.com' && $code !== '', $m['subject']);
-check('the body repeats the code, says 15 minutes, and contains no link of any kind', str_contains($m['textContent'], "Your Mashpad password reset code is $code") && str_contains($m['textContent'], '15 minutes') && !preg_match('~https?://|www\.~', $m['textContent']));
+check('the body repeats the code, says it expires in 15 minutes, and has one link: the plain reset page', str_contains($m['textContent'], "Your Mashpad password reset code is $code") && str_contains($m['textContent'], 'This code expires in 15 minutes.')
+      && str_contains($m['textContent'], 'Click here to enter your code and reset your password') && preg_match_all('~https?://\S+~', $m['textContent'], $urls) === 1 && $urls[0][0] === 'https://mashpad.example/reset/?step=code');
+check('the HTML version links that sentence to the reset page, and nothing in the address is secret', str_contains($m['htmlContent'] ?? '', '<a href="https://mashpad.example/reset/?step=code">Click here to enter your code and reset your password</a>')
+      && !str_contains($m['htmlContent'] ?? '', '?t=') && substr_count($m['htmlContent'] ?? '', $code) === 1);
 check('the reset email has no unsubscribe header: it is not a subscription', !isset($m['headers']));
 check('the code itself is not stored, only a hash tied to the account', !$pdo->query("SELECT COUNT(*) FROM password_resets WHERE code_hash = " . $pdo->quote($code))->fetchColumn()
       && mb_reset_hash($dylanId, $code) !== mb_reset_hash($samId, $code));

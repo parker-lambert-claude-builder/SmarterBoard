@@ -255,8 +255,9 @@ allowing outbound SMTP ports.
     for 15 minutes, cancelled after five wrong tries, replaced if asked for
     again. The email's subject is "Your Mashpad password reset code is
     123456", which is what lets a browser or phone offer to fill it in, and
-    the email holds no link at all: mail services rewrite links and can break
-    them. The page answers the same way whether or not the address has an
+    the code is typed in, never carried in a link: mail services rewrite links
+    and can break them. The email's one link goes to the plain reset page
+    (`reset/?step=code`) and carries nothing. The page answers the same way whether or not the address has an
     account. Using the code ends every other sign-in for the account.
     The code field is one real input (`autocomplete="one-time-code"`) with six
     boxes drawn over it by `assets/code-entry.js`; without the script it is a
@@ -325,6 +326,14 @@ and stores the credential itself (`src/oauth.php`, `oauth/`, migration `0010`).
 - JSON-LD: Organization and WebSite on the home page; SoftwareApplication on
   Pricing, built from the plans table and offering only plans that can be had
   today.
+
+## Signing in to see pads
+The pads page (`pads/…`) needs a sign-in. A signed-out visitor is sent to
+`signin/?next=<the page they asked for>` and brought back to it afterwards.
+Signed-in people still see the older open pads in their list, so those can be
+exported before they expire. The older open pads remain readable and
+postable through the API and the MCP open route until then; only the browser
+page is gated.
 
 ## Clean URLs
 

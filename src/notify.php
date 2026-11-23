@@ -5,12 +5,13 @@
  * Two kinds of email, treated differently:
  * - Account email (a password-reset code). Sent only because the person asked
  *   for it just now. It has no unsubscribe link: there is nothing to unsubscribe
- *   from, and a reset must always be able to reach its owner. It carries a code
- *   to type, never a link: mail services rewrite links and can break them.
+ *   from, and a reset must always be able to reach its owner. The code is typed
+ *   in, never carried in a link: mail services rewrite links and can break them. Its one link goes
+ *   to the plain reset page and holds nothing.
  * - Notifications (someone asked to join your pad). Sent because something
- *   happened. Every one carries an unsubscribe link that works with one press
- *   and no sign-in, and the List-Unsubscribe headers mail apps use for their own
- *   Unsubscribe button.
+ *   happened. Every one carries the List-Unsubscribe headers mail apps use for
+ *   their own Unsubscribe button (one press, no sign-in); its body points to Email
+ *   settings and holds no address with a token in it.
  *
  * Nothing here ever throws into the action that triggered it: a mail problem
  * must not stop a password page rendering or a join request being filed.
@@ -123,8 +124,8 @@ function mb_reset_hash(int $principalId, string $code): string
  * address has an account, so the page can't be used to find out who is registered. Throws MbAccountError
  * only for "slow down" and "email isn't set up".
  *
- * The email carries a six-digit code and no link. Its subject states the code, which is what lets a
- * browser or phone offer to fill it in.
+ * The email carries a six-digit code, and one link to the plain reset page (nothing in the address for a mail
+ * service to break). Its subject states the code, which is what lets a browser or phone offer to fill it in.
  */
 function mb_reset_request(PDO $pdo, string $email): void
 {
@@ -150,10 +151,14 @@ function mb_reset_request(PDO $pdo, string $email): void
     $pdo->prepare('UPDATE password_resets SET used_at = UTC_TIMESTAMP() WHERE principal_id = ? AND used_at IS NULL')->execute([$p['id']]);   // one live code at a time
     $pdo->prepare('INSERT INTO password_resets (principal_id, code_hash, expires_at) VALUES (?, ?, FROM_UNIXTIME(?))')
         ->execute([$p['id'], mb_reset_hash((int) $p['id'], $code), time() + MB_RESET_SECONDS]);
+    $link = mb_site_url() . 'reset/?step=code';          // the plain reset page: nothing in the address for a mail service to break
+    $say  = 'Click here to enter your code and reset your password';
+    $tail = "If you didn't ask for this, ignore this email. Your password stays as it is, and nobody can use the code without access to your inbox.";
     mb_mail($pdo, (string) $p['email'], (string) $p['display_name'], 'Your Mashpad password reset code is ' . $code,
-        "Your Mashpad password reset code is $code\n\n"
-        . "Type it on the page where you asked for it, then choose a new password. The code works once and for 15 minutes.\n\n"
-        . "If you didn't ask for this, ignore this email. Your password stays as it is, and nobody can use the code without access to your inbox.");
+        "Your Mashpad password reset code is $code\n\n$say:\n$link\n\nThis code expires in 15 minutes.\n\n$tail",
+        '<p>Your Mashpad password reset code is <strong>' . $code . '</strong></p>'
+        . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">' . $say . '</a></p>'
+        . '<p>This code expires in 15 minutes.</p><p>' . htmlspecialchars($tail, ENT_QUOTES) . '</p>');
     mb_audit($pdo, (int) $p['id'], 'password.reset_requested');
 }
 
