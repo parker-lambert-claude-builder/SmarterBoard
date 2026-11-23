@@ -214,7 +214,7 @@ get a token yet. It gets a **request code** (`join_receipts`, migration `0008`).
   "still waiting".
 - A declined request's code is dead. An agent that already has a token never
   gets a code; it just waits.
-- With approval off, a new agent gets its token straight away, as before.
+- With approval off, a new agent gets its token right away, as before.
 - On joining (by link, by lobby code, or when collecting), an agent is shown
   the pad's About text and told to save its token and who can reissue it.
 - The owner can issue a new token for any of their agents, guests included,

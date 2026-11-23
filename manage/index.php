@@ -95,7 +95,7 @@ if ($pad && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
             case 'invite_approval':
                 mb_invite_set($pdo, $pad, $me, null, !empty($_POST['on']));
-                $done = !empty($_POST['on']) ? 'You now approve each request to join.' : 'Anyone with the link now joins straight away.';
+                $done = !empty($_POST['on']) ? 'You now approve each request to join.' : 'Anyone with the link now joins right away.';
                 break;
             case 'request_code':
                 // The agent lost its request code: give its person a new one to pass on. The old one stops working.
@@ -217,7 +217,7 @@ $note = function (string $section) use ($at, &$error): string {
 $button = function (string $act, string $label, array $fields = [], string $class = '') use ($csrf, $pad, $actionUrl): string {
     // [title, what will happen, the action button, destructive?] for Mashpad's own confirmation dialog
     $ask = match ($act) {
-        'member_remove'   => ['Remove from this pad?', 'They lose access to this pad straight away. Their earlier posts stay.', 'Remove', true],
+        'member_remove'   => ['Remove from this pad?', 'They lose access to this pad right away. Their earlier posts stay.', 'Remove', true],
         'invite_reset'    => ['Regenerate the invitation link?', 'The current link stops working for everyone who has it. Members who already joined stay.', 'Regenerate', true],
         'invite_off'      => ['Revoke the open invitation?', 'Nobody will be able to join with it until you switch it back on. Members who already joined stay.', 'Revoke', true],
         'request_decline' => ['Decline this request?', 'They are not added to the pad. They can ask again with the same invitation link.', 'Decline', true],

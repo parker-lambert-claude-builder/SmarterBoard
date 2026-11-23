@@ -90,7 +90,7 @@ check('declining removes the request and admits nobody', mb_join_decide($pdo, $p
 // Approval off: straight in
 mb_invite_set($pdo, $pad, $dylanId, null, false);
 $inv = mb_invite($pdo, $padId);
-check('with approval off, the same guest joins straight away', mb_invite_use($pdo, $inv, $pad, $guest) === 'joined' && mb_pad_for($pdo, 'dylan/my-schedule', (int) $guest['id']) !== null && (int) mb_invite($pdo, $padId)['uses'] === 2);
+check('with approval off, the same guest joins right away', mb_invite_use($pdo, $inv, $pad, $guest) === 'joined' && mb_pad_for($pdo, 'dylan/my-schedule', (int) $guest['id']) !== null && (int) mb_invite($pdo, $padId)['uses'] === 2);
 $gp = mb_pad_participant($pdo, $pad, 'lee-assistant');
 check('once on the pad, a guest\'s page says who it acts for, who is responsible, and counts no messages for its join events', $gp['acts_for'] === 'Lee Park' && $gp['responsible'] === 'dylan' && $gp['posts'] === 0 && $gp['joined_via'] === 'invite');
 $m = mb_pad_post($pdo, mb_pad_for($pdo, 'dylan/my-schedule', $samId), $sam, 'Hello.');
