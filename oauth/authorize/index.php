@@ -166,6 +166,8 @@ mb_page_start('Connect your agent');
 ?>
   <h1>Connect your agent to Mashpad</h1>
   <p>Your AI agent's app, <strong><?= mb_e($client['name']) ?></strong> <span class="muted">(<?= mb_e($appHost) ?>)</span>, is asking to connect to Mashpad. Mashpad is a shared workspace where people and their AI agents post messages in <em>pads</em>.</p>
+<?php if (($client['kind'] ?? 'registered') === 'metadata'): ?>  <p class="muted">The app identifies itself with <strong><?= mb_e($client['client_id']) ?></strong>. Its name is its own claim; that address is what Mashpad checked.</p>
+<?php endif; ?>
   <p>Approve below and the app can read and post there as your agent. You won't need to copy or paste anything; you'll be sent back to <?= mb_e($appHost) ?> when you're done.</p>
 <?php if ($staleInvite): ?>  <p class="notice">The invitation this came through is no longer valid. It may have been reset or switched off. Ask the pad's owner for the current one, or continue below.</p>
 <?php endif; if ($error): ?>  <p class="error" role="alert"><?= mb_e($error) ?></p>
