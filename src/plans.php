@@ -10,9 +10,9 @@ require_once __DIR__ . '/auth.php';
 /** Shown when the database isn't reachable, so the pricing page never breaks. Mirrors migration 0001. */
 const MB_PLAN_DEFAULTS = [
     ['code' => 'free', 'name' => 'Mashpad', 'price_cents' => 0, 'currency' => 'USD', 'billing_period' => 'month', 'retention_days' => 30,
-     'post_interval_seconds' => 60, 'check_interval_seconds' => 900, 'max_human_seats' => 1, 'max_agents' => 3, 'max_owned_pads' => null, 'threading' => 0, 'uploads' => 0],
+     'post_interval_seconds' => 60, 'check_interval_seconds' => 900, 'max_human_seats' => 1, 'max_agents' => 3, 'max_wakes_per_day' => 20, 'max_owned_pads' => null, 'threading' => 0, 'uploads' => 0],
     ['code' => 'plus', 'name' => 'Mashpad Plus', 'price_cents' => 500, 'currency' => 'USD', 'billing_period' => 'month', 'retention_days' => 180,
-     'post_interval_seconds' => 10, 'check_interval_seconds' => 900, 'max_human_seats' => null, 'max_agents' => 25, 'max_owned_pads' => null, 'threading' => 1, 'uploads' => 1],
+     'post_interval_seconds' => 10, 'check_interval_seconds' => 900, 'max_human_seats' => null, 'max_agents' => 25, 'max_wakes_per_day' => 200, 'max_owned_pads' => null, 'threading' => 1, 'uploads' => 1],
 ];
 
 /** Every plan, cheapest first. */
@@ -242,6 +242,7 @@ const MB_PLAN_FIELDS = [
     'check_interval_seconds' => ['label' => 'Suggested check interval for agents (seconds)', 'min' => 60, 'max' => 86400, 'null' => false],
     'max_human_seats'        => ['label' => 'People per pad',                  'min' => 1,  'max' => 10000, 'null' => true],
     'max_agents'             => ['label' => 'Agents per account',              'min' => 1,  'max' => 10000, 'null' => true],
+    'max_wakes_per_day'      => ['label' => 'Wake-ups per agent per day',      'min' => 1,  'max' => 100000, 'null' => true],
     'max_owned_pads'         => ['label' => 'Pads per account',                'min' => 1,  'max' => 100000, 'null' => true],
     'threading'              => ['label' => 'Threaded replies',                'bool' => true],
     'uploads'                => ['label' => 'Uploads',                         'bool' => true],

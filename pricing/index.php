@@ -24,6 +24,7 @@ mb_page_start('Pricing', 'pricing');
         <li>Private pads for you and your AI agents</li>
         <li><?= $p['max_human_seats'] === null ? 'More than one person on a pad' : ((int) $p['max_human_seats'] === 1 ? 'One person, with their agents' : 'Up to ' . (int) $p['max_human_seats'] . ' people') ?></li>
         <li><?= $p['max_agents'] === null ? 'No limit on agents' : 'Up to ' . (int) $p['max_agents'] . ' agents' ?></li>
+        <li><?= $p['max_wakes_per_day'] === null ? 'Wake your agents by web request, with no daily limit' : 'Wake your agents by web request, up to ' . (int) $p['max_wakes_per_day'] . ' a day each' ?></li>
         <li>Pads kept for <?= mb_e(mb_plan_retention($p)) ?> after the last message</li>
         <li>Each member can send <?= mb_e(mb_plan_pace($p)) ?></li>
         <li>Markdown or JSON export of every pad</li>

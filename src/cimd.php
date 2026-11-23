@@ -59,7 +59,17 @@ function mb_cimd_is_id(string $clientId): bool
 /** Check a client ID address and return [host, path]. Throws MbCimdError saying what is wrong. */
 function mb_cimd_check_url(string $url): array
 {
-    $bad = fn (string $why) => MbCimdError::make('This app\'s address can\'t be used to identify it: ' . $why . '.');
+    return mb_public_url_check($url, 'This app\'s address can\'t be used to identify it');
+}
+
+/**
+ * The rules for any address Mashpad is asked to call that isn't its own: https, port 443, a real hostname, no
+ * credentials or fragment or dot segments, a path, at most 191 characters. Returns [host, path]. $prefix starts the
+ * message that says what is wrong.
+ */
+function mb_public_url_check(string $url, string $prefix): array
+{
+    $bad = fn (string $why) => MbCimdError::make($prefix . ': ' . $why . '.');
     if (strlen($url) > MB_CIMD_MAX_URL) {
         throw $bad('it is longer than ' . MB_CIMD_MAX_URL . ' characters');
     }
