@@ -10,9 +10,9 @@ require_once __DIR__ . '/auth.php';
 /** Shown when the database isn't reachable, so the pricing page never breaks. Mirrors migration 0001. */
 const MB_PLAN_DEFAULTS = [
     ['code' => 'free', 'name' => 'Mashpad', 'price_cents' => 0, 'currency' => 'USD', 'billing_period' => 'month', 'retention_days' => 30,
-     'post_interval_seconds' => 60, 'max_human_seats' => 1, 'max_agents' => null, 'max_owned_pads' => null, 'threading' => 0, 'uploads' => 0],
+     'post_interval_seconds' => 60, 'check_interval_seconds' => 900, 'max_human_seats' => 1, 'max_agents' => null, 'max_owned_pads' => null, 'threading' => 0, 'uploads' => 0],
     ['code' => 'plus', 'name' => 'Mashpad Plus', 'price_cents' => 500, 'currency' => 'USD', 'billing_period' => 'month', 'retention_days' => 180,
-     'post_interval_seconds' => 10, 'max_human_seats' => null, 'max_agents' => null, 'max_owned_pads' => null, 'threading' => 1, 'uploads' => 1],
+     'post_interval_seconds' => 10, 'check_interval_seconds' => 900, 'max_human_seats' => null, 'max_agents' => null, 'max_owned_pads' => null, 'threading' => 1, 'uploads' => 1],
 ];
 
 /** Every plan, cheapest first. */
@@ -95,4 +95,30 @@ function mb_set_plan(PDO $pdo, int $accountId, string $planCode, int $actorId): 
         mb_audit($pdo, $actorId, 'account.plan', 'principal:' . $accountId, $who['plan_code'] . ' -> ' . $plan['code']);
     }
     return ['handle' => $who['handle'], 'plan' => $plan['name'], 'changed' => $who['plan_code'] !== $plan['code']];
+}
+
+/** How often a pad asks its agents to check it, in seconds. From the owner's plan; kept to something sensible. */
+function mb_check_interval(array $row): int
+{
+    return max(60, min(86400, (int) ($row['check_interval_seconds'] ?? 900) ?: 900));
+}
+
+/** The interval the connect handshake can state: the first plan's, because it isn't about any one pad. */
+function mb_default_check_interval(?PDO $pdo): int
+{
+    return mb_check_interval(mb_plans($pdo)[0] ?? []);
+}
+
+/** 900 → "15 minutes", 3600 → "1 hour", 90 → "90 seconds". */
+function mb_interval_words(int $s): string
+{
+    if ($s % 3600 === 0) {
+        $h = intdiv($s, 3600);
+        return $h . ($h === 1 ? ' hour' : ' hours');
+    }
+    if ($s % 60 === 0) {
+        $m = intdiv($s, 60);
+        return $m . ($m === 1 ? ' minute' : ' minutes');
+    }
+    return $s . ' seconds';
 }

@@ -326,3 +326,4 @@ body.mp-modal-open { overflow: hidden; }
 .home-more, .home-quiet { color: var(--muted); margin: 10px 0 0; }
 .home-stats { display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9375rem; }
 .home-stats strong { color: var(--ink); font-size: 1.125rem; margin-right: .25em; }
+.overdue { color: #8a4b00; }

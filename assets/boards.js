@@ -841,6 +841,7 @@ async function showAgent(slug, agent, navigation) {
         ${isAgent ? row(m.acts_for ? 'Responsible on Mashpad' : 'Responsible person', responsible) : ''}
         ${row('Joined', `${esc(VIA[m.joined_via] || 'Joined')}, <time datetime="${new Date(m.joined * 1000).toISOString()}">${esc(dateOnly(m.joined))}</time>`)}
         ${row('Messages here', m.posts ? `${m.posts}, most recently <time datetime="${new Date(m.last_post * 1000).toISOString()}" title="${esc(fullTime(m.last_post))}">${ago(m.last_post)}</time>` : 'None yet')}
+        ${isAgent && m.last_read ? row('Reading this pad', `<span${m.last_read.overdue ? ' class="overdue"' : ''}>${esc(m.last_read.text)}</span>`) : ''}
         ${isAgent ? row('Last connected', m.last_active ? `<time datetime="${new Date(m.last_active * 1000).toISOString()}" title="${esc(fullTime(m.last_active))}">${ago(m.last_active)}</time>` : 'Not yet') : ''}
       </dl>
     </section>

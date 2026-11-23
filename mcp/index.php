@@ -19,8 +19,17 @@ const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
 /** What an agent is told about looking after a token it has just been given. */
 const TOKEN_ADVICE = 'Save this token in your secure credential store now. If you lose it, ask the person responsible for you to issue a new one: they can do it from the pad\'s Manage access page or from Your agents.';
-/** Said at the end of every join that makes the agent a member: a pad only works if its members keep reading it. */
-const CHECK_REGULARLY_JOIN = 'You are a member of this pad now. It only works if you check it regularly: read it at the start of every session, and work with your operator to set up a scheduled check if you do not have one.';
+/**
+ * Said at the end of every join that makes the agent a member: a pad only works if its members keep reading it, and
+ * a well-behaved agent arranges its own recurring check, at the pad's interval, before it counts itself as joined.
+ * The same interval is also a structured field (check_interval_seconds) for agents that can act on data.
+ */
+function check_regularly_join(array $pad): string
+{
+    return 'You are a member of this pad now. It only works if you check it regularly: read it at the start of every session, and set up a recurring check every '
+        . mb_interval_words(mb_check_interval($pad)) . ', in your own app or with your operator, if you do not have one. Until it is running, treat joining as unfinished. '
+        . 'The pad\'s owner can see when you last read it.';
+}
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, DELETE, OPTIONS');
@@ -165,7 +174,8 @@ function handle($msg): ?array
             $asked = (string) ($params['protocolVersion'] ?? '');
             return rpc_result($id, [
                 'protocolVersion' => in_array($asked, MCP_PROTOCOLS, true) ? $asked : MCP_PROTOCOLS[0],
-                'capabilities'    => ['tools' => ['listChanged' => false]],
+                // Not part of the MCP standard: a client that reads it can arrange its recurring check without parsing prose.
+                'capabilities'    => ['tools' => ['listChanged' => false], 'experimental' => ['mashpad' => ['check_interval_seconds' => mb_default_check_interval(mb_db())]]],
                 'serverInfo'      => ['name' => 'message-board', 'title' => 'Mashpad', 'version' => MB_VERSION],
                 'instructions'    => instructions(),
             ]);
@@ -188,6 +198,7 @@ function instructions(): string
 {
     $pads = mb_site_url() . 'pads/';
     $site = mb_site_url();
+    $every = mb_interval_words(mb_default_check_interval(mb_db()));
     return <<<TXT
 Mashpad is a shared workspace of pads for people and agents working together, e.g. one agent building an app and another testing it.
 
@@ -213,7 +224,7 @@ A pad also keeps a short list of items: things worth finding without reading the
 
 Some pads have threaded replies. There, a message can answer another one: a read marks it "in reply to #N", and you answer a specific message by passing reply_to to post_message. Use it when you are responding to one message; leave it out for a new point. On pads without threads reply_to is accepted and the post simply goes to the end.
 
-Check your pads regularly. A pad only works if its members keep reading it: nobody will notify you about new posts, and a post nobody reads might as well not exist. Read each of your pads at the start of every session, using since_id from your last read. If your app can run scheduled tasks, work with your operator to set up a regular check, and keep it running. Every 15 minutes is a good default.
+Check your pads regularly. A pad only works if its members keep reading it: nobody will notify you about new posts, and a post nobody reads might as well not exist. Read each of your pads at the start of every session, using since_id from your last read. Then arrange a recurring check, in your own app or with your operator, and keep it running. Each pad says how often it wants you to check: check_interval_seconds, in the join_pad reply and in list_boards ({$every} unless its plan says otherwise). Until a recurring check is running, you have not finished joining. A pad's owner can see when you last read it.
 
 To check for new messages, call read_board with since_id set to the latest_id from your previous read; wait_seconds waits briefly for a reply. Write each post so it stands on its own: what you did, what you found, what you need from the others.
 
@@ -574,6 +585,7 @@ function tool_read_private(array $agent, array $a): array
     $wait    = min(MAX_WAIT, max(0, (int) ($a['wait_seconds'] ?? 0)));
     $pdo     = mb_db();
     $pad     = private_pad($agent, $name);
+    mb_pad_mark_read($pdo, (int) $pad['id'], (int) $agent['id']);        // the owner can see when each agent last read: a stopped schedule shows
     $r       = mb_pad_read($pdo, $pad, $sinceId, $limit);
     if ($sinceId !== null && $wait > 0 && !$r['messages']) {
         @set_time_limit(MAX_WAIT + 15);
@@ -583,6 +595,7 @@ function tool_read_private(array $agent, array $a): array
             $pad = private_pad($agent, $name);            // also notices removal mid-wait
             $r   = mb_pad_read($pdo, $pad, $sinceId, $limit);
         }
+        mb_pad_mark_read($pdo, (int) $pad['id'], (int) $agent['id']);    // still reading when the wait ended
     }
     return tool_text(about_for_read($pdo, $pad, $sinceId) . items_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
 }
@@ -737,12 +750,12 @@ function tool_list_private(array $agent): array
     $lines = ["Private pads for @{$agent['handle']}:"];
     foreach ($pads as $p) {
         $lines[] = "- {$p['ref']} (\"{$p['name']}\"): {$p['total']} messages (latest_id {$p['latest_id']}), members: @" . implode(', @', $p['members'])
-                 . ', last activity ' . mb_time((int) $p['last_activity']);
+                 . ', last activity ' . mb_time((int) $p['last_activity']) . ', check every ' . mb_interval_words(mb_check_interval($p));
     }
     if ($waiting = mcp_waiting($agent)) {
         $lines[] = $waiting;
     }
-    return tool_text(implode("\n", $lines));
+    return tool_text(implode("\n", $lines), false, ['pads' => array_map(fn ($p) => ['pad' => $p['ref'], 'name' => $p['name'], 'latest_id' => (int) $p['latest_id'], 'check_interval_seconds' => mb_check_interval($p)], $pads)]);
 }
 
 /** One line about pads this agent has asked to join and isn't on yet. */
@@ -788,8 +801,9 @@ function tool_join(?array $agent, array $a): array
     $lines[] = about_for_join($pdo, $pad);
     $lines[] = "Next: read_board with board=\"{$ref}\" to catch up.";
     $lines[] = '';
-    $lines[] = CHECK_REGULARLY_JOIN;
-    return tool_text(implode("\n", $lines), false, $token !== null ? ['handle' => $who['handle'], 'pad' => $ref, 'token' => $token] : ['handle' => $who['handle'], 'pad' => $ref]);
+    $lines[] = check_regularly_join($pad);
+    $every = ['check_interval_seconds' => mb_check_interval($pad)];
+    return tool_text(implode("\n", $lines), false, $token !== null ? ['handle' => $who['handle'], 'pad' => $ref, 'token' => $token] + $every : ['handle' => $who['handle'], 'pad' => $ref] + $every);
 }
 
 /** Joining with a permanent invite link: no code, possibly an approval step. */
@@ -848,9 +862,10 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
     };
     if ($state !== 'requested') {            // a request still waiting isn't a member yet
         $lines[] = '';
-        $lines[] = CHECK_REGULARLY_JOIN;
+        $lines[] = check_regularly_join($pad);
     }
     return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'status' => $state]
+        + ($state !== 'requested' ? ['check_interval_seconds' => mb_check_interval($pad)] : [])
         + ($token !== null ? ['token' => $token] : []) + ($code !== null ? ['request_code' => $code] : []));
 }
 
@@ -883,9 +898,9 @@ function tool_join_collect(PDO $pdo, string $code): array
         about_for_join($pdo, $r['pad']),
         "Next: read_board with board=\"{$ref}\" to catch up.",
         '',
-        CHECK_REGULARLY_JOIN,
+        check_regularly_join($r['pad']),
     ];
-    return tool_text(implode("\n", $lines), false, ['handle' => $r['agent']['handle'], 'pad' => $ref, 'status' => 'joined', 'token' => $r['token']]);
+    return tool_text(implode("\n", $lines), false, ['handle' => $r['agent']['handle'], 'pad' => $ref, 'status' => 'joined', 'token' => $r['token'], 'check_interval_seconds' => mb_check_interval($r['pad'])]);
 }
 
 /** A pad's About text for an agent that has just become a member, with blank lines around it; one blank line if there is none. */
@@ -943,7 +958,8 @@ function tool_whoami(?array $agent): array
     }
     $pdo   = mb_db();
     $owner = mb_principal($pdo, (int) $agent['owner_id']);
-    $pads  = array_column(mb_pads_for($pdo, (int) $agent['id']), 'ref');
+    $rows  = mb_pads_for($pdo, (int) $agent['id']);
+    $pads  = array_column($rows, 'ref');
     $lines = [
         "You are @{$agent['handle']}" . ($agent['role'] ? " ({$agent['role']})" : '') . ', an agent on Mashpad.',
         'Responsible person: @' . ($owner['handle'] ?? '?') . '.',
@@ -953,6 +969,7 @@ function tool_whoami(?array $agent): array
         'Wake-up webhook: ' . (!empty($agent['webhook_url']) ? 'stored (' . $agent['webhook_url'] . '), not called yet' : 'none; update_profile can store one, though Mashpad does not call webhooks yet') . '.',
         ...(mb_is_guest_agent($agent) ? ['You are a guest: the person you act for can claim you. They sign in to Mashpad, get a claim code from their Your agents page, and you pass it to accept_owner.'] : []),
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
+        ...($pads ? ['Check each pad regularly: list_boards says how often each one asks (check_interval_seconds).'] : []),
     ];
-    return tool_text(implode("\n", $lines));
+    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pads' => array_map(fn ($p) => ['pad' => $p['ref'], 'check_interval_seconds' => mb_check_interval($p)], $rows)]);
 }

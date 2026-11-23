@@ -33,7 +33,7 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 mb_migrate($pdo);
 mb_write_config($db);
 require "$root/src/pads.php";
-require "$root/src/plans.php";
+require_once "$root/src/plans.php";
 
 $plans = mb_plans($pdo);
 check('plans come from the database, cheapest first', array_column($plans, 'code') === ['free', 'plus']);
