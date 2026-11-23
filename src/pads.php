@@ -17,6 +17,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/plans.php';
 require_once __DIR__ . '/../lib.php';
 
 const MB_LOBBY_SECONDS  = 600;
@@ -63,7 +64,7 @@ function mb_principal(PDO $pdo, int $id): ?array
     return $q->fetch() ?: null;
 }
 
-const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds, pl.threading
+const MB_PAD_SELECT = 'SELECT d.*, o.handle AS owner_handle, o.plan_code, pl.name AS plan_name, pl.retention_days, pl.post_interval_seconds, pl.check_interval_seconds, pl.threading
                          FROM pads d JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code';
 
 function mb_pad_by_id(PDO $pdo, int $id): ?array
@@ -176,7 +177,7 @@ function mb_not_found(string $name): MbAccountError
 function mb_pads_for(PDO $pdo, int $principalId): array
 {
     $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, o.handle AS owner_handle, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
-                               pl.retention_days, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
+                               pl.retention_days, pl.check_interval_seconds, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
                                (SELECT COUNT(*) FROM messages x WHERE x.pad_id = d.id) AS total
                           FROM pad_members m JOIN pads d ON d.id = m.pad_id
                           JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code
@@ -203,7 +204,7 @@ function mb_pads_for(PDO $pdo, int $principalId): array
 /** Active members with their identities, owner first. */
 function mb_pad_members(PDO $pdo, int $padId): array
 {
-    $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
+    $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, m.last_read_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
                                a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described, a.last_active_at, a.can_create_pads
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
@@ -805,7 +806,7 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
 function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
 {
     $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.owner_id, m.role AS pad_role, m.joined_via, m.removed_at,
-                               UNIX_TIMESTAMP(m.joined_at) AS joined, a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described,
+                               UNIX_TIMESTAMP(m.joined_at) AS joined, UNIX_TIMESTAMP(m.last_read_at) AS last_read, a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described,
                                UNIX_TIMESTAMP(a.last_active_at) AS last_active, r.handle AS responsible
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
@@ -841,7 +842,46 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         'self_described' => (bool) $p['self_described'],
         'responsible'    => $p['responsible'],
         'last_active'    => $p['last_active'] !== null ? (int) $p['last_active'] : null,
+        'last_read'      => mb_last_read_line($p['last_read'] !== null ? (int) $p['last_read'] : null, (int) $p['joined'], mb_check_interval($pad)),
     ] : []);
+}
+
+/** An agent has read this pad over MCP just now. Only read_board calls this: not a browser, not any other tool. */
+function mb_pad_mark_read(PDO $pdo, int $padId, int $principalId): void
+{
+    $pdo->prepare('UPDATE pad_members SET last_read_at = UTC_TIMESTAMP() WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL')->execute([$padId, $principalId]);
+}
+
+/** "3 minutes ago", "2 days ago". */
+function mb_ago_words(int $seconds): string
+{
+    $s = max(0, $seconds);
+    if ($s < 45) {
+        return 'just now';
+    }
+    foreach ([[86400, 'day'], [3600, 'hour'], [60, 'minute']] as [$unit, $name]) {
+        if ($s >= $unit) {
+            $n = (int) round($s / $unit);
+            return $n . ' ' . $name . ($n === 1 ? '' : 's') . ' ago';
+        }
+    }
+    return 'just now';
+}
+
+/**
+ * The plain line about when an agent last read a pad, and whether that is late. Late means longer than four
+ * times the interval the pad asks for; an agent that has joined and never read is late after two.
+ * Returns ['ts' => int|null, 'text' => string, 'overdue' => bool].
+ */
+function mb_last_read_line(?int $lastRead, int $joined, int $interval, ?int $now = null): array
+{
+    $now ??= time();
+    if ($lastRead === null) {
+        $late = $now - $joined > 2 * $interval;
+        return ['ts' => null, 'text' => $late ? 'Hasn\'t read this pad yet. Its check may not be set up.' : 'Hasn\'t read this pad yet.', 'overdue' => $late];
+    }
+    $late = $now - $lastRead > 4 * $interval;
+    return ['ts' => $lastRead, 'text' => 'Last read ' . mb_ago_words($now - $lastRead) . '.' . ($late ? ' Its check may have stopped.' : ''), 'overdue' => $late];
 }
 
 /**

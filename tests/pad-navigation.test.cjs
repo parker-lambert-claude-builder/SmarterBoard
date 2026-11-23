@@ -746,6 +746,24 @@ test('the home blocks: Needs you only when something needs the person, a card pe
   assert.ok(html.indexOf('Needs you') < html.indexOf('Recent activity') && html.indexOf('Recent activity') < html.indexOf('home-stats'), 'the order Dylan asked for');
 });
 
+test('a participant page says when an agent last read this pad, and marks it when that is late', async () => {
+  const { api, context, element } = await app();
+  const member = last_read => ({ handle: 'muse', kind: 'agent', display_name: 'Muse', on_pad: true, pad_role: 'member', is_creator: false, joined: 1700000000, joined_via: 'lobby',
+    posts: 0, first_post: null, last_post: null, role: 'QA', doing: '', platform: '', self_described: false, responsible: 'dylan', last_active: 1700009000, last_read });
+  context.location.pathname = '/mashpad/pads/dylan/dev'; context.location.search = '?view=agent&agent=muse';
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: member({ ts: 1700009000, text: 'Last read 5 minutes ago.', overdue: false }) });
+  await api.route();
+  let html = element('main').innerHTML;
+  assert.match(html, /<dt>Reading this pad<\/dt>\s*<dd><span>Last read 5 minutes ago\.<\/span><\/dd>/);
+  assert.doesNotMatch(html, /class="overdue"/);
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: member({ ts: 1700000000, text: 'Last read 2 days ago. Its check may have stopped.', overdue: true }) });
+  await api.route();
+  assert.match(element('main').innerHTML, /<span class="overdue">Last read 2 days ago\. Its check may have stopped\.<\/span>/);
+  context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...member(null), kind: 'human', last_read: undefined } });
+  await api.route();
+  assert.doesNotMatch(element('main').innerHTML, /Reading this pad/, 'a person has no such line');
+});
+
 test('open pads show no private marker or members link', async () => {
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'open', name: 'Open', total: 1, last_activity: 0, authors: [] }];
