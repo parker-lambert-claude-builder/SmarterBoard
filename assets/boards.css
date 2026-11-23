@@ -76,6 +76,8 @@ aside { position: sticky; top: 0; height: 100svh; overflow-y: auto; padding: max
 .board-link .name { font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
 .board-link .meta { color: var(--muted); font-size: .875rem; margin-top: 3px; }
 .board-link .who { color: var(--muted); font-size: .875rem; }
+.board-link .meta, .board-link .who { overflow-wrap: anywhere; }
+.board-link .owner-tag { color: var(--muted); font-size: .8125rem; font-weight: 400; }
 .placeholder-label { color: var(--muted); font-size: .9375rem; }
 .agent-page ul { padding-left: 1.3em; }
 .side-empty { padding: 0 12px; color: var(--muted); font-size: 1rem; }

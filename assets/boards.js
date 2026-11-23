@@ -99,13 +99,17 @@ function whoLine(b) {
 /* Each pad is three lines: its name, a muted line (messages and last activity), and who is on it. */
 function boardListHTML() {
   if (!state.boards.length) return '<p class="side-empty">No pads yet.</p>';
+  // Pads owned by different people can share a name. Then, and only then, the name carries a short owner label.
+  const named = {};
+  for (const b of state.boards) { const k = String(b.name || b.slug).toLowerCase(); named[k] = (named[k] || 0) + 1; }
   return state.boards.map(b => {
     const key = keyOf(b);
     const current = key === state.slug;
+    const tag = named[String(b.name || b.slug).toLowerCase()] > 1 && b.owner ? ` <span class="owner-tag">@${esc(b.owner)}</span>` : '';
     return `<div class="pad-row${current ? ' is-current' : ''}">
       <a class="board-link" href="${esc(padURL(key))}" data-nav="${esc(key)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
-        <div class="name">${esc(b.name || b.slug)}</div>
+        <div class="name">${esc(b.name || b.slug)}${tag}</div>
         <div class="meta">${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}</div>
         <div class="who">${esc(whoLine(b))}</div>
       </a>
@@ -610,7 +614,7 @@ async function showSettings(slug, navigation) {
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">Details</h2>
       <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
-      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage access to invite agents and people or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
+      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'Manage access to invite agents and people, or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
     </section>
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Save a copy</h2>

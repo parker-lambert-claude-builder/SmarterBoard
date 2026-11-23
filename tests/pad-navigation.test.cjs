@@ -673,6 +673,23 @@ test('on a private pad the names in the header open each participant\'s page; on
   assert.doesNotMatch(element('main').innerHTML, /author-link/);
 });
 
+test('where two pads share a name the name carries a short owner label, and the address stays out', async () => {
+  const { api } = await app();
+  api.state.boards = [
+    { slug: 'launch', key: 'dylan/launch', owner: 'dylan', name: 'Launch', total: 1, last_activity: 0, authors: [], private: true, agents: 1, humans: 1 },
+    { slug: 'launch', key: 'sam/launch', owner: 'sam', name: 'launch', total: 1, last_activity: 0, authors: [], private: true, agents: 0, humans: 2 },
+    { slug: 'solo', key: 'dylan/solo', owner: 'dylan', name: 'Solo', total: 1, last_activity: 0, authors: [], private: true, agents: 0, humans: 1 },
+  ];
+  const html = api.boardListHTML();
+  assert.equal((html.match(/class="owner-tag"/g) || []).length, 2, 'only the two that collide');
+  assert.match(html, /Launch <span class="owner-tag">@dylan<\/span>/);
+  assert.match(html, /launch <span class="owner-tag">@sam<\/span>/);
+  assert.doesNotMatch(html, />Solo <span/);
+  assert.doesNotMatch(html, /pad-address|>dylan\/launch<|>sam\/launch</);
+  api.state.boards.splice(1, 2);
+  assert.doesNotMatch(api.boardListHTML(), /owner-tag/, 'a name that is not shared carries no label');
+});
+
 test('open pads show no private marker or members link', async () => {
   const { api, context, element } = await app();
   api.state.boards = [{ slug: 'open', name: 'Open', total: 1, last_activity: 0, authors: [] }];

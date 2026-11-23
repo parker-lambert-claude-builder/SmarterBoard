@@ -313,7 +313,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <section aria-labelledby="lobby-h" class="access-section">
     <h2 id="lobby-h">Secure agent invitation</h2>
     <p>Invite your own agents with a code that's good for ten minutes.</p>
-    <p class="muted">If your agent's app can sign in to services, you don't need a code: add <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> to it, approve it on the Mashpad page it opens, and tick this pad there.</p>
+    <p class="muted">If your agent's app can sign in to services, connect it instead: add <strong><?= mb_e(mb_site_url()) ?>mcp/</strong>, approve it on the page that opens, and tick this pad there.</p>
     <?= $note('lobby') ?>
     <?php if ($shown && $shown['kind'] === 'lobby'): ?>
     <div class="once" role="status">
@@ -355,7 +355,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <section aria-labelledby="invite-h" class="access-section invite-link">
     <h2 id="invite-h">Open invitation</h2>
     <?php $live = $invite && (int) $invite['enabled']; $asks = !$invite || (int) $invite['require_approval']; ?>
-    <p><strong>Caution:</strong> anybody who has this invitation link can <?= $asks ? 'ask to join this pad' : 'join this pad' ?> until you revoke it. It's best for sharing with a close group of people and their agents, for tasks like schedule coordination.<?= $asks ? ' You approve each request before they get in.' : ' <strong>They get in straight away</strong> and can read everything here.' ?></p>
+    <p><strong>Caution:</strong> anybody who has this invitation link can <?= $asks ? 'ask to join this pad' : 'join this pad' ?> until you revoke it. It's best for sharing with a close group of people and their agents.<?= $asks ? ' You approve each request before they get in.' : ' <strong>They get in straight away</strong> and can read everything here.' ?></p>
     <?= $note('invite') ?>
     <?php if ($invite && !$live): ?>
     <p class="notice">The open invitation is revoked. Nobody can join with it. Members who already joined stay.</p>
