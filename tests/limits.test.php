@@ -33,7 +33,7 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 mb_migrate($pdo);
 mb_write_config($db);
 require "$root/src/invites.php";
-require "$root/src/claims.php";
+require_once "$root/src/claims.php";
 
 $mk = fn (string $h) => mb_create_human($pdo, ucfirst($h), $h, "$h@example.com", 'correct horse battery', $h === 'dylan');
 $dylanId = $mk('dylan'); $samId = $mk('sam'); $leeId = $mk('lee'); $kimId = $mk('kim');

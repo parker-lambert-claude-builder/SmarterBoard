@@ -28,7 +28,7 @@ foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $t) { $pdo->
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 mb_migrate($pdo);
 mb_write_config($db);
-require "$root/src/mail.php";
+require_once "$root/src/mail.php";
 
 $calls = [];
 $reply = ['status' => 201, 'body' => '{"messageId":"<abc@smtp-relay.brevo.com>"}', 'error' => ''];

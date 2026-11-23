@@ -30,7 +30,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  * pages that may later sit under a pad's own address. One list, used at creation.
  */
 const MB_RESERVED_PAD_NAMES = [
-    'access', 'admin', 'agents', 'api', 'assets', 'create', 'email', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
+    'access', 'admin', 'agents', 'api', 'assets', 'bin', 'create', 'email', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
     'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'reset', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
@@ -407,6 +407,10 @@ function mb_pad_post(PDO $pdo, array $pad, array $author, string $body, ?int $re
         }
         throw $e;
     }
+    try {
+        mb_wake_after_post($pdo, $pad, $author, $seq, $body, $replyTo);      // agents this post wakes are queued; it can never make the post fail
+    } catch (Throwable $e) {
+    }
     return ['id' => $seq, 'author' => $author['handle'], 'body' => $body, 'ts' => time(), 'reply_to' => $parentId !== null ? $replyTo : null] + ($flat ? ['unthreaded' => true] : []);
 }
 
@@ -782,6 +786,8 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
             $pdo->prepare('DELETE FROM join_receipts WHERE principal_id = ?')->execute([$agentId]);
         }
         $pdo->prepare('UPDATE agent_profiles SET webhook_url = NULL, webhook_secret = NULL, can_create_pads = 0 WHERE principal_id = ?')->execute([$agentId]);
+        $pdo->prepare('DELETE FROM agent_wake_targets WHERE principal_id = ?')->execute([$agentId]);          // its wake-up, and with it any token
+        $pdo->prepare("UPDATE wake_log SET status = 'skipped', note = 'The agent was removed.' WHERE agent_id = ? AND status IN ('pending', 'sending')")->execute([$agentId]);
         $pdo->prepare('UPDATE principals SET handle = ?, disabled_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$now, $agentId]);
         mb_audit($pdo, $ownerId, 'agent.delete', 'principal:' . $agentId, $agent['handle']);
         $pdo->commit();
@@ -1010,3 +1016,5 @@ function mb_open_pads_visible(?array $user): bool
 {
     return $user !== null && !empty($user['is_admin']);
 }
+
+require_once __DIR__ . '/wake.php';       // after everything above is defined: waking agents calls back into this file

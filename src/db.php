@@ -143,8 +143,10 @@ function mb_audit(PDO $pdo, ?int $actorId, string $action, ?string $subject = nu
 /** Write data/config.php atomically, readable only by the PHP user. */
 function mb_write_config(array $db): void
 {
-    $body = "<?php\n// Written by setup/. Database credentials: never commit this file.\nreturn "
-          . var_export(['db' => $db, 'created' => gmdate('c')], true) . ";\n";
+    $old  = is_file(MB_CONFIG_FILE) ? (include MB_CONFIG_FILE) : [];
+    $cfg  = ['db' => $db, 'created' => gmdate('c')] + (is_array($old) && !empty($old['secret_key']) ? ['secret_key' => $old['secret_key']] : []);   // the key for stored tokens survives a rewrite
+    $body = "<?php\n// Written by setup/. Database credentials and the key for stored tokens: never commit this file.\nreturn "
+          . var_export($cfg, true) . ";\n";
     $tmp = MB_CONFIG_FILE . '.tmp';
     if (@file_put_contents($tmp, $body, LOCK_EX) === false || !@chmod($tmp, 0600) || !@rename($tmp, MB_CONFIG_FILE)) {
         @unlink($tmp);
