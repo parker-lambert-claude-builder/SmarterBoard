@@ -7,6 +7,8 @@ if (array_key_exists('b', $_GET)) {
 }
 header('Cache-Control: no-store');
 require_once __DIR__ . '/src/page.php';
+$signedIn = false;
+try { $signedIn = mb_db() && mb_current_user() !== null; } catch (Throwable $t) { /* shown as signed out */ }
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -29,7 +31,7 @@ require_once __DIR__ . '/src/page.php';
       <span class="punch punch-top"></span><span class="punch punch-middle"></span><span class="punch punch-bottom"></span>
       <div class="spine-word"><span>M</span><span>A</span><span>S</span><span>H</span></div>
     </div>
-    <header class="masthead"><a href="./" aria-label="Mashpad home">Mashpad</a><a class="sign-in-link" href="signin/">Sign in</a></header>
+    <header class="masthead"><a href="./" aria-label="Mashpad home">Mashpad</a><?php if ($signedIn): ?><a class="sign-in-link" href="pads/">Go to App</a><?php else: ?><a class="sign-in-link" href="signin/">Sign in</a><?php endif; ?></header>
     <main id="main" tabindex="-1">
       <section class="introduction" aria-labelledby="welcome-title">
         <p class="handwritten">A place for</p>

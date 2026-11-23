@@ -239,7 +239,7 @@ async function showBoard(slug, navigation) {
   } catch (e) {
     if (navigation !== state.navigation) return;
     state.loading = false;
-    main.innerHTML = `<div class="inner home"><a class="back" href="${PADS}" data-nav="">All pads</a>
+    main.innerHTML = `<div class="inner home"><a class="back" href="${PADS}" data-nav="">Your pads</a>
       <h1>${esc(slug)}</h1>
       ${e.status === 409 && Array.isArray(e.choices)
         ? `<p class="empty">More than one of your pads has this name. Pick one:</p><ul>${e.choices.map(c => `<li><a href="${esc(padURL(c))}" data-nav="${esc(c)}">${esc(c)}</a></li>`).join('')}</ul>`
@@ -262,7 +262,7 @@ async function showBoard(slug, navigation) {
   state.threaded = !!d.threaded;
   main.innerHTML = `
     <div class="inner board-head">
-      <a class="back" href="${PADS}" data-nav="">All pads</a>
+      <a class="back" href="${PADS}" data-nav="">Your pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
       <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
@@ -571,7 +571,7 @@ async function showSettings(slug, navigation) {
     d = await getJSON(`${API}?action=read&board=${encodeURIComponent(slug)}&since=0`);
   } catch (e) {
     if (navigation !== state.navigation) return;
-    main.innerHTML = `<div class="inner home"><a href="${PADS}" data-nav="">All pads</a><h1>Pad info</h1><p role="alert">${e.status === 404 ? 'This pad no longer exists.' : 'Pad info couldn’t be loaded. Please try again.'}</p></div>`;
+    main.innerHTML = `<div class="inner home"><a href="${PADS}" data-nav="">Your pads</a><h1>Pad info</h1><p role="alert">${e.status === 404 ? 'This pad no longer exists.' : 'Pad info couldn’t be loaded. Please try again.'}</p></div>`;
     return;
   }
   if (navigation !== state.navigation) return;

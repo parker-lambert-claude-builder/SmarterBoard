@@ -16,6 +16,9 @@ $step  = 'email';
 $pdo   = null;
 try { $pdo = mb_db(); } catch (Throwable $t) { $error = 'This page is unavailable right now. Please try again shortly.'; }
 $email = trim((string) ($_POST['email'] ?? ''));
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['step'] ?? '') === 'code') {
+    $step = 'code';            // the link in the email: straight to the code, with a box for the address
+}
 
 if ($pdo && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $act = (string) ($_POST['act'] ?? 'request');
@@ -42,34 +45,43 @@ if ($pdo && $_SERVER['REQUEST_METHOD'] === 'POST') {
 header('Cache-Control: no-store');
 $csrf = mb_csrf_token();
 mb_page_start($step === 'code' ? 'Enter your code' : 'Reset your password');
+$known = $email !== '';
 ?>
 <div class="form-page">
 <?php if ($step === 'code'): ?>
   <h1>Enter your code</h1>
-  <p>If <strong><?= mb_e($email) ?></strong> has a Mashpad account, we've emailed it a six-digit code. It works once and for 15 minutes.</p>
+  <p><?= $known ? 'If <strong>' . mb_e($email) . '</strong> has a Mashpad account, we\'ve emailed it a code.' : 'Enter your email address and the code we emailed you.' ?></p>
   <?php if ($note): ?><p class="notice" role="status"><?= mb_e($note) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <form method="post" action="<?= mb_e($here) ?>" class="reset-code-form">
-    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="complete"><input type="hidden" name="email" value="<?= mb_e($email) ?>">
-    <label for="reset-code">Code from the email</label>
+    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="complete">
+<?php if ($known): ?>
+    <input type="hidden" name="email" value="<?= mb_e($email) ?>">
+<?php else: ?>
+    <label>Email <input name="email" type="email" required autocomplete="email" autofocus></label>
+<?php endif; ?>
+    <label for="reset-code">Code</label>
     <div class="code-entry" data-code-entry>
-      <input id="reset-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus aria-describedby="reset-code-hint" value="<?= mb_e(preg_replace('/\D+/', '', (string) ($_POST['code'] ?? ''))) ?>">
+      <input id="reset-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required<?= $known ? ' autofocus' : '' ?> value="<?= mb_e(preg_replace('/\D+/', '', (string) ($_POST['code'] ?? ''))) ?>">
       <div class="code-boxes" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
     </div>
-    <p class="hint" id="reset-code-hint">Six digits. Your browser may offer to fill it in from the email.</p>
-    <label>New password <span class="hint">At least <?= MB_PASSWORD_MIN ?> characters. A few unrelated words works well.</span><input name="password" type="password" required minlength="<?= MB_PASSWORD_MIN ?>" autocomplete="new-password"></label>
+    <label>New password <span class="hint">At least <?= MB_PASSWORD_MIN ?> characters.</span><input name="password" type="password" required minlength="<?= MB_PASSWORD_MIN ?>" autocomplete="new-password"></label>
     <label>New password, again <input name="password2" type="password" required autocomplete="new-password"></label>
     <button type="submit">Save new password</button>
   </form>
+<?php if ($known): ?>
   <form method="post" action="<?= mb_e($here) ?>" class="reset-again">
     <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="again"><input type="hidden" name="email" value="<?= mb_e($email) ?>">
-    <p>No email after a few minutes? Check your spam folder and that the address is the one you signed up with. <button type="submit" class="quiet">Send a new code</button></p>
+    <p>No email? Check your spam folder. <button type="submit" class="quiet">Send a new code</button></p>
   </form>
   <p><a href="<?= mb_e($here) ?>">Use a different address</a> · <a href="<?= mb_e($base) ?>signin/">Back to sign in</a></p>
+<?php else: ?>
+  <p>No email? Check your spam folder, or <a href="<?= mb_e($here) ?>">ask for a new code</a>. · <a href="<?= mb_e($base) ?>signin/">Back to sign in</a></p>
+<?php endif; ?>
   <script src="<?= mb_e(mb_asset('code-entry.js')) ?>" defer></script>
 <?php else: ?>
   <h1>Reset your password</h1>
-  <p>Enter the email address you signed up with and we'll send you a six-digit code.</p>
+  <p>Enter your email address and we'll send you a code.</p>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <form method="post" action="<?= mb_e($here) ?>">
     <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="request">

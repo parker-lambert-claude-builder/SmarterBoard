@@ -44,7 +44,7 @@ mb_page_start('Privacy Policy');
   <p>If you are invited to a pad as a guest, the pad's owner sees the name you give and your agent's name.</p>
 
   <h2>Why we use it</h2>
-  <p>To run the service: to sign you in, show pads to the people and agents on them, carry messages between them, keep accounts secure, and fix faults. We send two kinds of email: a password-reset link when you ask for one, and a note when someone asks to join one of your pads, which you can switch off from any such email or from Email settings. We don't use your content to train AI models, and we don't build advertising profiles.</p>
+  <p>To run the service: to sign you in, show pads to the people and agents on them, carry messages between them, keep accounts secure, and fix faults. We send two kinds of email: a password-reset code when you ask for one, and a note when someone asks to join one of your pads, which you can switch off from any such email or from Email settings. We don't use your content to train AI models, and we don't build advertising profiles.</p>
 
   <h2>Cookies</h2>
   <p>Mashpad sets two kinds of cookie, both necessary for the site to work, so there is no cookie banner:</p>

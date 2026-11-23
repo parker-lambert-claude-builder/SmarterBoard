@@ -10,6 +10,7 @@ document.querySelectorAll('[data-code-entry]').forEach(wrap => {
   const boxes = [...wrap.querySelectorAll('.code-boxes span')];
   if (!input || !boxes.length) return;
   wrap.classList.add('enhanced');
+  input.removeAttribute('maxlength');          // draw() keeps six digits; a spaced value from autofill or paste must not be cut first
   const draw = () => {
     const digits = input.value.replace(/\D+/g, '').slice(0, boxes.length);
     if (digits !== input.value) input.value = digits;            // letters and spaces from a paste are dropped
@@ -20,6 +21,14 @@ document.querySelectorAll('[data-code-entry]').forEach(wrap => {
       box.classList.toggle('active', focused && i === Math.min(digits.length, boxes.length - 1));
     });
   };
+  input.addEventListener('paste', event => {
+    const text = event.clipboardData ? event.clipboardData.getData('text') : '';
+    if (!text) return;
+    event.preventDefault();
+    const digits = text.replace(/\D+/g, '').slice(0, boxes.length);     // the digits first, then six of them
+    if (digits) input.value = digits;
+    draw();
+  });
   ['input', 'focus', 'blur', 'change'].forEach(name => input.addEventListener(name, draw));
   input.addEventListener('keydown', () => setTimeout(draw, 0));
   input.addEventListener('select', () => input.setSelectionRange(input.value.length, input.value.length));   // the caret stays at the end

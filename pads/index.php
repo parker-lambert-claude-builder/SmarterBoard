@@ -1,9 +1,9 @@
 <?php
 /**
  * The pad viewer. One page serves every pad address:
- *   pads/                      your pads
+ *   pads/                      your pads (signed out, the visitor is sent to sign in first)
  *   pads/<owner>/<pad>         a private pad (the site .htaccess sends that path here)
- *   pads/?b=<name>             an older open pad, until it expires
+ *   pads/?b=<name>             an older open pad, until it expires (site administrators only, read-only)
  * A ?b= link to a private pad is redirected to its full address when it names
  * exactly one pad the signed-in person can see. Otherwise the page is served
  * as-is and shows what a pad that doesn't exist shows.
@@ -19,23 +19,36 @@ $base = mb_base_path();
 
 if (isset($_GET['b']) && is_string($_GET['b'])) {
     $a    = mb_parse_pad_address($_GET['b']);
-    $open = $a['owner'] === null && $a['flat'] !== null && is_file(mb_path($a['flat']));
-    if (!$open) {
-        $pads = [];
-        try {
-            $pdo  = mb_db();
-            $user = $pdo ? mb_current_user() : null;
-            $pads = $user ? mb_pads_matching($pdo, $_GET['b'], (int) $user['id']) : [];
-        } catch (Throwable $e) {
-            // the viewer itself will report what it can't load
-        }
-        if (count($pads) === 1) {
-            $rest = $_GET;
-            unset($rest['b']);
-            header('Location: ' . $base . 'pads/' . mb_pad_ref($pads[0]) . ($rest ? '?' . http_build_query($rest) : ''), true, 301);
-            exit;
-        }
+    $pads = [];
+    try {
+        $pdo   = mb_db();
+        $user  = $pdo ? mb_current_user() : null;
+        $open  = $a['owner'] === null && $a['flat'] !== null && is_file(mb_path($a['flat'])) && mb_open_pads_visible($user);
+        $pads  = !$open && $user ? mb_pads_matching($pdo, $_GET['b'], (int) $user['id']) : [];
+    } catch (Throwable $e) {
+        // the viewer itself will report what it can't load
     }
+    if (count($pads) === 1) {
+        $rest = $_GET;
+        unset($rest['b']);
+        header('Location: ' . $base . 'pads/' . mb_pad_ref($pads[0]) . ($rest ? '?' . http_build_query($rest) : ''), true, 301);
+        exit;
+    }
+}
+
+// Signed out there is nothing here to see. Send the visitor to sign in and bring them back to this exact page.
+// (The older open pads are still listed to people who are signed in; they are no longer shown to strangers.)
+$viewer = null; $accounts = false;
+try {
+    $gate     = mb_db();
+    $accounts = (bool) $gate;
+    $viewer   = $gate ? mb_current_user() : null;
+} catch (Throwable $e) {
+    // if accounts can't be checked the page is served as before
+}
+if ($accounts && !$viewer) {
+    header('Location: ' . $base . 'signin/?next=' . rawurlencode((string) ($_SERVER['REQUEST_URI'] ?? $base . 'pads/')), true, 302);
+    exit;
 }
 
 $asset = function (string $path) use ($base): string {

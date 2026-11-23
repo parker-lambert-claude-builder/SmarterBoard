@@ -102,7 +102,7 @@ test('missing pad settings show a recovery link without fabricating a pad', asyn
   context.location.search = '?b=launch-review&view=settings';
   await api.route();
   assert.match(element('main').innerHTML, /This pad no longer exists/);
-  assert.match(element('main').innerHTML, />All pads<\/a>/);
+  assert.match(element('main').innerHTML, />Your pads<\/a>/);
 });
 
 test('sidebar refresh preserves a focused settings link', async () => {

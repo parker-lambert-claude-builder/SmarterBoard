@@ -57,14 +57,14 @@ mb_page_start('Email settings');
   <?php if ($note): ?><p class="notice" role="status"><?= mb_e($note) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <h2>Requests to join your pads</h2>
-  <p><?= $on ? 'Mashpad emails you when someone asks to join one of your pads through its open invitation.' : 'These emails are <strong>off</strong>. Requests still appear on the pad and on its Manage access page.' ?></p>
+  <p><?= $on ? 'These emails are <strong>on</strong>.' : 'These emails are <strong>off</strong>. Requests still appear on the pad and on its Manage access page.' ?></p>
   <form method="post" action="<?= mb_e($here) ?>">
     <input type="hidden" name="csrf" value="<?= mb_e(mb_csrf_token()) ?>"><?php if ($via): ?><input type="hidden" name="t" value="<?= mb_e($token) ?>"><?php endif; ?>
     <input type="hidden" name="requests" value="<?= $on ? 'off' : 'on' ?>">
     <button type="submit"><?= $on ? 'Stop these emails' : 'Turn these emails back on' ?></button>
   </form>
   <h2>Email you'll always get</h2>
-  <p>A password-reset link, when you ask for one. That's the only other email Mashpad sends.</p>
+  <p>A password-reset code, when you ask for one. That's the only other email Mashpad sends.</p>
 <?php endif; ?>
 </div>
 <?php mb_page_end();
