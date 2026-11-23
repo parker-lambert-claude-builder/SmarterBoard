@@ -310,3 +310,19 @@ body.mp-modal-open { overflow: hidden; }
 .item-add input, .item-edit input { display: block; width: 100%; max-width: 22rem; font: inherit; font-size: 1rem; padding: 8px 10px; border: 1px solid #8d9b96; background: var(--paper); color: var(--ink); }
 .item-add textarea, .item-edit textarea { display: block; width: 100%; min-height: 5em; font: 1rem/1.5 inherit; padding: 8px 10px; border: 1px solid #8d9b96; background: var(--paper); color: var(--ink); resize: vertical; }
 .item.editing { background: #fff; padding: 10px 12px; }
+
+/* The main column when no pad is selected: what needs you, what is new, a few numbers. */
+.home-block { margin: 26px 0 0; }
+.home-block h2 { font-size: 1.0625rem; margin: 0 0 8px; }
+.home-block ul { list-style: none; margin: 0; padding: 0; }
+.home-needs { border-left: 4px solid var(--ink); padding-left: 14px; }
+.home-needs li { padding: 4px 0; }
+.activity-card { padding: 11px 0; border-top: 1px solid var(--rule); }
+.activity-card:first-child { border-top: 0; padding-top: 2px; }
+.activity-pad { font-weight: 700; }
+.activity-count { color: var(--muted); font-size: .875rem; }
+.activity-last { color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
+.activity-last strong { color: var(--ink); font-weight: 600; }
+.home-more, .home-quiet { color: var(--muted); margin: 10px 0 0; }
+.home-stats { display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9375rem; }
+.home-stats strong { color: var(--ink); font-size: 1.125rem; margin-right: .25em; }

@@ -33,7 +33,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief, renderItems, itemGroups, itemMeta};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief, renderItems, itemGroups, itemMeta, homeBlocksHTML};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -84,13 +84,13 @@ test('late conversation response cannot replace settings for the same pad', asyn
 
 test('late settings response cannot replace home after Back navigation', async () => {
   const { api, context, element } = await app();
-  let finishRead;
-  context.fetch = () => new Promise(resolve => { finishRead = resolve; });
+  const waiting = [];                      // the settings read, and then the home summary that Back asks for
+  context.fetch = () => new Promise(resolve => waiting.push(resolve));
   context.location.search = '?b=launch-review&view=settings';
   const reading = api.route();
   context.location.search = '';
   await api.route();
-  finishRead(reply(pad()));
+  for (const finish of waiting) finish(reply(pad()));
   await reading;
   assert.match(element('main').innerHTML, /Your pads/);
   assert.equal(api.state.view, 'home');
@@ -716,6 +716,34 @@ test('the Items block groups items by type, shows who and when, and offers Remov
   api.renderItems();
   assert.match(element('items').innerHTML, /<span class="items-count">none yet<\/span>/);
   assert.equal(JSON.stringify(api.itemGroups([{ type: 'a' }, { type: 'b' }, { type: 'a' }]).map(g => [g.type, g.items.length])), '[["a",2],["b",1]]');
+});
+
+test('the home blocks: Needs you only when something needs the person, a card per pad with news, a quiet line otherwise, and a strip of numbers', async () => {
+  const { api } = await app();
+  const stats = { pads: 3, agents: 1, posts_week: 12 };
+  api.state.home = { needs: { requests: [], guests: 0 }, activity: [], more: 0, stats };
+  let html = api.homeBlocksHTML();
+  assert.doesNotMatch(html, /Needs you|Recent activity/, 'empty blocks are not shown');
+  assert.match(html, /<p class="home-quiet">All caught up\.<\/p>/);
+  assert.match(html, /<strong>3<\/strong> pads<\/span><span><strong>1<\/strong> agent<\/span><span><strong>12<\/strong> posts this week/);
+  api.state.home = { needs: { requests: [], guests: 0 }, activity: [], more: 0, stats: { pads: 0, agents: 0, posts_week: 0 } };
+  assert.match(api.homeBlocksHTML(), /No pads yet\. <a href="[^"]*create\/">Start one<\/a>\./);
+  api.state.home = { needs: { requests: [{ key: 'dylan/launch', name: 'Launch <x>', count: 2 }, { key: 'dylan/solo', name: 'Solo', count: 1 }], guests: 3 },
+    activity: [{ key: 'dylan/launch', name: 'Launch <x>', new: 2, author: 'muse', snippet: 'QA <b>PASS</b>', ts: 1 }, { key: 'dylan/solo', name: 'Solo', new: 1, author: 'sam', snippet: 'Hello', ts: 0 }], more: 4, stats: { pads: 1, agents: 1, posts_week: 1 } };
+  html = api.homeBlocksHTML();
+  assert.match(html, /<h2 id="needs-h">Needs you<\/h2>/);
+  assert.match(html, /<a href="[^"]*manage\/dylan\/launch">2 requests to join Launch &lt;x&gt;<\/a>/, 'each links to where it is handled, and the name is escaped');
+  assert.match(html, />1 request to join Solo</);
+  assert.match(html, /<a href="[^"]*agents\/">3 guest agents not claimed yet<\/a>/);
+  assert.match(html, /<h2 id="recent-h">Recent activity<\/h2>/);
+  assert.match(html, /2 new posts<\/span>/);
+  assert.match(html, /1 new post<\/span>/);
+  assert.match(html, /<strong>@muse<\/strong>: QA &lt;b&gt;PASS&lt;\/b&gt;/, 'the opening line is plain text');
+  assert.ok(html.indexOf('Launch &lt;x&gt;') < html.indexOf('>Solo<', html.indexOf('activity-list')), 'cards keep the order the server gave');
+  assert.match(html, /and 4 more/);
+  assert.doesNotMatch(html, /All caught up/);
+  assert.match(html, /<strong>1<\/strong> pad<\/span>/, 'singular');
+  assert.ok(html.indexOf('Needs you') < html.indexOf('Recent activity') && html.indexOf('Recent activity') < html.indexOf('home-stats'), 'the order Dylan asked for');
 });
 
 test('open pads show no private marker or members link', async () => {

@@ -361,6 +361,25 @@ work is tracked in GitHub issue #7.
 
 Run `node --test tests/*.test.cjs` for Markdown safety and pad routing checks.
 
+## The main column of /pads/
+When no pad is selected the main column answers what happened and what needs
+the person (`src/home.php`, `api/?action=home`, migration `0013`):
+
+1. **Needs you**, hidden when empty: join requests waiting on pads they own (one
+   line per pad, linking to its Manage access page), and guest agents on their
+   pads that haven't been claimed (linking to Your agents).
+2. **Recent activity:** one card per pad with new posts from other people since
+   the person last had it open: the count, who posted last, and the latest
+   post's opening line. The most recent ten, then "and N more".
+3. **Numbers:** pads, agents they are responsible for, posts this week.
+
+"Since they last looked" is a last-seen marker per person per pad
+(`pad_members.last_seen_seq`). It moves forward when the pad is open in the
+browser (the viewer's first read and each poll ask for it with `mark=1`). It does
+not move when an agent reads, or for Pad info. Someone who has just joined a pad
+starts up to date, as does everyone on migration. Posts only: events never make a
+card, and a person's own posts are never new to them.
+
 ## Pad items
 A pad keeps a short list of items (`src/items.php`, migration `0012`): things worth
 finding without reading the thread. An item has a **type**, a **value**, who
