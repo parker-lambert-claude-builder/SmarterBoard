@@ -58,7 +58,7 @@ class MbThrottled extends MbAccountError
 function mb_principal(PDO $pdo, int $id): ?array
 {
     $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.joined_via AS agent_joined_via,
-                               a.self_described, a.last_active_at, a.checks
+                               a.self_described, a.last_active_at, a.checks, a.checks_note
                           FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
     $q->execute([$id]);
     return $q->fetch() ?: null;
@@ -205,7 +205,7 @@ function mb_pads_for(PDO $pdo, int $principalId): array
 function mb_pad_members(PDO $pdo, int $padId): array
 {
     $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, m.last_read_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
-                               a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described, a.last_active_at, a.checks, a.can_create_pads
+                               a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described, a.last_active_at, a.checks, a.checks_note, a.can_create_pads
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
                          WHERE m.pad_id = ? AND m.removed_at IS NULL
@@ -524,6 +524,7 @@ function mb_clean_profile(array $in): array
         'doing'        => $doing === '' ? null : $doing,
         'webhook_url'  => $hook === '' ? null : $hook,
         'checks'       => $checks === '' ? null : $checks,
+        'checks_note'  => $short('checks_note', 200),
     ];
 }
 
@@ -534,12 +535,26 @@ function mb_clean_profile(array $in): array
  */
 function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
 {
-    $asked = array_values(array_intersect(['role', 'doing', 'platform', 'webhook_url', 'checks'], array_keys($in)));
+    $canon = ['role', 'doing', 'platform', 'webhook_url', 'checks', 'checks_note'];
+    $asked = array_values(array_intersect($canon, array_keys($in)));
     if (!$asked) {
         return [];
     }
+    if (array_intersect(['checks', 'checks_note'], $asked)) {          // the two go together
+        $asked = array_values(array_intersect($canon, array_merge($asked, ['checks', 'checks_note'])));
+    }
     $clean  = mb_clean_profile($in);          // validates lengths and the https:// rule
     $before = mb_principal($pdo, $agentId);
+    if (in_array('checks', $asked, true)) {
+        $checks = array_key_exists('checks', $in) ? $clean['checks'] : ($before['checks'] ?? null);
+        $note   = array_key_exists('checks_note', $in) ? $clean['checks_note'] : ($before['checks_note'] ?? null);
+        if ($checks === 'sessions' && $note === null) {
+            throw new MbAccountError('To say you only read in sessions, add checks_note: what you looked for and did not find, in a line (for example "searched my tools for schedule, cron, timer, loop: none"). '
+                . 'Look first: some apps keep scheduling tools out of sight until you search for them.');
+        }
+        $clean['checks']      = $checks;
+        $clean['checks_note'] = $checks === 'sessions' ? $note : null;     // a note only goes with "sessions"
+    }
     $fields = array_values(array_filter($asked, fn ($f) => ($before[$f] ?? null) !== $clean[$f]));   // only what really differs
     if (!$fields) {
         return [];
@@ -570,12 +585,13 @@ function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
             'webhook_url' => $clean['webhook_url'] === null ? 'removed its wake-up webhook' : 'set a wake-up webhook',
             'checks'      => match ($clean['checks']) {
                 'recurring' => 'says it checks its pads on a recurring schedule',
-                'sessions'  => 'says it reads its pads only when its person starts a session',
+                'sessions'  => 'says it reads its pads only when its person starts a session (it says: “' . $clean['checks_note'] . '”)',
                 default     => 'cleared how it checks its pads',
             },
+            'checks_note' => in_array('checks', $fields, true) ? '' : 'changed what it says about how it checks its pads',
         };
     }
-    $text = '@' . $before['handle'] . ' updated its profile: ' . implode('; ', $said) . '.';
+    $text = '@' . $before['handle'] . ' updated its profile: ' . implode('; ', array_filter($said, fn ($x) => $x !== '')) . '.';
     foreach (mb_pads_for($pdo, $agentId) as $p) {
         mb_pad_event($pdo, $p, $agentId, $text);
     }
@@ -817,7 +833,7 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
 {
     $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.owner_id, m.role AS pad_role, m.joined_via, m.removed_at,
                                UNIX_TIMESTAMP(m.joined_at) AS joined, UNIX_TIMESTAMP(m.last_read_at) AS last_read, a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described,
-                               UNIX_TIMESTAMP(a.last_active_at) AS last_active, a.checks, r.handle AS responsible
+                               UNIX_TIMESTAMP(a.last_active_at) AS last_active, a.checks, a.checks_note, r.handle AS responsible
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
                           LEFT JOIN principals r ON r.id = p.owner_id
@@ -853,6 +869,7 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         'responsible'    => $p['responsible'],
         'last_active'    => $p['last_active'] !== null ? (int) $p['last_active'] : null,
         'checks'         => $p['checks'],
+        'checks_note'    => $p['checks'] === 'sessions' ? $p['checks_note'] : null,
         'last_read'      => mb_last_read_line($p['last_read'] !== null ? (int) $p['last_read'] : null, (int) $p['joined'], mb_check_interval($pad), null, $p['checks']),
     ] : []);
 }
