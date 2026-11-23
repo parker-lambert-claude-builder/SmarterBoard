@@ -119,6 +119,56 @@ check('a note given with "recurring" is ignored', mb_update_agent_profile($pdo, 
 check('the participant record shows no note then', mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'launch'), 'muse')['checks_note'] === null);
 check('an empty value clears it', mb_update_agent_profile($pdo, $museId, ['checks' => '']) === ['checks'] && $state() === [null, null] && str_contains($lastEvent($pad), 'cleared how it checks its pads'));
 
+// What an agent is on one pad: role, doing and the interval it agreed
+$pm = fn (array $p, string $h) => array_column(mb_pad_members($pdo, (int) $p['id']), null, 'handle')[$h];
+$part = fn (string $slug, string $h) => mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', $slug), $h);
+check('an agent\'s general role shows on a pad where it has none of its own', $pm($pad, 'muse')['agent_role'] === 'QA' && $pm($other, 'muse')['agent_role'] === 'QA');
+$r = mb_update_agent_profile($pdo, $museId, ['role' => 'Scheduling assistant', 'doing' => 'Finds times that work for everyone'], $pad);
+check('given a pad, role and doing are for that pad alone: only it changes, and only its members are told', $r === ['role', 'doing'] && $pm($pad, 'muse')['agent_role'] === 'Scheduling assistant' && $pm($pad, 'muse')['doing'] === 'Finds times that work for everyone'
+      && $pm($other, 'muse')['agent_role'] === 'QA' && mb_principal($pdo, $museId)['role'] === 'QA'
+      && $lastEvent($pad) === '@muse updated its profile for this pad: its role here is now "Scheduling assistant"; changed what it is doing here.' && $lastEvent($other) !== $lastEvent($pad), $lastEvent($pad));
+check('the participant record shows the pad\'s own role and doing, and the other pad shows the general role', $part('launch', 'muse')['role'] === 'Scheduling assistant' && $part('launch', 'muse')['doing'] === 'Finds times that work for everyone' && $part('other', 'muse')['role'] === 'QA');
+check('saying the same again changes nothing', mb_update_agent_profile($pdo, $museId, ['role' => 'Scheduling assistant'], $pad) === []);
+check('an empty value clears the pad\'s own and falls back to the general one', mb_update_agent_profile($pdo, $museId, ['role' => '', 'doing' => ''], $pad) === ['role', 'doing'] && $pm($pad, 'muse')['agent_role'] === 'QA' && $lastEvent($pad) === '@muse updated its profile for this pad: cleared its role here; cleared what it is doing here.');
+check('and a pad it is not on is refused', str_contains(err(fn () => mb_update_agent_profile($pdo, $buildId, ['role' => 'x'], $other)), 'You are not on that pad'));
+check('a general change still goes to every pad, as before', mb_update_agent_profile($pdo, $museId, ['platform' => 'Claude desktop']) === ['platform'] && str_contains($lastEvent($pad), 'it now runs on "Claude desktop"') && $lastEvent($other) === $lastEvent($pad));
+check('platform given with a pad is still the agent\'s own, not the pad\'s', mb_update_agent_profile($pdo, $museId, ['platform' => 'Codex'], $pad) === ['platform'] && mb_principal($pdo, $museId)['platform'] === 'Codex' && str_contains($lastEvent($other), 'it now runs on "Codex"'));
+
+// The agreed interval
+check('whole seconds between a minute and a week are accepted, and a number in a string too', mb_check_agreed(900) === 900 && mb_check_agreed('3600') === 3600 && mb_check_agreed(60) === 60 && mb_check_agreed(604800) === 604800 && mb_check_agreed(900.0) === 900);
+foreach ([30, 59, 604801, 'abc', 1.5, -5, null] as $bad) {
+    check('an interval of ' . json_encode($bad) . ' is refused', str_contains(err(fn () => mb_check_agreed($bad)), 'check_interval_seconds'));
+}
+check('an interval is for one pad: without board it is refused', str_contains(err(fn () => mb_update_agent_profile($pdo, $museId, ['check_interval_seconds' => 3600])), 'say which with board'));
+check('the interval a member counts by is the agreed one, or the pad\'s suggestion', mb_member_interval($padRow ?? mb_pad_by_address($pdo, 'dylan', 'launch'), 3600) === 3600 && mb_member_interval(mb_pad_by_address($pdo, 'dylan', 'launch'), null) === 900);
+$r = mb_update_agent_profile($pdo, $museId, ['check_interval_seconds' => 3600], $pad);
+check('an agreed interval is recorded for that pad and announced there, and the other pad is untouched', $r === ['check_interval_seconds'] && (int) $pm($pad, 'muse')['declared_interval'] === 3600 && $pm($other, 'muse')['declared_interval'] === null
+      && $lastEvent($pad) === '@muse updated its profile for this pad: says it checks this pad every 1 hour.');
+check('the participant record carries it, and the last-read line says it', $part('launch', 'muse')['check_interval'] === 3600 && str_starts_with($part('launch', 'muse')['last_read']['text'], 'Checks every 1 hour. ') && $part('other', 'muse')['check_interval'] === null);
+$pdo->exec("UPDATE pad_members SET last_read_at = UTC_TIMESTAMP() - INTERVAL 2 HOUR WHERE pad_id = {$pad['id']} AND principal_id = $museId");
+$lrl = $part('launch', 'muse')['last_read'];
+check('late is judged against what the agent agreed: two hours is fine for an hourly check', $lrl['text'] === 'Checks every 1 hour. Last read 2 hours ago.' && $lrl['overdue'] === false, json_encode($lrl));
+$pdo->exec("UPDATE pad_members SET last_read_at = UTC_TIMESTAMP() - INTERVAL 5 HOUR WHERE pad_id = {$pad['id']} AND principal_id = $museId");
+check('and five hours is late for it', $part('launch', 'muse')['last_read']['overdue'] === true && str_contains($part('launch', 'muse')['last_read']['text'], 'Its check may have stopped'));
+$pdo->exec("UPDATE pad_members SET last_read_at = UTC_TIMESTAMP() - INTERVAL 2 HOUR WHERE pad_id = {$pad['id']} AND principal_id = $museId");
+check('an empty value clears the agreement, says what the pad suggests, and the pad\'s suggestion judges again: two hours is late', mb_update_agent_profile($pdo, $museId, ['check_interval_seconds' => ''], $pad) === ['check_interval_seconds']
+      && $lastEvent($pad) === '@muse updated its profile for this pad: cleared its check interval here (the pad suggests 15 minutes).' && $part('launch', 'muse')['last_read']['overdue'] === true && $part('launch', 'muse')['check_interval'] === null);
+mb_update_agent_profile($pdo, $museId, ['check_interval_seconds' => 1800], $pad);
+mb_update_agent_profile($pdo, $museId, ['checks' => 'sessions', 'checks_note' => 'searched: none']);
+check('an agent that says it only reads in sessions has no interval to agree', str_contains(err(fn () => mb_update_agent_profile($pdo, $museId, ['check_interval_seconds' => 3600], $pad)), 'no interval to agree'));
+check('and what it agreed earlier is not shown: it is read as sessions', $part('launch', 'muse')['check_interval'] === null && str_starts_with($part('launch', 'muse')['last_read']['text'], 'Reads only when its person starts a session.') && $part('launch', 'muse')['last_read']['overdue'] === false);
+mb_update_agent_profile($pdo, $museId, ['checks' => '']);
+
+// What an agent is told
+$g = mb_check_guidance(900);
+check('the advice is Dylan\'s wording: suggest an interval to your operator, by how quickly people need a response, and agree it before setting up the check', str_contains($g, 'If you can run recurring checks, suggest a check-in interval to your operator based on how quickly people on this pad need a response. Every 15 minutes may make sense for time-sensitive coordination. Hourly or daily may be enough for ongoing discussion.')
+      && str_contains($g, 'Agree on an interval with your operator before setting up the check'));
+check('it gives the pad\'s own suggestion as a starting point, in words', str_contains($g, 'This pad suggests 15 minutes as a starting point.') && str_contains(mb_check_guidance(3600), 'This pad suggests 1 hour as a starting point.'));
+check('it says how to record the interval, to look before deciding it can\'t schedule, and what to say if there is none', str_contains($g, 'update_profile with board set to this pad, check_interval_seconds set to the agreed number of seconds, and checks set to "recurring"')
+      && str_contains($g, 'Look before you decide your app can\'t run a recurring check') && str_contains($g, 'checks_note saying what you looked for') && str_contains($g, 'get_check_task'));
+check('it no longer tells an agent to set up a check every 15 minutes', !str_contains($g, 'set up a recurring check every'));
+check('a join and a first read say the same advice, each with its own opening', str_starts_with(mb_check_guidance_joined(900), 'You are a member of this pad now.') && str_ends_with(mb_check_guidance_joined(900), $g) && str_starts_with(mb_check_guidance_first_read(900), 'This is your first read of this pad') && str_ends_with(mb_check_guidance_first_read(900), $g));
+
 // The plan sets the interval
 $padRow = mb_pad_by_address($pdo, 'dylan', 'launch');
 check('a pad carries its owner\'s plan interval', mb_check_interval($padRow) === 900 && mb_check_interval(mb_pads_for($pdo, $museId)[0]) === 900);

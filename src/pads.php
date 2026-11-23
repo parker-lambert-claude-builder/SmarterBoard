@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/plans.php';
+require_once __DIR__ . '/checkguide.php';
 require_once __DIR__ . '/../lib.php';
 
 const MB_LOBBY_SECONDS  = 600;
@@ -177,7 +178,7 @@ function mb_not_found(string $name): MbAccountError
 function mb_pads_for(PDO $pdo, int $principalId): array
 {
     $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, o.handle AS owner_handle, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
-                               pl.retention_days, pl.check_interval_seconds, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
+                               pl.retention_days, pl.check_interval_seconds, m.check_interval_seconds AS agreed_interval, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
                                (SELECT COUNT(*) FROM messages x WHERE x.pad_id = d.id) AS total
                           FROM pad_members m JOIN pads d ON d.id = m.pad_id
                           JOIN principals o ON o.id = d.owner_id LEFT JOIN plans pl ON pl.code = o.plan_code
@@ -205,7 +206,7 @@ function mb_pads_for(PDO $pdo, int $principalId): array
 function mb_pad_members(PDO $pdo, int $padId): array
 {
     $q = $pdo->prepare("SELECT m.role, m.joined_via, m.joined_at, m.last_read_at, p.id, p.kind, p.handle, p.display_name, p.owner_id,
-                               a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described, a.last_active_at, a.checks, a.checks_note, a.can_create_pads
+                               COALESCE(m.profile_role, a.role) AS agent_role, COALESCE(m.profile_doing, a.doing) AS doing, m.check_interval_seconds AS declared_interval, a.platform, a.acts_for, a.self_described, a.last_active_at, a.checks, a.checks_note, a.can_create_pads
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
                          WHERE m.pad_id = ? AND m.removed_at IS NULL
@@ -533,7 +534,85 @@ function mb_clean_profile(array $in): array
  * an empty string clears that field. Returns the names of the fields changed.
  * The webhook address is stored for the wake-up release; nothing calls it yet.
  */
-function mb_update_agent_profile(PDO $pdo, int $agentId, array $in): array
+/**
+ * An agent changes its own details. With no $pad, role and doing are its general description, shown wherever a pad
+ * has none of its own. With a $pad, role, doing and check_interval_seconds are for that pad alone: an agent may help
+ * with scheduling on one pad and QA on another. Platform, the webhook and how it checks (checks, checks_note) are
+ * about the app, so they are the agent's, whatever the pad. Returns the names of what changed.
+ */
+function mb_update_agent_profile(PDO $pdo, int $agentId, array $in, ?array $pad = null): array
+{
+    $padKeys = ['role', 'doing', 'check_interval_seconds'];
+    if ($pad === null) {
+        if (array_key_exists('check_interval_seconds', $in)) {
+            throw new MbAccountError('check_interval_seconds is for one pad: say which with board.');
+        }
+        return mb_update_agent_general($pdo, $agentId, $in);
+    }
+    $changed = [];
+    $general = array_diff_key($in, array_flip($padKeys));
+    if (array_intersect_key($in, array_flip($padKeys))) {
+        $changed = mb_update_pad_profile($pdo, $agentId, $pad, array_intersect_key($in, array_flip($padKeys)));
+    }
+    if (array_intersect(array_keys($general), ['platform', 'webhook_url', 'checks', 'checks_note'])) {
+        $changed = array_merge($changed, mb_update_agent_general($pdo, $agentId, $general));
+    }
+    return $changed;
+}
+
+/** One agent's role, doing and agreed interval on one pad. */
+function mb_update_pad_profile(PDO $pdo, int $agentId, array $pad, array $in): array
+{
+    $q = $pdo->prepare('SELECT profile_role, profile_doing, check_interval_seconds FROM pad_members WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL');
+    $q->execute([$pad['id'], $agentId]);
+    $before = $q->fetch();
+    if (!$before) {
+        throw new MbAccountError('You are not on that pad.');
+    }
+    $agent = mb_principal($pdo, $agentId);
+    $clean = mb_clean_profile($in);
+    $new   = [];
+    if (array_key_exists('role', $in)) {
+        $new['profile_role'] = $clean['role'];
+    }
+    if (array_key_exists('doing', $in)) {
+        $new['profile_doing'] = $clean['doing'];
+    }
+    if (array_key_exists('check_interval_seconds', $in)) {
+        $blank = $in['check_interval_seconds'] === null || (is_string($in['check_interval_seconds']) && trim($in['check_interval_seconds']) === '');
+        if (!$blank && ($agent['checks'] ?? null) === 'sessions') {
+            throw new MbAccountError('You have said you only read when your person starts a session, so there is no interval to agree. Set checks to "recurring" first, once a check is running.');
+        }
+        $new['check_interval_seconds'] = $blank ? null : mb_check_agreed($in['check_interval_seconds']);
+    }
+    $changed = array_values(array_filter(array_keys($new), fn ($c) => ($before[$c] === null ? null : (is_numeric($before[$c]) ? (int) $before[$c] : $before[$c])) !== $new[$c]));
+    if (!$changed) {
+        return [];
+    }
+    $set = []; $args = [];
+    foreach ($changed as $c) {
+        $set[]  = "$c = ?";
+        $args[] = $new[$c];
+    }
+    $args[] = $pad['id'];
+    $args[] = $agentId;
+    $pdo->prepare('UPDATE pad_members SET ' . implode(', ', $set) . ' WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL')->execute($args);
+    $pdo->prepare('UPDATE agent_profiles SET self_described = 1 WHERE principal_id = ?')->execute([$agentId]);
+    mb_audit($pdo, $agentId, 'agent.pad_profile', 'pad:' . $pad['id'], implode(',', $changed));
+    $said = [];
+    foreach ($changed as $c) {
+        $said[] = match ($c) {
+            'profile_role'           => $new[$c] === null ? 'cleared its role here' : 'its role here is now "' . $new[$c] . '"',
+            'profile_doing'          => $new[$c] === null ? 'cleared what it is doing here' : 'changed what it is doing here',
+            'check_interval_seconds' => $new[$c] === null ? 'cleared its check interval here (the pad suggests ' . mb_interval_words(mb_check_interval($pad)) . ')' : 'says it checks this pad every ' . mb_interval_words($new[$c]),
+        };
+    }
+    mb_pad_event($pdo, $pad, $agentId, '@' . $agent['handle'] . ' updated its profile for this pad: ' . implode('; ', $said) . '.');
+    return array_map(fn ($c) => ['profile_role' => 'role', 'profile_doing' => 'doing', 'check_interval_seconds' => 'check_interval_seconds'][$c], $changed);
+}
+
+/** The agent's own details, whatever the pad. */
+function mb_update_agent_general(PDO $pdo, int $agentId, array $in): array
 {
     $canon = ['role', 'doing', 'platform', 'webhook_url', 'checks', 'checks_note'];
     $asked = array_values(array_intersect($canon, array_keys($in)));
@@ -832,7 +911,7 @@ function mb_join_pad(PDO $pdo, string $address, string $code, ?array $agent, arr
 function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
 {
     $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.owner_id, m.role AS pad_role, m.joined_via, m.removed_at,
-                               UNIX_TIMESTAMP(m.joined_at) AS joined, UNIX_TIMESTAMP(m.last_read_at) AS last_read, a.role AS agent_role, a.doing, a.platform, a.acts_for, a.self_described,
+                               UNIX_TIMESTAMP(m.joined_at) AS joined, UNIX_TIMESTAMP(m.last_read_at) AS last_read, COALESCE(m.profile_role, a.role) AS agent_role, COALESCE(m.profile_doing, a.doing) AS doing, m.check_interval_seconds AS declared_interval, a.platform, a.acts_for, a.self_described,
                                UNIX_TIMESTAMP(a.last_active_at) AS last_active, a.checks, a.checks_note, r.handle AS responsible
                           FROM pad_members m JOIN principals p ON p.id = m.principal_id
                           LEFT JOIN agent_profiles a ON a.principal_id = p.id
@@ -870,7 +949,9 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         'last_active'    => $p['last_active'] !== null ? (int) $p['last_active'] : null,
         'checks'         => $p['checks'],
         'checks_note'    => $p['checks'] === 'sessions' ? $p['checks_note'] : null,
-        'last_read'      => mb_last_read_line($p['last_read'] !== null ? (int) $p['last_read'] : null, (int) $p['joined'], mb_check_interval($pad), null, $p['checks']),
+        'check_interval' => $p['checks'] === 'sessions' || $p['declared_interval'] === null ? null : (int) $p['declared_interval'],      // what it agreed for this pad, in seconds
+        'last_read'      => mb_last_read_line($p['last_read'] !== null ? (int) $p['last_read'] : null, (int) $p['joined'], mb_member_interval($pad, $p['declared_interval'] !== null ? (int) $p['declared_interval'] : null), null, $p['checks'],
+                                              $p['declared_interval'] !== null ? (int) $p['declared_interval'] : null),
     ] : []);
 }
 
@@ -898,23 +979,24 @@ function mb_ago_words(int $seconds): string
 
 /**
  * The plain line about when an agent last read a pad, and whether that is late. Late means longer than four
- * times the interval the pad asks for; an agent that has joined and never read is late after two. An agent that has
+ * times its interval (the one it agreed for this pad, or the pad's own suggestion); an agent that has joined and never read is late after two. An agent that has
  * said it only reads when its person starts a session ($checks = 'sessions') is never late: a gap is what it said to expect.
  * Returns ['ts' => int|null, 'text' => string, 'overdue' => bool].
  */
-function mb_last_read_line(?int $lastRead, int $joined, int $interval, ?int $now = null, ?string $checks = null): array
+function mb_last_read_line(?int $lastRead, int $joined, int $interval, ?int $now = null, ?string $checks = null, ?int $agreed = null): array
 {
     $now ??= time();
+    $said = $agreed !== null && $checks !== 'sessions' ? 'Checks every ' . mb_interval_words($agreed) . '. ' : '';      // what it agreed for this pad
     if ($checks === 'sessions') {
         // It said it only reads when its person starts a session, so a gap is expected, not a stopped schedule.
         return ['ts' => $lastRead, 'text' => 'Reads only when its person starts a session. ' . ($lastRead === null ? 'Hasn\'t read this pad yet.' : 'Last read ' . mb_ago_words($now - $lastRead) . '.'), 'overdue' => false];
     }
     if ($lastRead === null) {
         $late = $now - $joined > 2 * $interval;
-        return ['ts' => null, 'text' => $late ? 'Hasn\'t read this pad yet. Its check may not be set up.' : 'Hasn\'t read this pad yet.', 'overdue' => $late];
+        return ['ts' => null, 'text' => $said . ($late ? 'Hasn\'t read this pad yet. Its check may not be set up.' : 'Hasn\'t read this pad yet.'), 'overdue' => $late];
     }
     $late = $now - $lastRead > 4 * $interval;
-    return ['ts' => $lastRead, 'text' => 'Last read ' . mb_ago_words($now - $lastRead) . '.' . ($late ? ' Its check may have stopped.' : ''), 'overdue' => $late];
+    return ['ts' => $lastRead, 'text' => $said . 'Last read ' . mb_ago_words($now - $lastRead) . '.' . ($late ? ' Its check may have stopped.' : ''), 'overdue' => $late];
 }
 
 /**
