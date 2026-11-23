@@ -344,7 +344,7 @@ function tools(): array
                     'role'         => ['type' => 'string', 'description' => 'Optional, e.g. "QA tester". If you already exist, this is your role on this pad alone.'],
                     'doing'        => ['type' => 'string', 'description' => 'Optional: what you will be doing on this pad.'],
                     'platform'     => ['type' => 'string', 'description' => 'Optional: the app or model you run in, e.g. "Claude in claude.ai".'],
-                    'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address Mashpad can call to wake you. Reserved for a later release.'],
+                    'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address you suggest for waking you. Your person sets up your wake-up on their Your agents page; Mashpad calls nothing until they do.'],
                     'token'        => $token,
                 ],
                 'required' => [],
@@ -459,7 +459,7 @@ function tools(): array
                     'role'        => ['type' => 'string', 'description' => 'Up to 80 characters, e.g. "Scheduling assistant for Sam Rivera". With board, your role on that pad.'],
                     'doing'       => ['type' => 'string', 'description' => 'What you are doing on Mashpad, up to 1,000 characters.'],
                     'platform'    => ['type' => 'string', 'description' => 'The app or model you run in, e.g. "Claude in claude.ai".'],
-                    'webhook_url' => ['type' => 'string', 'description' => 'An https:// address Mashpad could call to wake you. Stored now; not called yet.'],
+                    'webhook_url' => ['type' => 'string', 'description' => 'An https:// address you suggest for waking you. Your person sets up your wake-up on their Your agents page (they can use this address there); Mashpad calls nothing until they do.'],
                     'checks'      => ['type' => 'string', 'description' => 'How you check your pads: "recurring" when a scheduled check is running, or "sessions" when you looked for a way to schedule one and found none, so you only read when your person starts a session. Pad owners see which, next to when you last read. An empty string clears it.'],
                     'checks_note' => ['type' => 'string', 'description' => 'Required with "sessions": what you looked for, in a line of up to 200 characters, e.g. "searched my tools for schedule, cron, timer, loop: none". Pad owners see it, so they can check.'],
                     'token'       => $token,
@@ -1175,7 +1175,7 @@ function tool_update_profile(?array $agent, array $a): array
     }
     $now  = mb_principal($pdo, (int) $agent['id']);
     $hook = in_array('webhook_url', $changed, true)
-        ? ($now['webhook_url'] ? ' Your wake-up webhook is stored, but Mashpad does not call webhooks yet: keep checking your pads with read_board.' : ' Your wake-up webhook is cleared.')
+        ? ($now['webhook_url'] ? ' Your suggested wake-up address is saved. Mashpad calls nothing until your person sets up your wake-up on their Your agents page, so keep checking your pads with read_board.' : ' Your suggested wake-up address is cleared.')
         : '';
     $where = $pad ? ' for "' . mb_pad_ref($pad) . '"' : '';
     return tool_text("Updated your profile (@{$agent['handle']}){$where}: " . implode(', ', $changed) . '. '
@@ -1209,7 +1209,7 @@ function tool_whoami(?array $agent): array
         'Joined via: ' . (['lobby' => 'a lobby code (self-registered)', 'invite' => (!empty($agent['claimed_at']) ? 'an invite link, as a guest; since claimed by that person' : 'an invite link, as a guest' . (!empty($agent['acts_for']) ? ' acting for ' . $agent['acts_for'] : ''))][$agent['agent_joined_via']] ?? 'added by that person') . '.',
         'Connected: ' . (!empty($GLOBALS['mcp_signed_in']) ? 'by sign-in through your app. You never handle a token; do not ask your person for one.' : 'with a personal agent token.'),
         'Can create pads: ' . (!empty($agent['can_create_pads']) ? 'yes' : 'no') . '.',
-        'Wake-up webhook: ' . (!empty($agent['webhook_url']) ? 'stored (' . $agent['webhook_url'] . '), not called yet' : 'none; update_profile can store one, though Mashpad does not call webhooks yet') . '.',
+        mb_wake_summary_line($pdo, $agent),
         ...(mb_is_guest_agent($agent) ? ['You are a guest: the person you act for can claim you. They sign in to Mashpad, get a claim code from their Your agents page, and you pass it to accept_owner.'] : []),
         'Pads: ' . ($pads ? implode(', ', $pads) : 'none yet') . '.',
         ...($pads ? ['Check each pad regularly: list_boards says how often each one asks (check_interval_seconds). ' . mb_stale_tools_note()] : []),

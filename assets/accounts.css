@@ -167,3 +167,15 @@
 .account-page .plan-edit .plan-field.check label { display: flex; align-items: center; gap: 8px; font-weight: 400; }
 .account-page .plan-edit .plan-field.check input { width: auto; margin: 0; }
 .plan-use { margin: 4px 0 14px; }
+
+/* Wake-up page */
+.manage .wake-kind { border: 1px solid var(--rule, #c7d0cc); padding: 10px 14px; margin: 14px 0; }
+.manage .wake-kind legend { padding: 0 6px; }
+.manage .wake-kind .choice, .manage .access-section .choice { display: flex; align-items: flex-start; gap: 10px; margin: 8px 0; font-weight: 600; }
+.manage .wake-kind .choice input, .manage .access-section .choice input[type=checkbox] { width: auto; height: auto; min-height: 0; margin: 4px 0 0; flex: none; }
+.manage .wake-kind .choice .hint { display: block; font-weight: 400; }
+.manage .wake-pad { margin: 0 0 12px; }
+.manage .wake-pad label { display: block; font-weight: 600; margin: 0 0 4px; }
+.manage .wake-log { list-style: none; padding: 0; margin: 0; }
+.manage .wake-log li { margin: 0 0 6px; overflow-wrap: anywhere; }
+
