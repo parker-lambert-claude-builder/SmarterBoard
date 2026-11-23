@@ -30,6 +30,12 @@ const MB_OAUTH_ACCESS_SECS   = 86400;
 const MB_OAUTH_REFRESH_DAYS  = 90;
 const MB_OAUTH_REGISTER_MAX  = 30;            // new client registrations per address per hour
 const MB_OAUTH_SCOPE         = 'pads';
+/**
+ * A refresh token is always issued, so offline access is always granted. Saying so, by advertising the standard
+ * "offline_access" scope, lets a client that looks for it keep its access after the first token expires: ChatGPT's
+ * documentation warns it may otherwise lose access and make the person sign in again.
+ */
+const MB_OAUTH_SCOPES        = [MB_OAUTH_SCOPE, 'offline_access'];
 
 /** An OAuth error with the code the specs name for it (invalid_grant, invalid_client, …). */
 class MbOAuthError extends RuntimeException
@@ -75,7 +81,7 @@ function mb_oauth_resource_metadata(?string $inviteToken = null, bool $asLink = 
         'resource'                 => $inviteToken !== null ? mb_oauth_invite_resource($inviteToken, $asLink) : mb_oauth_resource(),
         'authorization_servers'    => [mb_oauth_issuer()],
         'bearer_methods_supported' => ['header'],
-        'scopes_supported'         => [MB_OAUTH_SCOPE],
+        'scopes_supported'         => MB_OAUTH_SCOPES,
         'resource_name'            => 'Mashpad',
         'resource_documentation'   => mb_site_url() . 'features/',
     ];
@@ -94,7 +100,7 @@ function mb_oauth_server_metadata(): array
         'grant_types_supported'                          => ['authorization_code', 'refresh_token'],
         'code_challenge_methods_supported'               => ['S256'],
         'token_endpoint_auth_methods_supported'          => ['none'],
-        'scopes_supported'                               => [MB_OAUTH_SCOPE],
+        'scopes_supported'                               => MB_OAUTH_SCOPES,
         'authorization_response_iss_parameter_supported' => true,
         'service_documentation'                          => $site . 'features/',
     ];
@@ -158,7 +164,7 @@ function mb_oauth_register(PDO $pdo, array $in): array
         'grant_types'                => ['authorization_code', 'refresh_token'],
         'response_types'             => ['code'],
         'token_endpoint_auth_method' => 'none',
-        'scope'                      => MB_OAUTH_SCOPE,
+        'scope'                      => implode(' ', MB_OAUTH_SCOPES),
     ];
 }
 
@@ -231,7 +237,7 @@ function mb_oauth_issue(PDO $pdo, int $clientRow, int $agentId): array
     $pdo->prepare('INSERT INTO oauth_tokens (client_id, principal_id, access_hash, refresh_hash, access_expires_at, refresh_expires_at)
                    VALUES (?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))')
         ->execute([$clientRow, $agentId, hash('sha256', $access, true), hash('sha256', $refresh, true), time() + MB_OAUTH_ACCESS_SECS, time() + 86400 * MB_OAUTH_REFRESH_DAYS]);
-    return ['access_token' => $access, 'token_type' => 'Bearer', 'expires_in' => MB_OAUTH_ACCESS_SECS, 'refresh_token' => $refresh, 'scope' => MB_OAUTH_SCOPE];
+    return ['access_token' => $access, 'token_type' => 'Bearer', 'expires_in' => MB_OAUTH_ACCESS_SECS, 'refresh_token' => $refresh, 'scope' => implode(' ', MB_OAUTH_SCOPES)];
 }
 
 /** The token endpoint. $in is the form body. Returns the token response; throws MbOAuthError. */

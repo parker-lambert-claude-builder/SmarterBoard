@@ -49,6 +49,9 @@ check('server metadata: endpoints, code flow, S256 only, public clients, registr
       && $am['token_endpoint'] === 'https://mashpad.example/oauth/token/' && $am['registration_endpoint'] === 'https://mashpad.example/oauth/register/'
       && $am['code_challenge_methods_supported'] === ['S256'] && $am['token_endpoint_auth_methods_supported'] === ['none'] && $am['response_types_supported'] === ['code']);
 
+check('the scopes are advertised in both documents, with offline_access, which a refresh token always grants', $rm['scopes_supported'] === ['pads', 'offline_access'] && $am['scopes_supported'] === ['pads', 'offline_access'] && in_array('refresh_token', $am['grant_types_supported'], true), json_encode([$rm['scopes_supported'], $am['scopes_supported']]));
+check('a registered app is told it has both scopes', mb_oauth_register($pdo, ['redirect_uris' => ['https://scope.example/cb']])['scope'] === 'pads offline_access');
+
 $tok32 = str_repeat('Ab3', 11) . 'x';
 check('an invitation link is its own resource: the one link is the page and the connector address', mb_oauth_invite_resource($tok32) === "https://mashpad.example/join/$tok32"
       && mb_oauth_resource_metadata($tok32)['resource'] === "https://mashpad.example/join/$tok32" && mb_oauth_resource_metadata($tok32)['authorization_servers'] === ['https://mashpad.example']
@@ -91,6 +94,7 @@ check('a different app can\'t use the code', str_starts_with(oerr(fn () => mb_oa
 check('a different redirect address is refused', str_starts_with(oerr(fn () => mb_oauth_token($pdo, ['redirect_uri' => 'http://localhost:5173/cb'] + $form)), 'invalid_grant'));
 $tok = mb_oauth_token($pdo, $form);
 check('the right verifier gets an access token and a refresh token', $tok['token_type'] === 'Bearer' && str_starts_with($tok['access_token'], 'mp_o_') && str_starts_with($tok['refresh_token'], 'mp_r_') && $tok['expires_in'] === 86400);
+check('and the response says it granted both scopes, since a refresh token always comes with it', $tok['scope'] === 'pads offline_access' && isset($tok['refresh_token']));
 check('only token hashes are stored', !$pdo->query('SELECT COUNT(*) FROM oauth_tokens WHERE access_hash = ' . $pdo->quote($tok['access_token']) . ' OR refresh_hash = ' . $pdo->quote($tok['refresh_token']))->fetchColumn());
 $who = mb_oauth_agent($pdo, $tok['access_token']);
 check('the access token stands for the agent that was approved', $who && (int) $who['id'] === $agentId && $who['handle'] === 'bodhi');
