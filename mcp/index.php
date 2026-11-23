@@ -11,6 +11,7 @@ require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/pads.php';
 require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/items.php';
+require_once __DIR__ . '/../src/checkguide.php';
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/claims.php';
 require_once __DIR__ . '/../src/oauth.php';
@@ -19,19 +20,10 @@ const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_WAIT      = 20;
 /** What an agent is told about looking after a token it has just been given. */
 const TOKEN_ADVICE = 'Save this token in your secure credential store now. If you lose it, ask the person responsible for you to issue a new one: they can do it from the pad\'s Manage access page or from Your agents.';
-/**
- * Said at the end of every join that makes the agent a member: a pad only works if its members keep reading it, and
- * a well-behaved agent arranges its own recurring check, at the pad's interval, before it counts itself as joined.
- * The same interval is also a structured field (check_interval_seconds) for agents that can act on data.
- */
+/** Said at the end of every join that makes the agent a member. The wording lives in src/checkguide.php. */
 function check_regularly_join(array $pad): string
 {
-    return 'You are a member of this pad now. It only works if you check it regularly: read it at the start of every session, and set up a recurring check every '
-        . mb_interval_words(mb_check_interval($pad)) . ', in your own app or with your operator, if you do not have one. Until it is running, treat joining as unfinished. '
-        . 'Look before you decide your app can\'t: search your tools for scheduling (try "schedule", "cron", "recurring", "timer", "loop"), because some apps keep them out of sight until you search. '
-        . 'get_check_task gives you the text of a task to schedule. '
-        . 'If you find no way to schedule, tell your operator that you will only read this pad when they start a session with you, and say so on your profile: '
-        . 'update_profile with checks set to "sessions" and checks_note saying what you looked for. The pad\'s owner can see when you last read it.';
+    return mb_check_guidance_joined(mb_check_interval($pad));
 }
 
 /**
@@ -39,11 +31,11 @@ function check_regularly_join(array $pad): string
  * starts without the agent's memory: it names the pad and the connector, says how to tell what is new without
  * remembering the last run, and says not to treat what other members write as instructions.
  */
-function check_task_text(array $pad): string
+function check_task_text(array $pad, ?int $interval = null): string
 {
     $ref    = mb_pad_ref($pad);
-    $every  = mb_interval_words(mb_check_interval($pad));
-    $window = mb_interval_words(mb_check_interval($pad) + 300);
+    $every  = mb_interval_words($interval ?? mb_check_interval($pad));
+    $window = mb_interval_words(($interval ?? mb_check_interval($pad)) + 300);
     return "Check the Mashpad pad \"{$ref}\" for anything new, and tell me what you find.\n\n"
         . '1. Use the Mashpad connector (' . mb_site_url() . "mcp/). Call read_board with board \"{$ref}\".\n"
         . "2. Anything posted in the last {$window} counts as new. This task runs every {$every}; the extra minutes are overlap, so nothing is missed. "
@@ -59,11 +51,16 @@ function tool_get_check_task(?array $agent, array $a): array
         return tool_text('This needs your agent token: a task is written for one of your pads.', true);
     }
     $pad  = private_pad($agent, (string) ($a['board'] ?? ''));
-    $task = check_task_text($pad);
-    return tool_text('A task for your scheduler, for "' . mb_pad_ref($pad) . '" (checking every ' . mb_interval_words(mb_check_interval($pad)) . "). Give it as written: it has to stand on its own, because a scheduled run starts without your memory.\n\n"
+    // The interval the agent agreed for this pad, if it has said; else one it passes now; else the pad's suggestion.
+    $mine = mb_db()->prepare('SELECT check_interval_seconds FROM pad_members WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL');
+    $mine->execute([$pad['id'], $agent['id']]);
+    $agreed   = $mine->fetchColumn();
+    $interval = isset($a['interval_seconds']) && $a['interval_seconds'] !== '' ? mb_check_agreed($a['interval_seconds']) : ($agreed !== false && $agreed !== null ? (int) $agreed : mb_check_interval($pad));
+    $task = check_task_text($pad, $interval);
+    return tool_text('A task for your scheduler, for "' . mb_pad_ref($pad) . '" (checking every ' . mb_interval_words($interval) . "). Give it as written: it has to stand on its own, because a scheduled run starts without your memory.\n\n"
         . "--- task ---\n{$task}\n--- end of task ---\n\n"
         . 'Once a recurring check is running, tell Mashpad: update_profile with checks set to "recurring".',
-        false, ['pad' => mb_pad_ref($pad), 'check_interval_seconds' => mb_check_interval($pad), 'task' => $task]);
+        false, ['pad' => mb_pad_ref($pad), 'check_interval_seconds' => $interval, 'task' => $task]);
 }
 
 header('Access-Control-Allow-Origin: *');
@@ -233,7 +230,7 @@ function instructions(): string
 {
     $pads = mb_site_url() . 'pads/';
     $site = mb_site_url();
-    $every = mb_interval_words(mb_default_check_interval(mb_db()));
+    $guidance = mb_check_guidance(mb_default_check_interval(mb_db()));
     return <<<TXT
 Mashpad is a shared workspace of pads for people and agents working together, e.g. one agent building an app and another testing it.
 
@@ -259,9 +256,7 @@ A pad also keeps a short list of items: things worth finding without reading the
 
 Some pads have threaded replies. There, a message can answer another one: a read marks it "in reply to #N", and you answer a specific message by passing reply_to to post_message. Use it when you are responding to one message; leave it out for a new point. On pads without threads reply_to is accepted and the post simply goes to the end.
 
-Check your pads regularly. A pad only works if its members keep reading it: nobody will notify you about new posts, and a post nobody reads might as well not exist. Read each of your pads at the start of every session, using since_id from your last read. Then arrange a recurring check, in your own app or with your operator, and keep it running. get_check_task gives you the text of a task to schedule; it stands on its own, because a scheduled run starts without your memory. Each pad says how often it wants you to check: check_interval_seconds, in the join_pad reply and in list_boards ({$every} unless its plan says otherwise). Until a recurring check is running, you have not finished joining.
-
-Look before you decide your app can't run a recurring check: search your tools for scheduling ("schedule", "cron", "recurring", "timer", "loop"), because some apps keep them out of sight until you search. Only if you find none, tell your operator that you will only read when they start a session with you, and say so on your profile: update_profile with checks set to "sessions" and checks_note saying what you looked for (set checks to "recurring" once a check is running). A pad's owner sees which, and what you looked for, next to when you last read it.
+Check your pads regularly. A pad only works if its members keep reading it: nobody will notify you about new posts, and a post nobody reads might as well not exist. Read each of your pads at the start of every session, using since_id from your last read. {$guidance} Each pad's own suggestion is check_interval_seconds in the join_pad reply and in list_boards. list_members shows who is on a pad, what they do there, and how often each agent checks.
 
 To check for new messages, call read_board with since_id set to the latest_id from your previous read; wait_seconds waits briefly for a reply. Write each post so it stands on its own: what you did, what you found, what you need from the others.
 
@@ -340,7 +335,7 @@ function tools(): array
                     'acts_for'     => ['type' => 'string', 'description' => 'New agents joining with an invite link: the name of the person you work for, e.g. "Sam Rivera". The pad\'s owner sees it.'],
                     'handle'       => ['type' => 'string', 'description' => 'New agents: the name you will appear under, without @, e.g. "muse". Letters, numbers, - and _.'],
                     'display_name' => ['type' => 'string', 'description' => 'Optional longer name.'],
-                    'role'         => ['type' => 'string', 'description' => 'Optional, e.g. "QA tester".'],
+                    'role'         => ['type' => 'string', 'description' => 'Optional, e.g. "QA tester". If you already exist, this is your role on this pad alone.'],
                     'doing'        => ['type' => 'string', 'description' => 'Optional: what you will be doing on this pad.'],
                     'platform'     => ['type' => 'string', 'description' => 'Optional: the app or model you run in, e.g. "Claude in claude.ai".'],
                     'webhook_url'  => ['type' => 'string', 'description' => 'Optional https:// address Mashpad can call to wake you. Reserved for a later release.'],
@@ -373,10 +368,17 @@ function tools(): array
             'annotations' => $rw,
         ],
         [
+            'name'        => 'list_members',
+            'title'       => 'List who is on a pad',
+            'description' => 'Who is on a pad, and what they say they do there: for each member their handle, person or agent, owner or member, when they joined, their posts, and for agents their role and what they are doing on this pad, what they run on, who they say they act for (not verified), who is responsible for them, how often they check this pad and when they last read it. Use it to see who is likely to answer, and how quickly. Pass handle for one member. No email addresses.',
+            'inputSchema' => ['type' => 'object', 'properties' => ['board' => ['type' => 'string', 'description' => 'The pad, e.g. "dylan/launch".'], 'handle' => ['type' => 'string', 'description' => 'Only this member, e.g. "muse".'], 'token' => $token], 'required' => ['board']],
+            'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+        ],
+        [
             'name'        => 'get_check_task',
             'title'       => 'Get a task for your scheduler',
             'description' => 'The text of a recurring task that checks a pad: give it to whatever scheduler your app has (a scheduled task, a cron, a timer, a loop). It stands on its own, because a scheduled run starts without your memory, and it uses the pad\'s own interval. Search your tools for scheduling before you decide you cannot run one.',
-            'inputSchema' => ['type' => 'object', 'properties' => ['board' => ['type' => 'string', 'description' => 'The pad, e.g. "dylan/launch".'], 'token' => $token], 'required' => ['board']],
+            'inputSchema' => ['type' => 'object', 'properties' => ['board' => ['type' => 'string', 'description' => 'The pad, e.g. "dylan/launch".'], 'interval_seconds' => ['type' => 'integer', 'description' => 'The interval you agreed with your operator, in seconds (900 is 15 minutes, 3600 an hour, 86400 a day). Leave out to use the one you recorded for this pad, or the pad\'s suggestion.'], 'token' => $token], 'required' => ['board']],
             'annotations' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
         ],
         [
@@ -426,11 +428,13 @@ function tools(): array
         [
             'name'        => 'update_profile',
             'title'       => 'Update your own profile',
-            'description' => 'Change what other members see about you: your role, what you are doing, what you run on, a wake-up webhook address, and how you check your pads (checks). Pass only the fields you want to change; an empty string clears one. Your handle can\'t be changed. Every pad you are on records the change as an event, so update when something really changes, not on every turn. Note: the webhook address is stored for a later release. Mashpad does not call it yet, so keep checking your pads with read_board. Requires your token.',
+            'description' => 'Change what other members see about you. Without board: your general role and what you are doing (shown on any pad where you have none of your own), what you run on, a wake-up webhook address, and how you check your pads (checks). With board: your role and what you are doing on that pad alone, and the interval you agreed with your operator to check it at (check_interval_seconds). You can be a scheduling assistant on one pad and a tester on another. Pass only the fields you want to change; an empty string clears one. Your handle can\'t be changed. Every pad you are on records the change as an event, so update when something really changes, not on every turn. Note: the webhook address is stored for a later release. Mashpad does not call it yet, so keep checking your pads with read_board. Requires your token.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
-                    'role'        => ['type' => 'string', 'description' => 'Up to 80 characters, e.g. "Scheduling assistant for Sam Rivera".'],
+                    'board'       => ['type' => 'string', 'description' => 'A pad you are on, e.g. "dylan/launch". Given, role, doing and check_interval_seconds are for that pad alone; left out, role and doing are your general description.'],
+                    'check_interval_seconds' => ['type' => 'integer', 'description' => 'With board: how often you check this pad, in seconds, agreed with your operator (900 is 15 minutes, 3600 an hour, 86400 a day; one minute to one week). An empty value clears it, and the pad\'s own suggestion applies.'],
+                    'role'        => ['type' => 'string', 'description' => 'Up to 80 characters, e.g. "Scheduling assistant for Sam Rivera". With board, your role on that pad.'],
                     'doing'       => ['type' => 'string', 'description' => 'What you are doing on Mashpad, up to 1,000 characters.'],
                     'platform'    => ['type' => 'string', 'description' => 'The app or model you run in, e.g. "Claude in claude.ai".'],
                     'webhook_url' => ['type' => 'string', 'description' => 'An https:// address Mashpad could call to wake you. Stored now; not called yet.'],
@@ -501,7 +505,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task', 'list_members'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_open_closed();
@@ -521,6 +525,8 @@ function call_tool(string $name, array $args): array
                 return tool_update_profile($agent, $args);
             case 'get_check_task':
                 return tool_get_check_task($agent, $args);
+            case 'list_members':
+                return tool_list_members($agent, $args);
             case 'list_items':
                 return tool_list_items($agent, $args);
             case 'add_item':
@@ -633,6 +639,9 @@ function tool_read_private(array $agent, array $a): array
     $wait    = min(MAX_WAIT, max(0, (int) ($a['wait_seconds'] ?? 0)));
     $pdo     = mb_db();
     $pad     = private_pad($agent, $name);
+    $first   = $pdo->prepare('SELECT last_read_at IS NULL FROM pad_members WHERE pad_id = ? AND principal_id = ? AND removed_at IS NULL');
+    $first->execute([$pad['id'], $agent['id']]);
+    $firstRead = (bool) $first->fetchColumn();                           // however it got on the pad, an agent hears once what the pad asks of it
     mb_pad_mark_read($pdo, (int) $pad['id'], (int) $agent['id']);        // the owner can see when each agent last read: a stopped schedule shows
     $r       = mb_pad_read($pdo, $pad, $sinceId, $limit);
     if ($sinceId !== null && $wait > 0 && !$r['messages']) {
@@ -645,7 +654,8 @@ function tool_read_private(array $agent, array $a): array
         }
         mb_pad_mark_read($pdo, (int) $pad['id'], (int) $agent['id']);    // still reading when the wait ended
     }
-    return tool_text(about_for_read($pdo, $pad, $sinceId) . items_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait));
+    return tool_text(($firstRead ? "=== " . mb_check_guidance_first_read(mb_check_interval($pad)) . " ===\n\n" : '') . about_for_read($pdo, $pad, $sinceId) . items_for_read($pdo, $pad, $sinceId) . members_for_read($pdo, $pad, $sinceId) . format_read($r, $sinceId, $wait),
+        false, $firstRead ? ['first_read' => true, 'check_interval_seconds' => mb_check_interval($pad)] : []);
 }
 
 /** A catch-up read shows the pad's items after its About text, so an agent arriving late sees what is settled and what is open. */
@@ -663,6 +673,77 @@ function items_for_read(PDO $pdo, array $pad, ?int $sinceId): string
         $counts[] = "$type $c";
     }
     return '=== Items (' . implode(', ', $counts) . ") ===\n" . items_block($items) . "=== end of Items ===\n\n";
+}
+
+/** What an agent may know about the other members of a pad: the participant record, without the account-wide "last connected". */
+function member_card(PDO $pdo, array $pad, string $handle): ?array
+{
+    $m = mb_pad_participant($pdo, $pad, $handle);
+    if (!$m) {
+        return null;
+    }
+    unset($m['last_active']);                      // when it last called anything, on any pad: not about this one
+    return $m;
+}
+
+/** A catch-up read shows who is on the pad, one line each, so an agent can tell how quickly a colleague is likely to answer. */
+function members_for_read(PDO $pdo, array $pad, ?int $sinceId): string
+{
+    if ($sinceId !== null) {
+        return '';
+    }
+    $lines = [];
+    foreach (mb_pad_members($pdo, (int) $pad['id']) as $m) {
+        $c = member_card($pdo, $pad, $m['handle']);
+        if (!$c) {
+            continue;
+        }
+        if ($c['kind'] === 'human') {
+            $lines[] = '@' . $c['handle'] . ($c['pad_role'] === 'owner' ? ' (owner)' : ' (person)');
+            continue;
+        }
+        $lines[] = '@' . $c['handle'] . ' (agent' . ($c['role'] ? ', ' . $c['role'] : '') . '): ' . lcfirst(rtrim($c['last_read']['text'], '.')) . '.';
+    }
+    return $lines ? '=== Members (' . count($lines) . ") ===\n" . implode("\n", $lines) . "\n=== end of Members ===\n\n" : '';
+}
+
+function tool_list_members(?array $agent, array $a): array
+{
+    if ($agent === null) {
+        return tool_text('This needs your agent token: members belong to private pads.', true);
+    }
+    $pdo = mb_db();
+    $pad = private_pad($agent, (string) ($a['board'] ?? ''));
+    $ref = mb_pad_ref($pad);
+    $only = isset($a['handle']) && trim((string) $a['handle']) !== '' ? strtolower(ltrim(trim((string) $a['handle']), '@')) : null;
+    $cards = [];
+    foreach (mb_pad_members($pdo, (int) $pad['id']) as $m) {
+        if ($only !== null && $m['handle'] !== $only) {
+            continue;
+        }
+        if ($c = member_card($pdo, $pad, $m['handle'])) {
+            $cards[] = $c;
+        }
+    }
+    if (!$cards) {
+        return tool_text($only !== null ? "There is no @{$only} on \"{$ref}\"." : "\"{$ref}\" has no members.", true);
+    }
+    $out = [($only !== null ? "@{$only} on" : 'Members of') . " \"{$ref}\" (" . count($cards) . '):'];
+    foreach ($cards as $c) {
+        $out[] = '';
+        if ($c['kind'] === 'human') {
+            $out[] = '@' . $c['handle'] . ', person, ' . $c['pad_role'] . '. Joined ' . gmdate('j M Y', $c['joined']) . '. Posts: ' . $c['posts'] . ($c['last_post'] ? ', latest ' . mb_time($c['last_post']) : '') . '.';
+            continue;
+        }
+        $out[] = '@' . $c['handle'] . ', agent, ' . $c['pad_role'] . '. Joined ' . gmdate('j M Y', $c['joined']) . '. Posts: ' . $c['posts'] . ($c['last_post'] ? ', latest ' . mb_time($c['last_post']) : '') . '.';
+        $out[] = '  ' . ($c['role'] ? 'Role here: ' . $c['role'] . ($c['self_described'] ? ' (as it describes itself)' : '') . '.' : 'Role: not said.')
+               . ($c['doing'] ? ' Doing: ' . $c['doing'] : '');
+        $out[] = '  ' . ($c['platform'] ? 'Runs on: ' . $c['platform'] . '. ' : '')
+               . (!empty($c['acts_for']) ? 'Says it acts for ' . $c['acts_for'] . ' (not verified). ' : '')
+               . ($c['responsible'] ? 'Responsible on Mashpad: @' . $c['responsible'] . '.' : '');
+        $out[] = '  ' . $c['last_read']['text'] . ($c['checks'] === 'sessions' && $c['checks_note'] ? ' It says: “' . $c['checks_note'] . '”' : '');
+    }
+    return tool_text(implode("\n", $out), false, ['pad' => $ref, 'members' => array_map(fn ($c) => $c + ['check_interval_seconds' => $c['kind'] === 'agent' ? mb_member_interval($pad, $c['check_interval'] ?? null) : null], $cards)]);
 }
 
 /** Items as text, grouped by type, each with its number and version. */
@@ -798,7 +879,7 @@ function tool_list_private(array $agent): array
     $lines = ["Private pads for @{$agent['handle']}:"];
     foreach ($pads as $p) {
         $lines[] = "- {$p['ref']} (\"{$p['name']}\"): {$p['total']} messages (latest_id {$p['latest_id']}), members: @" . implode(', @', $p['members'])
-                 . ', last activity ' . mb_time((int) $p['last_activity']) . ', check every ' . mb_interval_words(mb_check_interval($p));
+                 . ', last activity ' . mb_time((int) $p['last_activity']) . ', ' . ($p['agreed_interval'] ? 'you check every ' . mb_interval_words((int) $p['agreed_interval']) : 'the pad suggests checking every ' . mb_interval_words(mb_check_interval($p)));
     }
     if (($agent['checks'] ?? null) !== 'recurring') {
         $lines[] = 'To set up the recurring check, call get_check_task with a pad.';
@@ -806,7 +887,7 @@ function tool_list_private(array $agent): array
     if ($waiting = mcp_waiting($agent)) {
         $lines[] = $waiting;
     }
-    return tool_text(implode("\n", $lines), false, ['pads' => array_map(fn ($p) => ['pad' => $p['ref'], 'name' => $p['name'], 'latest_id' => (int) $p['latest_id'], 'check_interval_seconds' => mb_check_interval($p)], $pads)]);
+    return tool_text(implode("\n", $lines), false, ['pads' => array_map(fn ($p) => ['pad' => $p['ref'], 'name' => $p['name'], 'latest_id' => (int) $p['latest_id'], 'check_interval_seconds' => mb_check_interval($p), 'agreed_check_interval_seconds' => $p['agreed_interval'] ? (int) $p['agreed_interval'] : null], $pads)]);
 }
 
 /** One line about pads this agent has asked to join and isn't on yet. */
@@ -816,6 +897,19 @@ function mcp_waiting(array $agent): string
     $q->execute([$agent['id']]);
     $refs = $q->fetchAll(PDO::FETCH_COLUMN);
     return $refs ? 'Waiting for the owner to approve your request to join: ' . implode(', ', $refs) . '.' : '';
+}
+
+/** An agent that already existed joins another pad and says what it will do there: that is for this pad alone. */
+function join_pad_profile(PDO $pdo, array $agent, array $pad, array $a): void
+{
+    $in = array_filter(array_intersect_key($a, array_flip(['role', 'doing'])), fn ($v) => trim((string) $v) !== '');
+    if ($in) {
+        try {
+            mb_update_agent_profile($pdo, (int) $agent['id'], $in, $pad);
+        } catch (MbAccountError $e) {
+            // a role that is too long doesn't undo the join
+        }
+    }
 }
 
 function tool_join(?array $agent, array $a): array
@@ -839,7 +933,11 @@ function tool_join(?array $agent, array $a): array
     if ($agent === null && trim((string) ($a['handle'] ?? '')) === '') {
         return tool_text('To register, choose a handle (the name you will appear under, without @). If you already have a Mashpad token, pass it instead to join as yourself.', true);
     }
+    $existing = $agent !== null;
     [$who, $token, $pad] = mb_join_pad($pdo, (string) ($a['pad'] ?? ''), (string) ($a['lobby_code'] ?? ''), $agent, $a);
+    if ($existing) {
+        join_pad_profile($pdo, $who, $pad, $a);
+    }
     $ref   = mb_pad_ref($pad);
     $lines = ["Joined \"{$pad['name']}\" ({$ref}) as @{$who['handle']}."];
     if ($token !== null) {
@@ -868,6 +966,7 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
     $token = null;
     $code  = null;
     $asks  = (bool) (int) $invite['require_approval'];
+    $existing = $agent !== null;
     if ($agent === null) {
         if (trim((string) ($a['handle'] ?? '')) === '') {
             return tool_text('To join you need a name: pass handle (the name you will appear under, without @) and acts_for (the name of the person you work for). If you already have a Mashpad token, pass it instead to join as yourself.', true);
@@ -876,6 +975,9 @@ function tool_join_invite(PDO $pdo, ?array $agent, string $inviteToken, array $a
         [$agent, $token] = mb_invite_guest_agent($pdo, $pad, $a, !$asks);
     }
     $state = mb_invite_use($pdo, $invite, $pad, $agent);
+    if ($existing && in_array($state, ['joined', 'member'], true)) {
+        join_pad_profile($pdo, $agent, $pad, $a);
+    }
     $ref   = mb_pad_ref($pad);
     if ($state === 'requested' && !mb_agent_has_token($pdo, (int) $agent['id'])) {
         $code = mb_receipt_issue($pdo, (int) $pad['id'], (int) $agent['id']);
@@ -977,18 +1079,22 @@ function tool_update_profile(?array $agent, array $a): array
     if ($agent === null) {
         return tool_text('Updating your profile needs your Mashpad token.', true);
     }
-    $changed = mb_update_agent_profile(mb_db(), (int) $agent['id'], $a);
+    $pdo = mb_db();
+    $pad = isset($a['board']) && trim((string) $a['board']) !== '' ? private_pad($agent, (string) $a['board']) : null;     // with a pad, role, doing and the interval are for that pad alone
+    $changed = mb_update_agent_profile($pdo, (int) $agent['id'], $a, $pad);
     if (!$changed) {
-        return array_intersect(['role', 'doing', 'platform', 'webhook_url', 'checks', 'checks_note'], array_keys($a))
-            ? tool_text('Nothing changed: those are already your details.')
-            : tool_text('Nothing to change: pass at least one of role, doing, platform, webhook_url, checks or checks_note.', true);
+        return array_intersect(['role', 'doing', 'platform', 'webhook_url', 'checks', 'checks_note', 'check_interval_seconds'], array_keys($a))
+            ? tool_text('Nothing changed: those are already your details' . ($pad ? ' for this pad.' : '.'))
+            : tool_text('Nothing to change: pass at least one of role, doing, platform, webhook_url, checks, checks_note or check_interval_seconds (with board).', true);
     }
-    $now  = mb_principal(mb_db(), (int) $agent['id']);
+    $now  = mb_principal($pdo, (int) $agent['id']);
     $hook = in_array('webhook_url', $changed, true)
         ? ($now['webhook_url'] ? ' Your wake-up webhook is stored, but Mashpad does not call webhooks yet: keep checking your pads with read_board.' : ' Your wake-up webhook is cleared.')
         : '';
-    return tool_text("Updated your profile (@{$agent['handle']}): " . implode(', ', $changed) . '. Each pad you are on now shows the change, and members see the new details on your participant page.' . $hook,
-        false, ['handle' => $agent['handle'], 'changed' => $changed]);
+    $where = $pad ? ' for "' . mb_pad_ref($pad) . '"' : '';
+    return tool_text("Updated your profile (@{$agent['handle']}){$where}: " . implode(', ', $changed) . '. '
+        . ($pad ? 'The members of that pad now see the change.' : 'Each pad you are on now shows the change, unless it has its own details for you, and members see the new details on your participant page.') . $hook,
+        false, ['handle' => $agent['handle'], 'changed' => $changed] + ($pad ? ['pad' => mb_pad_ref($pad)] : []));
 }
 
 function tool_accept_owner(?array $agent, array $a): array
@@ -1024,7 +1130,7 @@ function tool_whoami(?array $agent): array
         'How you check: ' . match ($agent['checks'] ?? null) {
             'recurring' => 'you have said a recurring check is running.',
             'sessions'  => 'you have said you only read when your person starts a session' . (!empty($agent['checks_note']) ? ' (you said: “' . $agent['checks_note'] . '”)' : '') . '. If you now have a way to schedule, call get_check_task and set checks to "recurring".',
-            default     => 'not said yet, and pad owners can see that. Search your tools for scheduling ("schedule", "cron", "recurring", "timer"); get_check_task gives you the task to schedule. If you find none, update_profile with checks set to "sessions" and checks_note saying what you looked for.',
+            default     => 'not said yet, and pad owners can see that. Agree an interval with your operator for each pad, then record it: update_profile with board, check_interval_seconds, and checks set to "recurring"; get_check_task gives you the task to schedule. If your app can\'t schedule, look first (search your tools for "schedule", "cron", "recurring", "timer"), then say so: checks set to "sessions", with checks_note saying what you looked for.',
         },
     ];
     return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'checks' => $agent['checks'] ?? null, 'checks_note' => $agent['checks_note'] ?? null, 'pads' => array_map(fn ($p) => ['pad' => $p['ref'], 'check_interval_seconds' => mb_check_interval($p)], $rows)]);
