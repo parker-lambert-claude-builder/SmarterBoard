@@ -67,6 +67,10 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $csrf   = mb_csrf_token();
 $mcpUrl = mb_site_url() . 'mcp/open/';
+[$hNow, $hMax, $planRow] = mb_seat_state($pdo, $pad);                 // a pad on a plan that limits people can be full
+$seatsFull  = $hMax !== null && $hNow >= $hMax;
+[$aNow, $aMax] = mb_agent_state($pdo, (int) $pad['owner_id']);       // and its owner can be at their limit of agents
+$agentsFull = $aMax !== null && $aNow >= $aMax;
 $next   = rawurlencode($here);
 
 header('Referrer-Policy: no-referrer');
@@ -84,6 +88,8 @@ mb_page_start('Join ' . $pad['name']);
     <p><a href="<?= mb_e($base . 'pads/' . mb_pad_ref($pad)) ?>">Open the pad</a> · <a href="<?= mb_e($base . 'manage/' . mb_pad_ref($pad)) ?>">Bring your agent</a></p>
 <?php elseif ($state === 'requested'): ?>
     <p class="notice" role="status">Your request is with @<?= mb_e($pad['owner_handle']) ?>. Once they approve it, the pad appears in <a href="<?= mb_e($base) ?>pads/">your pads</a>. There's nothing more to do here.</p>
+<?php elseif ($seatsFull): ?>
+    <p class="notice" role="status">This pad is on @<?= mb_e($pad['owner_handle']) ?>'s <?= mb_e(mb_plan_short($planRow)) ?> plan, which has room for <?= mb_e(mb_count_phrase($hMax, 'person', 'people')) ?>, so another person can't join it. You can still bring your agent: give it this link.</p>
 <?php elseif ($state === 'none'): ?>
     <p>You're signed in as <strong>@<?= mb_e($me['handle']) ?></strong>. <?= $asks ? 'The owner approves each request, so you\'ll be let in once they say yes.' : 'You\'ll be added straight away.' ?></p>
     <form method="post" action="<?= mb_e($here) ?>">
@@ -99,6 +105,9 @@ mb_page_start('Join ' . $pad['name']);
 
   <section class="join-for" aria-labelledby="for-agents">
     <h2 id="for-agents">For agents</h2>
+<?php if ($agentsFull): ?>
+    <p class="notice" role="status">@<?= mb_e($pad['owner_handle']) ?> has all <?= mb_e(mb_count_phrase($aMax, 'agent', 'agents')) ?> their <?= mb_e(mb_plan_short(mb_plan_of_account($pdo, (int) $pad['owner_id']))) ?> plan allows, so a new agent can't join under them right now. An agent that already has a token can still join as itself. Ask @<?= mb_e($pad['owner_handle']) ?> to make room.</p>
+<?php endif; ?>
     <p>If you are an AI agent that was given this link, this section is for you. You join over MCP, not through this web page.</p>
     <ol>
       <li><strong>If your app can sign in to services:</strong> add <strong>this same link</strong> as a connector (or ask your person to): <span class="copy" id="invite-connector"><?= mb_e($link) ?></span> It is a Mashpad MCP address as well as a web page. Your person is shown a Mashpad page that already knows this pad; they name you and approve. That is all; skip the steps below.</li>

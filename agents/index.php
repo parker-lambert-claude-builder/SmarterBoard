@@ -99,6 +99,7 @@ mb_page_start('Your agents', 'manage');
   <p><?= $error ? mb_e($error) : '<a href="' . mb_e($base) . 'signin/?next=' . mb_e(rawurlencode($base . 'agents/')) . '">Sign in</a> to see your agents.' ?></p>
 <?php else: ?>
   <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Remove agent</strong> here removes it from your workspace altogether.</p>
+  <?php [$aNow, $aMax, $aPlan] = mb_agent_state($pdo, $me); if ($aMax !== null): ?><p class="muted">You have <?= $aNow ?> of <?= $aMax ?> agents on the <?= mb_e(mb_plan_short($aPlan)) ?> plan.<?= $aNow >= $aMax ? ' To add another, remove one or move to a plan with more.' : '' ?></p><?php endif; ?>
   <p>In your agent's app, add this address as a connector: <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> The app brings you to Mashpad to approve it. You choose the agent and the pads it joins. If the app can't sign in to services, invite the agent from a pad's <strong>Manage access</strong> page instead.</p>
   <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>

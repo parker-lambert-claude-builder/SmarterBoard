@@ -465,6 +465,7 @@ function mb_add_member(PDO $pdo, array $pad, int $principalId, string $via, ?int
     if (mb_membership($pdo, (int) $pad['id'], $principalId)) {
         return;
     }
+    mb_check_seat_room($pdo, $pad, $p);          // a person needs room on the pad; an agent never does
     $clash = $pdo->prepare('SELECT 1 FROM pad_members m JOIN principals x ON x.id = m.principal_id
                              WHERE m.pad_id = ? AND m.removed_at IS NULL AND x.handle = ? AND x.id <> ?');
     $clash->execute([$pad['id'], $p['handle'], $principalId]);
@@ -682,6 +683,7 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
 {
     $handle = mb_validate_handle((string) ($in['handle'] ?? ''));
     $prof   = mb_clean_profile($in);
+    mb_check_agent_room($pdo, $ownerId, $via === 'owner' ? 'self' : 'guest');       // the account's plan decides how many agents it can be responsible for
     $exists = $pdo->prepare("SELECT 1 FROM principals WHERE kind = 'agent' AND owner_id = ? AND handle = ?");
     $exists->execute([$ownerId, $handle]);
     if ($exists->fetchColumn()) {

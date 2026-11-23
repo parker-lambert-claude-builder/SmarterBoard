@@ -56,6 +56,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     <p class="side-title">Admin</p>
     <nav class="pad-pages" aria-label="Admin sections">
       <a href="<?= $root ?>admin/"<?= ($padContext['section'] ?? '') === 'accounts' ? ' aria-current="page"' : '' ?>>Accounts</a>
+      <a href="<?= $root ?>admin/plans/"<?= ($padContext['section'] ?? '') === 'plans' ? ' aria-current="page"' : '' ?>>Plans</a>
       <a href="<?= $root ?>admin/email/"<?= ($padContext['section'] ?? '') === 'email' ? ' aria-current="page"' : '' ?>>Email</a>
     </nav>
     <?php else: ?>

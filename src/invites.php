@@ -122,6 +122,7 @@ function mb_invite_use(PDO $pdo, array $invite, array $pad, array $principal): s
     if (mb_membership($pdo, (int) $pad['id'], $id)) {
         return 'member';
     }
+    mb_check_seat_room($pdo, $pad, $principal);                  // no point asking to join a pad that has no room for another person
     if ((int) $invite['require_approval']) {
         $q = $pdo->prepare('INSERT IGNORE INTO pad_join_requests (pad_id, principal_id) VALUES (?, ?)');
         $q->execute([$pad['id'], $id]);
@@ -190,6 +191,9 @@ function mb_join_decide(PDO $pdo, array $pad, int $requestId, bool $approve, int
         throw new MbAccountError('That request is no longer waiting.');
     }
     $p = mb_principal($pdo, (int) $pid);
+    if ($approve) {
+        mb_check_seat_room($pdo, $pad, $p);       // checked first: a pad with no room leaves the request waiting rather than losing it
+    }
     $pdo->prepare('DELETE FROM pad_join_requests WHERE id = ?')->execute([$requestId]);
     if (!$approve) {
         $pdo->prepare('DELETE FROM join_receipts WHERE pad_id = ? AND principal_id = ?')->execute([$pad['id'], $pid]);   // a declined request's code is dead
