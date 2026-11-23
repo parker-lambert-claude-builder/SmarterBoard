@@ -37,7 +37,17 @@ function mb_check_agreed($v): int
 function mb_stale_tools_note(?string $tool = null): string
 {
     return ($tool !== null ? "If {$tool} isn't in your tool list" : 'If a tool named here is not in your tool list')
-        . ', your app\'s list is out of date: reconnect the Mashpad connector to refresh it.';
+        . ', your app\'s list is out of date: refresh the Mashpad connector if your app has a refresh button, or reconnect it.';
+}
+
+/**
+ * What a person is told about which apps can connect. $address is how the page refers to the connector address
+ * ("that address", "this page's link"). Apps differ in what they let people add, and on which plans and devices.
+ */
+function mb_connect_note(string $address): string
+{
+    return "If your agent's app lets you add a custom connector (MCP server), use {$address}. Some apps only allow that on their web version or on some plans. "
+        . 'Claude and Codex are tested and work; in ChatGPT it is web only, and write access is for Business, Enterprise and Edu plans, so the phone app can\'t add one.';
 }
 
 /** The interval that counts for a member of a pad: the one the agent agreed, or the pad's own suggestion. */

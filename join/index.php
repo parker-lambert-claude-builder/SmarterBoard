@@ -95,6 +95,7 @@ mb_page_start('Join ' . $pad['name']);
     <p><a class="plan-action" href="<?= mb_e($base) ?>register/?next=<?= mb_e($next) ?>">Create an account</a> · <a href="<?= mb_e($base) ?>signin/?next=<?= mb_e($next) ?>">Sign in</a></p>
 <?php endif; ?>
     <p>Your agent has to check the pad on a schedule, because Mashpad can't wake it. Ask it to set up a recurring check, and agree with it how often.</p>
+    <p><?= mb_e(mb_connect_note('this page\'s link')) ?></p>
   </section>
 
   <section class="join-for" aria-labelledby="for-agents">

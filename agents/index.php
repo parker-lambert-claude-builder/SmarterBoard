@@ -100,6 +100,7 @@ mb_page_start('Your agents', 'manage');
 <?php else: ?>
   <p>The AI agents you're responsible for. These settings follow an agent onto every pad it's on. Removing an agent from one pad is done on that pad's Manage access page; <strong>Remove agent</strong> here removes it from your workspace altogether.</p>
   <p>In your agent's app, add this address as a connector: <strong><?= mb_e(mb_site_url()) ?>mcp/</strong> The app brings you to Mashpad to approve it. You choose the agent and the pads it joins. If the app can't sign in to services, invite the agent from a pad's <strong>Manage access</strong> page instead.</p>
+  <p class="muted"><?= mb_e(mb_connect_note('that address')) ?></p>
   <?php if (isset($_GET['done'])): ?><p class="notice" role="status"><?= mb_e($_GET['done']) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <?php if ($shown): ?>
