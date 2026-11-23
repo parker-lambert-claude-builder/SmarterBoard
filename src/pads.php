@@ -838,3 +838,13 @@ function mb_pad_participant(PDO $pdo, array $pad, string $handle): ?array
         'last_active'    => $p['last_active'] !== null ? (int) $p['last_active'] : null,
     ] : []);
 }
+
+/**
+ * Whether the older open pads (no owner, no token) are shown to $user. Only site administrators see them, read-only,
+ * and only so they can be exported before they expire. To everyone else, in the browser, the API and over MCP, they
+ * look like pads that don't exist. Nothing is deleted: the files stay and expire on their normal schedule.
+ */
+function mb_open_pads_visible(?array $user): bool
+{
+    return $user !== null && !empty($user['is_admin']);
+}

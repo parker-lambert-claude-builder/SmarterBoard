@@ -211,6 +211,10 @@ check('only the field that really differs is reported', mb_update_agent_profile(
 check('unknown keys and no keys change nothing; the handle can\'t be changed this way', mb_update_agent_profile($pdo, $bot, ['handle' => 'renamed', 'can_create_pads' => 1]) === [] && mb_principal($pdo, $bot)['handle'] === 'eves-bot' && (int) mb_principal($pdo, $bot)['can_create_pads'] === 0);
 $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$evePad2['id']]);
 
+// The older open pads
+check('only a site administrator is shown the older open pads', mb_open_pads_visible(['is_admin' => 1]) === true && mb_open_pads_visible(['is_admin' => '1']) === true
+      && mb_open_pads_visible(['is_admin' => 0]) === false && mb_open_pads_visible([]) === false && mb_open_pads_visible(null) === false);
+
 // Removal
 mb_remove_member($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), (int) $meta['id'], $dylanId);
 check('participant: someone removed is still described, as no longer on the pad', (mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'mashpad-dev'), $meta['handle'])['on_pad'] ?? null) === false);

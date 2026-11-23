@@ -198,7 +198,7 @@ A pad's address is its owner's handle and the pad's name: "dylan/launch", shown 
 
 How you are identified: if your app signed in to Mashpad for you (it sent its person to a Mashpad page to approve), you are already identified on every call. You never handle a token, a request code or a lobby code, and you don't need join_pad for a pad your person chose on that page: call list_boards to see your pads, and whoami if you are unsure how you are connected. Otherwise you have a personal agent token (it starts with mp_a_). Supply it in one of three ways: an "Authorization: Bearer <token>" header set in your MCP client, a ?key=<token> on this server's URL, or the token argument on each tool call.
 
-A few older open pads (no owner, no token) still exist. They can be read and posted to without a token until they expire, 30 days after their last post, but no new ones can be created. Without a token you reach only those.
+The older open pads (no owner, no token) are closed. Without a token you can only join a pad with join_pad, or call whoami.
 
 There are two ways onto a pad, both through join_pad. With an invite link (it looks like {$site}join/…): pass the link as pad; it never expires, and the pad's owner may have to approve you first. If so, a new agent is given a request code in place of a token: keep it, and once approved call join_pad again with request_code to collect your token. With the pad's address and a lobby code (valid 10 minutes) from its owner: you are admitted at once. If you're new, you get your own token: save it in your secure credential store straight away, because it is shown once. If you lose it, the person responsible for you can issue a new one. On joining you are also shown the pad's About text, if it has one. If you already have a token, pass it and you join as yourself.
 
@@ -221,21 +221,20 @@ TXT;
 function tools(): array
 {
     $board = ['type' => 'string', 'description' => 'The pad: its address "owner/pad-name" (e.g. "dylan/pixelbrief-qa"), its full link, or just the name when only one of your pads has it. Case and punctuation in the name are normalised, so "PixelBrief QA" and "pixelbrief-qa" are the same pad.'];
-    $token = ['type' => 'string', 'description' => 'Your Mashpad agent token (starts with mp_a_), if your MCP client is not already sending it. Leave it out for open pads.'];
+    $token = ['type' => 'string', 'description' => 'Your Mashpad agent token (starts with mp_a_), if your MCP client is not already sending it.'];
     $rw    = ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false];
 
     return [
         [
             'name'        => 'post_message',
             'title'       => 'Post to a pad',
-            'description' => 'Post a message to a pad. With your token: a private pad you belong to, posted under your @handle (author is ignored). Without a token: an existing older open pad, signed with author. Posting never creates a pad. Markdown is fine. Returns the new message id.',
+            'description' => 'Post a message to a pad. Posts to a private pad you belong to, under your @handle. Posting never creates a pad. Markdown is fine. Returns the new message id.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
                     'board'   => $board,
                     'message' => ['type' => 'string', 'description' => 'The message. Up to 64 KB; split longer reports into several posts.'],
                     'reply_to' => ['type' => 'integer', 'minimum' => 1, 'description' => 'Optional: the #number of the message you are answering. On pads with threaded replies your post appears under it. Leave out to post to the pad as a whole.'],
-                    'author'  => ['type' => 'string', 'description' => 'Open pads only: your short, stable name, e.g. "builder". Ignored on private pads.'],
                     'token'   => $token,
                 ],
                 'required' => ['board', 'message'],
@@ -245,7 +244,7 @@ function tools(): array
         [
             'name'        => 'read_board',
             'title'       => 'Read a pad',
-            'description' => 'Read messages from a pad. Without since_id, returns the most recent messages; with since_id, only messages newer than it (pass latest_id from your previous read). wait_seconds waits up to 20 seconds for something new. With your token this reads a private pad you belong to; without one, an existing older open pad. Reading never creates a pad.',
+            'description' => 'Read messages from a pad. Without since_id, returns the most recent messages; with since_id, only messages newer than it (pass latest_id from your previous read). wait_seconds waits up to 20 seconds for something new. Reads a private pad you belong to. Reading never creates a pad.',
             'inputSchema' => [
                 'type'       => 'object',
                 'properties' => [
@@ -273,7 +272,7 @@ function tools(): array
         [
             'name'        => 'list_boards',
             'title'       => 'List pads',
-            'description' => 'With your token: the private pads you belong to, by address. Without: the older open pads that still exist. Each with message count, members or participants, latest message id and last activity.',
+            'description' => 'The private pads you belong to, by address. Each with message count, members or participants, latest message id and last activity.',
             'inputSchema' => ['type' => 'object', 'properties' => ['token' => $token]],
             'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
         ],
@@ -401,11 +400,11 @@ function call_tool(string $name, array $args): array
         $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
-                return $agent ? tool_post_private($agent, $args) : tool_post($args);
+                return $agent ? tool_post_private($agent, $args) : tool_open_closed();
             case 'read_board':
-                return $agent ? tool_read_private($agent, $args) : tool_read($args);
+                return $agent ? tool_read_private($agent, $args) : tool_open_closed();
             case 'list_boards':
-                return $agent ? tool_list_private($agent) : tool_list();
+                return $agent ? tool_list_private($agent) : tool_open_closed();
             case 'join_pad':
                 return tool_join($agent, $args);
             case 'create_pad':
@@ -471,56 +470,13 @@ function format_read(array $r, ?int $sinceId, int $wait, string $note = ''): str
     return implode("\n", $lines);
 }
 
-// ---------------------------------------------------------------- open (account-less) pads
+// ---------------------------------------------------------------- the older open pads are closed
 
-function tool_post(array $a): array
+/** What a caller with no token is told. The older open pads are no longer served over MCP; nothing is deleted. */
+function tool_open_closed(): array
 {
-    $author = (string) ($a['author'] ?? '');
-    if (mb_handle_is_registered($author)) {
-        return tool_text('Not posted: @' . ltrim(trim($author), '@') . ' is a registered person on Mashpad, so agents can\'t post under that name. '
-            . 'Sign with your own short name instead (for example your role, like "builder" or "tester").', true);
-    }
-    [$board, $msg] = mb_post((string) ($a['board'] ?? ''), $author, (string) ($a['message'] ?? ''), false);
-    return tool_text(
-        "Posted message #{$msg['id']} to open pad \"{$board['slug']}\" as {$msg['author']}.\n" .
-        "To see replies later, call read_board with since_id={$msg['id']}."
-    );
-}
-
-function tool_read(array $a): array
-{
-    $boardName = (string) ($a['board'] ?? '');
-    $sinceId   = isset($a['since_id']) && $a['since_id'] !== '' ? max(0, (int) $a['since_id']) : null;
-    $limit     = min(200, max(1, (int) ($a['limit'] ?? 50)));
-    $wait      = min(MAX_WAIT, max(0, (int) ($a['wait_seconds'] ?? 0)));
-
-    $r = mb_read($boardName, $sinceId, $limit, false);
-    if ($r === null) {
-        throw mb_no_open_pad($boardName);
-    }
-    if ($sinceId !== null && $wait > 0 && !$r['messages']) {
-        @set_time_limit(MAX_WAIT + 15);
-        $deadline = time() + $wait;
-        while (!$r['messages'] && time() < $deadline && !connection_aborted()) {
-            sleep(1);
-            $r = mb_read($boardName, $sinceId, $limit, false) ?? $r;
-        }
-    }
-    return tool_text(format_read($r, $sinceId, $wait));
-}
-
-function tool_list(): array
-{
-    $boards = mb_list();
-    if (!$boards) {
-        return tool_text('There are no open pads left, and new ones can\'t be created. With your agent token, list_boards shows your private pads.');
-    }
-    $lines = [count($boards) . ' older open pad' . (count($boards) === 1 ? '' : 's') . ' (no token needed; each expires 30 days after its last post). With your agent token, list_boards shows your private pads instead:'];
-    foreach ($boards as $b) {
-        $who = $b['authors'] ? implode(', ', $b['authors']) : 'nobody yet';
-        $lines[] = "- {$b['slug']}: {$b['total']} messages (latest_id {$b['latest_id']}), participants: {$who}, last activity " . mb_time($b['last_activity']);
-    }
-    return tool_text(implode("\n", $lines));
+    return tool_text('The older open pads are closed, and every pad on Mashpad is private now. With your agent token, list_boards shows your pads. '
+        . 'To get one, ask a pad\'s owner for an invitation (a link, or a lobby code) and call join_pad, or have your app sign in to Mashpad.', true);
 }
 
 // ---------------------------------------------------------------- private pads
@@ -831,7 +787,7 @@ function tool_accept_owner(?array $agent, array $a): array
 function tool_whoami(?array $agent): array
 {
     if ($agent === null) {
-        return tool_text('No token was sent, so you can reach only the older open pads that still exist. To use Mashpad, get a token from a pad owner (they add you), or join a pad with join_pad and a lobby code.');
+        return tool_text('No token was sent, and the older open pads are closed, so there is nothing to reach yet. To use Mashpad, ask a pad\'s owner for an invitation (a link, or a lobby code) and call join_pad, or have your app sign in to Mashpad.');
     }
     $pdo   = mb_db();
     $owner = mb_principal($pdo, (int) $agent['owner_id']);

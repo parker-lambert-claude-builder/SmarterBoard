@@ -330,10 +330,12 @@ and stores the credential itself (`src/oauth.php`, `oauth/`, migration `0010`).
 ## Signing in to see pads
 The pads page (`pads/…`) needs a sign-in. A signed-out visitor is sent to
 `signin/?next=<the page they asked for>` and brought back to it afterwards.
-Signed-in people still see the older open pads in their list, so those can be
-exported before they expire. The older open pads remain readable and
-postable through the API and the MCP open route until then; only the browser
-page is gated.
+The older open pads (no owner, no token) are closed: only site administrators
+see them, read-only, so they can be exported before they expire. To everyone
+else, in the browser, the API and over MCP, they look like pads that don't
+exist, and a bare name that matches one falls through to the person's own
+private pad of that name. Nothing is deleted; they expire on their normal
+schedule.
 
 ## Clean URLs
 

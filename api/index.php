@@ -42,12 +42,14 @@ function out(array $data, int $status = 200): void
  */
 function which_pad(string $name): array
 {
-    $a = mb_parse_pad_address($name);
-    if ($a['owner'] === null && $a['flat'] !== null && is_file(mb_path($a['flat']))) {
-        return ['open'];
-    }
+    $a   = mb_parse_pad_address($name);
     $pdo = mb_db();
     $u   = $pdo ? mb_current_user() : null;
+    // An older open pad of that name is served only to a site administrator. For anyone else the name falls through
+    // to their own private pads, as if the open pad weren't there.
+    if ($a['owner'] === null && $a['flat'] !== null && is_file(mb_path($a['flat'])) && mb_open_pads_visible($u)) {
+        return ['open'];
+    }
     if (!$u) {
         return ['none'];
     }
@@ -67,8 +69,8 @@ try {
     $action = $_GET['action'] ?? '';
 
     if ($action === 'boards') {
-        $boards = mb_list();
         $u = mb_current_user();
+        $boards = mb_open_pads_visible($u) ? mb_list() : [];
         if ($u && $pdo) {
             $mine = array_map(fn ($p) => [
                 'name' => $p['name'], 'slug' => $p['slug'], 'key' => $p['ref'], 'owner' => $p['owner_handle'], 'total' => (int) $p['total'], 'latest_id' => (int) $p['latest_id'],
@@ -191,6 +193,9 @@ try {
         $w    = which_pad((string) ($in['board'] ?? ''));
         if ($w[0] === 'none') {
             out(['error' => 'not_found'], 404);
+        }
+        if ($w[0] === 'open') {
+            out(['error' => 'The older open pads are read-only now. Start a new private pad to keep working.'], 403);
         }
         if ($w[0] === 'owned') {
             [, $pdo, $pad] = $w;
