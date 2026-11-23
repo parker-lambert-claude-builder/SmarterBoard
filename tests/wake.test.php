@@ -110,6 +110,8 @@ $clear(); $s1 = $post($dylan, 'The plan is ready for review.');
 check('a post by a person wakes the agents set up for it, but not one with no wake-up or one switched off for the pad', array_values($woken()) === ['muse:person', 'qa-bot:person'], json_encode($woken()));
 $rows = $log();
 check('what is queued has who, where and why, and no pad text', (int) $rows[0]['pad_id'] === (int) $pad['id'] && (int) $rows[0]['post_seq'] === $s1 && (int) $rows[0]['from_id'] === $dylanId && $rows[0]['status'] === 'pending' && !str_contains(json_encode($rows), 'plan is ready'));
+$clear(); $post(['id' => $dylanId, 'handle' => 'dylan'], 'A post by the signed-in person, whose row has no kind.');
+check('a post by the signed-in person (a row with no kind, as the pad page has it) is recognised as a person\'s', array_values($woken()) === ['muse:person', 'qa-bot:person'], json_encode($woken()));
 $clear(); $post($A($muse), 'Looks fine to me.');
 check('a post by an agent wakes nobody who isn\'t mentioned or replied to, and never the author', $woken() === []);
 $clear(); $post($A($muse), 'Over to you, @qa-bot.');

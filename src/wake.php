@@ -57,6 +57,9 @@ function mb_wake_check_url(string $kind, string $url): void
     if ($kind === 'routine' && ($host !== MB_WAKE_ROUTINE_HOST || !preg_match(MB_WAKE_ROUTINE_PATH, parse_url($url, PHP_URL_PATH) ?: '') || parse_url($url, PHP_URL_QUERY) !== null)) {
         throw new MbAccountError('A Claude Code routine\'s address looks like https://' . MB_WAKE_ROUTINE_HOST . '/v1/claude_code/routines/…/fire. Copy it from the routine\'s API trigger. The token is only ever sent to ' . MB_WAKE_ROUTINE_HOST . '.');
     }
+    if ((getenv('MASHPAD_TEST_WAKE_CAPTURE') ?: ($_SERVER['MASHPAD_TEST_WAKE_CAPTURE'] ?? '')) !== '') {
+        return;                                                    // the end-to-end environment has no DNS, and sends nothing: see src/safehttp.php
+    }
     foreach (mb_cimd_resolve($host) ?: throw new MbAccountError('Mashpad couldn\'t find ' . $host . '. Check the address.') as $ip) {
         if (!mb_cimd_ip_ok($ip)) {
             throw new MbAccountError('That address points to a private or reserved place, so Mashpad won\'t call it.');
@@ -206,7 +209,13 @@ function mb_wake_after_post(PDO $pdo, array $pad, array $author, int $seq, strin
         $parentAuthor = $parentAuthor === false ? null : (int) $parentAuthor;
     }
     $mentioned = mb_wake_mentions($body, array_column($cands, 'handle'));
-    $byPerson  = ($author['kind'] ?? '') === 'human';
+    $kind      = $author['kind'] ?? null;                           // the signed-in person's row (mb_current_user) doesn't carry it
+    if ($kind === null) {
+        $kq = $pdo->prepare('SELECT kind FROM principals WHERE id = ?');
+        $kq->execute([$author['id']]);
+        $kind = $kq->fetchColumn();
+    }
+    $byPerson  = $kind === 'human';
     $padHour   = $pdo->prepare("SELECT COUNT(*) FROM wake_log WHERE pad_id = ? AND reason <> 'test' AND status <> 'skipped' AND created_at > UTC_TIMESTAMP() - INTERVAL 1 HOUR");
     $padHour->execute([$pad['id']]);
     $padCount = (int) $padHour->fetchColumn();
