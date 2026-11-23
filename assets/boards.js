@@ -78,7 +78,7 @@ const render = text => window.renderMessage(text, { mention: mentionLink });
 async function getJSON(url, opts) {
   const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.message || data.error || r.statusText); e.status = r.status; e.choices = data.choices; e.brief = data.brief; throw e; }
+  if (!r.ok) { const e = new Error(data.message || data.error || r.statusText); e.status = r.status; e.choices = data.choices; e.brief = data.brief; e.item = data.item; throw e; }
   return data;
 }
 
@@ -150,7 +150,6 @@ function showHome() {
     <div class="inner home">
       <h1>Your pads</h1>
       <p>Pick a pad to catch up on the conversation or add a message of your own.</p>
-      <p>People and AI agents share the same thread, so everyone can follow the work.</p>
       <nav class="mobile-boards" aria-label="Pads">${boardListHTML()}</nav>
 
       <details class="agent-setup">
@@ -289,7 +288,7 @@ async function showBoard(slug, navigation) {
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
       <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
-    ${d.owned ? '<div class="inner pad-brief" id="brief"></div>' : ''}
+    ${d.owned ? '<div class="inner pad-brief" id="brief"></div><div class="inner pad-items" id="items"></div>' : ''}
     <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
@@ -298,6 +297,8 @@ async function showBoard(slug, navigation) {
     </div>`;
   state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
   renderBrief();
+  state.items = []; state.itemTypes = {}; state.itemEditing = null; state.itemsStamp = d.items_stamp || '';
+  if (d.owned) loadItems(true);
   appendMessages(d.messages, false);
   state.latest = Math.max(state.latest, d.latest_id);
   state.pending = {}; syncRequests(d.pending_requests);
@@ -399,6 +400,123 @@ async function showBriefHistory(version) {
   }
 }
 
+/* ---------- items ----------
+   A short list of things worth finding without reading the thread. Each has a type its writer chose (decision,
+   question, requirement, risk, link: examples, not a fixed set), a value, who last changed it and when. Any member
+   can add and change items; removing is for whoever added one, or the pad's owner. */
+state.items = []; state.itemTypes = {}; state.itemsStamp = ''; state.itemEditing = null;
+const itemDay = ts => new Date(ts * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+function itemGroups(items) {
+  const by = new Map();
+  for (const it of items) { if (!by.has(it.type)) by.set(it.type, []); by.get(it.type).push(it); }
+  return [...by].map(([type, list]) => ({ type, items: list }));
+}
+
+function itemMeta(it) {
+  const added = it.updated_by !== it.added_by ? `, added by ${esc(displayName(it.added_by))}` : '';
+  return `#${it.n} · ${esc(displayName(it.updated_by))}${added} · <time datetime="${new Date(it.updated_ts * 1000).toISOString()}" title="${esc(fullTime(it.updated_ts))}">${itemDay(it.updated_ts)}</time>`;
+}
+
+function itemEditHTML(it) {
+  return `<li class="item editing" id="item-${it.n}"><form class="item-edit" data-item-form="${it.n}" data-version="${it.version}">
+      <label>Type <input name="type" list="item-types" value="${esc(it.type)}" maxlength="40" required autocomplete="off"></label>
+      <label>Value <textarea name="value" rows="3" maxlength="2000" required>${esc(it.value)}</textarea></label>
+      <div class="item-actions"><button type="submit">Save</button><button type="button" class="quiet" data-item-cancel>Cancel</button></div>
+    </form></li>`;
+}
+
+function itemHTML(it) {
+  if (state.itemEditing === it.n) return itemEditHTML(it);
+  return `<li class="item" id="item-${it.n}">
+      <div class="item-value">${render(it.value)}</div>
+      <div class="item-meta">${itemMeta(it)}</div>
+      <div class="item-actions"><button type="button" class="quiet" data-item-edit="${it.n}">Edit</button>${it.can_remove ? `<button type="button" class="quiet" data-item-remove="${it.n}">Remove</button>` : ''}</div>
+    </li>`;
+}
+
+/* True while a person is typing in the block: a reload must not wipe what they are writing. */
+function itemsBusy() {
+  const box = document.getElementById('items');
+  if (!box) return false;
+  const add = box.querySelector('#item-add');
+  const typed = !!(add && add.elements && (add.elements.type.value || add.elements.value.value));
+  return state.itemEditing !== null || typed || (box.contains(document.activeElement) && !!document.activeElement.matches?.('input, textarea'));
+}
+
+function renderItems() {
+  const box = document.getElementById('items');
+  if (!box) return;
+  const was = box.querySelector('details.items-box');
+  const groups = itemGroups(state.items);
+  const summary = state.items.length ? `${state.items.length} · ${groups.map(g => `${esc(g.type)} ${g.items.length}`).join(' · ')}` : 'none yet';
+  box.innerHTML = `<details class="items-box"${was && was.open ? ' open' : ''}>
+      <summary><span class="items-title" id="items-h">Items</span> <span class="items-count">${summary}</span></summary>
+      ${groups.map(g => `<section class="item-group" aria-label="${esc(g.type)}"><h3>${esc(g.type)} <span class="count">${g.items.length}</span></h3><ul class="item-list">${g.items.map(itemHTML).join('')}</ul></section>`).join('')}
+      <form class="item-add" id="item-add" aria-label="Add an item">
+        <h3>Add an item</h3>
+        <label>Type <input name="type" list="item-types" maxlength="40" required autocomplete="off" placeholder="decision"></label>
+        <label>Value <textarea name="value" rows="3" maxlength="2000" required></textarea></label>
+        <div class="item-actions"><button type="submit">Add</button></div>
+      </form>
+      <datalist id="item-types">${Object.keys(state.itemTypes).map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+    </details>`;
+}
+
+async function loadItems(force = false) {
+  const slug = state.slug, navigation = state.navigation;
+  try {
+    const d = await getJSON(`${API}?action=items&board=${encodeURIComponent(slug)}`);
+    if (navigation !== state.navigation) return;
+    state.items = d.items; state.itemTypes = d.types || {}; state.itemsStamp = d.stamp;
+    if (force || !itemsBusy()) { renderItems(); state.itemsStale = false; }
+    else state.itemsStale = true;                       // someone is typing: show the change when they stop
+  } catch { /* keep what is shown */ }
+}
+
+async function saveItem(form) {
+  const adding = form.id === 'item-add';
+  const slug = state.slug, navigation = state.navigation;
+  const btn = form.querySelector('button[type="submit"]');
+  const say = msg => {
+    let p = form.querySelector('.form-error');
+    if (!p) { form.insertAdjacentHTML('beforeend', '<p class="form-error" role="alert"></p>'); p = form.querySelector('.form-error'); }
+    p.textContent = msg;
+  };
+  form.querySelector('.form-error')?.remove();
+  btn.disabled = true;
+  const body = adding
+    ? { op: 'add', type: form.elements.type.value, value: form.elements.value.value }
+    : { op: 'update', n: Number(form.dataset.itemForm), version: Number(form.dataset.version), type: form.elements.type.value, value: form.elements.value.value };
+  try {
+    await getJSON(`${API}?action=item`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board: slug, ...body }) });
+    if (navigation !== state.navigation) return;
+    state.itemEditing = null;
+    await loadItems(true);
+  } catch (err) {
+    if (navigation !== state.navigation) return;
+    btn.disabled = false;
+    if (err.status === 409 && err.item) form.dataset.version = err.item.version;       // the next save is made against theirs
+    say(err.message);
+  }
+}
+
+async function removeItem(n) {
+  const it = state.items.find(x => x.n === n);
+  if (!it) return;
+  const slug = state.slug, navigation = state.navigation;
+  const ok = await window.mashpadConfirm({ title: 'Remove this item?', body: `${it.type}: ${it.value.length > 160 ? it.value.slice(0, 159) + '…' : it.value}`, action: 'Remove', danger: true });
+  if (!ok) return;
+  try {
+    await getJSON(`${API}?action=item`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board: slug, op: 'remove', n }) });
+    if (navigation !== state.navigation) return;
+    await loadItems(true);
+  } catch (err) {
+    if (navigation !== state.navigation) return;
+    document.getElementById(`item-${n}`)?.insertAdjacentHTML('beforeend', `<p class="form-error" role="alert">${esc(err.message)}</p>`);
+  }
+}
+
 async function pollBoard() {
   if (!state.slug || state.view !== 'pad' || document.hidden) return;
   if (state.polling) return;            // one poll in flight at a time
@@ -417,6 +535,7 @@ async function pollBoard() {
     const hm = document.getElementById('head-meta');
     if (hm) hm.innerHTML = headMeta(d);
     syncRequests(d.pending_requests || (d.owned && d.is_owner ? {} : null));
+    if (d.owned && d.items_stamp && d.items_stamp !== state.itemsStamp) await loadItems();     // someone changed an item
     if (d.owned && (d.brief_version || 0) !== state.briefVersion) {
       if (state.briefMode === 'edit') {
         // Don't touch what is being typed; the save will be refused and show the newer version.
@@ -724,6 +843,16 @@ document.addEventListener('click', e => {
     });
     return;
   }
+  const itemEdit = e.target.closest('[data-item-edit]');
+  if (itemEdit) {
+    state.itemEditing = Number(itemEdit.dataset.itemEdit);
+    renderItems();
+    document.querySelector(`#item-${state.itemEditing} textarea`)?.focus();
+    return;
+  }
+  if (e.target.closest('[data-item-cancel]')) { state.itemEditing = null; renderItems(); return; }
+  const itemRemove = e.target.closest('[data-item-remove]');
+  if (itemRemove) return removeItem(Number(itemRemove.dataset.itemRemove));
   const brief = e.target.closest('[data-brief]');
   if (brief) {
     const act = brief.dataset.brief;
@@ -739,6 +868,16 @@ document.addEventListener('click', e => {
   history.pushState(null, '', a.getAttribute('href'));
   route();
   window.scrollTo(0, 0);
+});
+document.addEventListener('focusout', () => {
+  if (!state.itemsStale) return;
+  setTimeout(() => { if (state.itemsStale && !itemsBusy()) { renderItems(); state.itemsStale = false; } }, 0);
+});
+document.addEventListener('submit', e => {
+  const form = e.target.closest?.('#item-add, form[data-item-form]');
+  if (!form) return;
+  e.preventDefault();
+  saveItem(form);
 });
 window.addEventListener('popstate', route);
 document.addEventListener('visibilitychange', () => {

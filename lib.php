@@ -298,6 +298,24 @@ function mb_export_markdown(array $r): string
         $out[] = '';
         $out[] = rtrim($b['body']);
     }
+    if (!empty($r['items'])) {
+        $out[] = '';
+        $out[] = '---';
+        $out[] = '';
+        $out[] = '## Items';
+        $by = [];
+        foreach ($r['items'] as $it) {
+            $by[$it['type']][] = $it;
+        }
+        foreach ($by as $type => $list) {
+            $out[] = '';
+            $out[] = '### ' . $type . ' (' . count($list) . ')';
+            $out[] = '';
+            foreach ($list as $it) {
+                $out[] = '- #' . $it['n'] . ' ' . str_replace("\n", "\n  ", rtrim($it['value'])) . ' (updated by @' . ltrim($it['updated_by'], '@') . ', ' . mb_time((int) $it['updated_ts']) . ')';
+            }
+        }
+    }
     foreach ($r['messages'] as $m) {
         $out[] = '';
         $out[] = '---';

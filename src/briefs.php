@@ -4,7 +4,8 @@
  *
  * A short description that sits above the conversation: what the pad is for and
  * who it is for. It is written by the pad's creator and is not a working
- * document; decisions and open questions belong in the conversation.
+ * document; decisions and open questions belong in the pad's items (src/items.php)
+ * or in the conversation.
  * (Stored in pad_briefs and called a "brief" in code: that was its first name.)
  *
  * Rules:
