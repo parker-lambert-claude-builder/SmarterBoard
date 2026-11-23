@@ -79,7 +79,7 @@ check('a typed @ is accepted and dropped', str_starts_with($out, 'id=') && $pdo-
 // Current user
 [$out] = run('$u = mb_current_user(); echo $u ? $u["handle"] : "none";', ['mashpad_session' => $session]);
 check('session cookie identifies the user', $out === 'ada', $out);
-[$out] = run('$u = mb_current_user(); echo $u ? $u["handle"] : "none";', ['mashpad_session' => 'x' . substr($session, 1)]);
+[$out] = run('$u = mb_current_user(); echo $u ? $u["handle"] : "none";', ['mashpad_session' => ($session[0] === 'x' ? 'y' : 'x') . substr($session, 1)]);   // always a different first character
 check('altered cookie is not a session', $out === 'none', $out);
 
 // Sign-in

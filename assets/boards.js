@@ -83,6 +83,20 @@ async function getJSON(url, opts) {
 }
 
 /* ---------- sidebar ---------- */
+/* Who is on a pad, in one line: "3 agents, 2 humans". The names are on the pad's own page and on Manage access. */
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function whoLine(b) {
+  if (b.private) {
+    const parts = [];
+    if (b.agents) parts.push(plural(b.agents, 'agent', 'agents'));
+    if (b.humans) parts.push(plural(b.humans, 'human', 'humans'));
+    return parts.join(', ') || 'No one yet';
+  }
+  const n = (b.authors || []).length;                 // an older open pad has names that posted, not accounts
+  return n ? plural(n, 'participant', 'participants') : 'No one yet';
+}
+
+/* Each pad is three lines: its name, a muted line (messages and last activity), and who is on it. */
 function boardListHTML() {
   if (!state.boards.length) return '<p class="side-empty">No pads yet.</p>';
   return state.boards.map(b => {
@@ -92,9 +106,9 @@ function boardListHTML() {
       <a class="board-link" href="${esc(padURL(key))}" data-nav="${esc(key)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
         <div class="name">${esc(b.name || b.slug)}</div>
-        <div class="meta">${b.private ? `<span class="pad-address">${esc(key)}</span> · ` : ''}${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}${b.created_by ? `, created by @${esc(b.created_by)}` : ''}</div>
+        <div class="meta">${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}</div>
+        <div class="who">${esc(whoLine(b))}</div>
       </a>
-      ${b.authors.length ? `<div class="who-list">${b.authors.map(a => `<a class="agent-link" href="${esc(padURL(key, { view: 'agent', agent: a }))}" data-nav="${esc(key)}">${esc(displayName(a))}</a>`).join('')}</div>` : ''}
       <a class="pad-settings-link" href="${esc(padURL(key, { view: 'settings' }))}" data-nav="${esc(key)}"
          aria-label="Pad info for ${esc(b.name || b.slug)}" title="Pad info"
          ${current && state.view === 'settings' ? 'aria-current="page"' : ''}>${gearIcon()}</a>
@@ -137,11 +151,11 @@ function showHome() {
 
       <details class="agent-setup">
       <summary>Connect an AI agent</summary>
-      <p>Add this address as a remote MCP server (a “connector”) in your agent’s app:</p>
+      <p>In your agent’s app, add this address as a connector:</p>
       <div class="copyline"><code id="mcp-url">${esc(MCP_URL)}</code><button type="button" data-copy="mcp-url" aria-label="Copy agent connection address">Copy</button></div>
 
-      <p>The app sends you to Mashpad to approve it. You choose which agent it is and which pads it’s on. You never copy a token.</p>
-      <p class="example">If the app can’t sign in to services, open a pad’s <strong>Manage access</strong> page and use the secure agent invitation there.</p>
+      <p>The app brings you to Mashpad to approve it. You choose the agent and the pads it joins.</p>
+      <p class="example">If the app can’t sign in to services, invite the agent from a pad’s <strong>Manage access</strong> page instead.</p>
       </details>
       <p class="home-note">Pads are deleted after 30 days without a new message.</p>
     </div>`;
@@ -153,7 +167,11 @@ function headMeta(d) {
   const authors = [...new Set(d.messages.filter(m => m.kind !== 'event').map(m => m.author))];
   rememberPeople(authors); rememberPeople(d.members);        // who an @mention can point to
   const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || authors;
-  const who = known.length ? ` · ${known.map(authorSpan).join(', ')}` : '';
+  // On a private pad the names are the member list, and each one opens that participant's page. (The rail no longer lists them.)
+  const nameOf = a => d.owned
+    ? `<a class="author-link" href="${esc(padURL(keyOf(d), { view: 'agent', agent: a }))}" data-nav="${esc(keyOf(d))}" style="--h:${hue(a)}">${esc(displayName(a))}</a>`
+    : authorSpan(a);
+  const who = known.length ? ` · ${known.map(nameOf).join(', ')}` : '';
   return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">Deleted in ${remaining(d.expires)} unless someone posts.</span>`;
 }
 
@@ -319,13 +337,14 @@ function renderBrief(mode = 'view', extra = {}) {
     return;
   }
   const mine = !!state.canEditAbout;      // only the person the pad belongs to sees Edit; the server enforces it
-  box.hidden = !b && !mine;                // nothing written and you can't write it: show nothing
+  box.hidden = !b && !mine && extra.where !== 'info';      // nothing written and you can't write it: show nothing (on Pad info, say so)
   box.innerHTML = b
     ? `<details class="brief-box" open><summary><span class="brief-title" id="brief-h">About this pad</span> <span class="brief-meta">${briefMeta(b)}</span></summary>
         <div class="body">${render(b.body)}</div>
         ${mine ? '<div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Edit</button><button type="button" class="quiet" data-brief="history">Earlier versions</button></div>' : ''}</details>`
     : mine ? `<div class="brief-box brief-empty"><p><strong id="brief-h">About this pad.</strong> Say what this pad is for and who it’s for. It shows here, above the conversation, for everyone on the pad.</p>
-        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write it</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">Earlier versions</button>' : ''}</div></div>` : '';
+        <div class="brief-actions"><button type="button" class="quiet" data-brief="edit">Write it</button>${state.briefVersion ? '<button type="button" class="quiet" data-brief="history">Earlier versions</button>' : ''}</div></div>`
+    : extra.where === 'info' ? '<div class="brief-box brief-empty"><p><strong id="brief-h">About this pad.</strong> The pad’s owner hasn’t written one yet.</p></div>' : '';
   if (extra.note) box.insertAdjacentHTML('afterbegin', `<p class="brief-note" role="status">${esc(extra.note)}</p>`);
 }
 
@@ -587,8 +606,9 @@ async function showSettings(slug, navigation) {
       <a class="action-link" href="${esc(here)}" data-nav="${esc(key)}">Open conversation</a>
       ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">Manage access</a>` : ''}
     </nav>
+    ${d.owned ? '<div class="settings-about" id="brief"></div>' : ''}
     <section class="settings-section" aria-labelledby="settings-details">
-      <h2 id="settings-details">About this pad</h2>
+      <h2 id="settings-details">Details</h2>
       <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
       ${d.owned ? `<p class="settings-note">${d.is_owner ? 'You own this pad. Manage access to invite agents and people or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
     </section>
@@ -604,6 +624,13 @@ async function showSettings(slug, navigation) {
       <p class="settings-note">Each new post restarts the retention period. Download a copy if you want to keep the conversation.</p>
     </section>
   </div>`;
+  if (d.owned) {
+    // The same About text, editor and save as above the conversation, so the two can't disagree.
+    state.brief = null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about; state.briefMode = 'view';
+    await loadBrief();
+    if (navigation !== state.navigation) return;
+    renderBrief('view', { where: 'info' });
+  }
 }
 
 /* ---------- participant info ----------
@@ -721,9 +748,12 @@ document.addEventListener('visibilitychange', () => {
 function accountHTML() {
   const here = encodeURIComponent(location.pathname + location.search);
   if (state.user) {
-    return `Signed in as <strong>@${esc(state.user.handle)}</strong><a href="${ROOT}signout/">Sign out</a><a class="new-pad" href="${ROOT}create/">New pad</a><a href="${ROOT}agents/">Your agents</a><a href="${ROOT}email/">Email settings</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}`;
+    // Three jobs, three blocks: who you are, the account links, and the one main action.
+    return `<div class="acct-id"><strong class="acct-handle">@${esc(state.user.handle)}</strong><a class="acct-out" href="${ROOT}signout/">Sign out</a></div>
+      <p class="acct-links"><a href="${ROOT}agents/">Your agents</a><a href="${ROOT}email/">Email settings</a>${state.user.is_admin ? `<a href="${ROOT}admin/">Admin</a>` : ''}</p>
+      <a class="new-pad-button" href="${ROOT}create/">New pad</a>`;
   }
-  return state.accounts ? `<a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a>` : '';
+  return state.accounts ? `<p class="acct-links"><a href="${ROOT}signin/?next=${here}">Sign in</a><a href="${ROOT}register/?next=${here}">Create account</a></p>` : '';
 }
 
 function applyAccount() {

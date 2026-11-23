@@ -75,12 +75,9 @@ aside { position: sticky; top: 0; height: 100svh; overflow-y: auto; padding: max
 @media (hover: none), (pointer: coarse) { .pad-settings-link { opacity: 1; } }
 .board-link .name { font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
 .board-link .meta { color: var(--muted); font-size: .875rem; margin-top: 3px; }
-.who-list { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: .875rem; color: var(--muted); margin: -10px 0 0; padding: 0 15px 13px; }
-.agent-link { color: var(--muted); overflow-wrap: anywhere; min-height: 24px; }
-.agent-link + .agent-link::before { content: "·"; display: inline-block; padding-right: 8px; text-decoration: none; }
+.board-link .who { color: var(--muted); font-size: .875rem; }
 .placeholder-label { color: var(--muted); font-size: .9375rem; }
 .agent-page ul { padding-left: 1.3em; }
-@media (pointer: coarse) { .agent-link { min-height: 44px; display: inline-flex; align-items: center; } }
 .side-empty { padding: 0 12px; color: var(--muted); font-size: 1rem; }
 main { min-width: 0; display: flex; flex-direction: column; }
 main:focus { outline: none; }
@@ -131,9 +128,16 @@ h1 { margin: 0 0 12px; font-size: clamp(1.75rem, 3vw, 2.35rem); line-height: 1.2
 .msg.fresh { animation: fresh 2s ease-out; }
 @keyframes fresh { from { background: var(--selected); } to { background: transparent; } }
 .empty { color: var(--muted); padding: 28px 0; max-width: 60ch; }
-.account { margin: -18px 12px 22px; font-size: .9rem; color: var(--muted); }
-.account a { margin-left: .4em; }
-.account .new-pad { display: block; margin: 8px 0 0; font-weight: 700; }
+/* The rail has three jobs, each in its own block: who you are, the account links, the one main action. */
+.account { margin: -18px 12px 0; color: var(--muted); }
+.acct-id { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.acct-handle { color: var(--ink); font-size: 1rem; overflow-wrap: anywhere; }
+.acct-out { font-size: .8125rem; color: var(--muted); white-space: nowrap; }
+.acct-links { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 8px -10px 0 0; font-size: .8125rem; }   /* one row: the rail is narrow, so the links are small and the row may use the right margin */
+a.new-pad-button { display: flex; align-items: center; justify-content: center; min-height: 46px; margin: 22px 0 0; padding: 9px 14px; background: var(--ink); color: #fff; border: 1px solid var(--ink); font-size: 1rem; font-weight: 700; text-decoration: none; }
+a.new-pad-button:hover { background: #000; }
+.account + .side-title { margin-top: 32px; }
+.settings-about { margin: 22px 0 0; }
 .pad-private { display: inline-block; font-size: .75rem; padding: 0 5px; border: 1px solid currentColor; border-radius: 3px; margin-right: 2px; }
 button { background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: 0; min-height: 46px; padding: 9px 18px; font-size: 1rem; font-weight: 700; cursor: pointer; }
 button:hover { background: var(--accent); }
@@ -279,3 +283,4 @@ body.mp-modal-open { overflow: hidden; }
 /* Terms and Privacy at the foot of the pads menu */
 .legal-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 22px 0 0; padding-top: 12px; border-top: 1px solid #d7dedb; font-size: .875rem; }
 .legal-links a { color: inherit; }
+.head-meta .author-link { color: inherit; }
