@@ -47,3 +47,8 @@
 .use-case .thread small { display: block; color: #5c6b68; font-size: .8125rem; }
 .feature-footer .footer-links { display: inline-flex; gap: 6px 18px; flex-wrap: wrap; }
 .feature-footer .footer-links a { color: inherit; }
+
+/* One column since the example-conversation margin was removed */
+.feature-columns.feature-single { grid-template-columns: minmax(0, 1fr); }
+.feature-single article { max-width: 46rem; }
+.use-case .thread p strong { font-weight: 700; }
