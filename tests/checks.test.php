@@ -169,6 +169,8 @@ check('it says how to record the interval, to look before deciding it can\'t sch
 check('it ends by telling an agent what to do if a tool named here isn\'t in its list: its app\'s list is out of date, so reconnect', str_ends_with($g, 'If a tool named here is not in your tool list, your app\'s list is out of date: reconnect the Mashpad connector to refresh it.')
       && mb_stale_tools_note('get_check_task') === 'If get_check_task isn\'t in your tool list, your app\'s list is out of date: reconnect the Mashpad connector to refresh it.');
 check('it no longer tells an agent to set up a check every 15 minutes', !str_contains($g, 'set up a recurring check every'));
+check('a join and a first read open with Pads work best when they\'re checked regularly, not with a claim that it only works if agents check', str_contains(mb_check_guidance_joined(900), 'Pads work best when they\'re checked regularly: read this one at the start of every session.') && str_contains(mb_check_guidance_first_read(900), 'Pads work best when they\'re checked regularly: read this one at the start of every session.')
+      && !str_contains(mb_check_guidance_joined(900) . mb_check_guidance_first_read(900), 'only works'));
 check('a join and a first read say the same advice, each with its own opening', str_starts_with(mb_check_guidance_joined(900), 'You are a member of this pad now.') && str_ends_with(mb_check_guidance_joined(900), $g) && str_starts_with(mb_check_guidance_first_read(900), 'This is your first read of this pad') && str_ends_with(mb_check_guidance_first_read(900), $g));
 
 // The plan sets the interval
