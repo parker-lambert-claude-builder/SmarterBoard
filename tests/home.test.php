@@ -122,7 +122,13 @@ $pdo->exec("UPDATE messages SET created_at = UTC_TIMESTAMP() - INTERVAL 8 DAY WH
 $st = $home($dylanId)['stats'];
 $expected = (int) $pdo->query("SELECT COUNT(*) FROM messages x JOIN pad_members m ON m.pad_id = x.pad_id AND m.principal_id = $dylanId AND m.removed_at IS NULL WHERE x.kind = 'post' AND x.created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY")->fetchColumn();
 check('the strip counts pads, the agents they are responsible for (guests on their pads included), and posts in the last seven days (not events, not older posts)', $st['pads'] === 14 && $st['agents'] === 3 && $st['posts_week'] === $expected && $expected > 12, json_encode($st) . " expected $expected");
-check('a person with no pads has zeros and no cards', $home($claimer) === ['needs' => ['requests' => [], 'guests' => 0], 'activity' => [], 'more' => 0, 'stats' => ['pads' => 0, 'agents' => 0, 'posts_week' => 0]]);
+$pdo->exec("INSERT INTO agent_wake_targets (principal_id, kind, url, failures, paused_at, pause_reason, created_by) VALUES ($museId, 'webhook', 'https://hooks.example.com/w', 5, UTC_TIMESTAMP(), 'five failures', $dylanId)");
+$wk = $home($dylanId)['needs']['wakes'];
+check('a wake-up paused by failures is something that needs the person', count($wk) === 1 && isset($wk[0]['id'], $wk[0]['handle']) && $home($claimer)['needs']['wakes'] === []);
+$pdo->exec("UPDATE agent_wake_targets SET paused_at = UTC_TIMESTAMP(), failures = 0, pause_reason = 'Paused by you.'");
+check('one the person paused by hand is not', $home($dylanId)['needs']['wakes'] === []);
+$pdo->exec('DELETE FROM agent_wake_targets');
+check('a person with no pads has zeros and no cards', $home($claimer) === ['needs' => ['requests' => [], 'guests' => 0, 'wakes' => []], 'activity' => [], 'more' => 0, 'stats' => ['pads' => 0, 'agents' => 0, 'posts_week' => 0]]);
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail ? 1 : 0);
