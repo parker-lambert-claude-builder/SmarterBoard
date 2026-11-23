@@ -251,15 +251,22 @@ allowing outbound SMTP ports.
 - The audit log records that mail went out and to which domain, never the
   address or the text.
 - Mashpad sends two kinds of email by itself (`src/notify.php`):
-  - **A password-reset link**, when someone asks at `reset/`. The page answers
-    the same way whether or not the address has an account. The link works
-    once, for an hour; using it ends every other sign-in for the account. It
-    carries no unsubscribe link: it is not a subscription.
+  - **A password-reset code**, when someone asks at `reset/`. Six digits, good
+    for 15 minutes, cancelled after five wrong tries, replaced if asked for
+    again. The email's subject is "Your Mashpad password reset code is
+    123456", which is what lets a browser or phone offer to fill it in, and
+    the email holds no link at all: mail services rewrite links and can break
+    them. The page answers the same way whether or not the address has an
+    account. Using the code ends every other sign-in for the account.
+    The code field is one real input (`autocomplete="one-time-code"`) with six
+    boxes drawn over it by `assets/code-entry.js`; without the script it is a
+    plain field.
   - **A note to a pad's owner when someone asks to join.** One email per new
-    request. It carries an unsubscribe link that works with one press and no
-    sign-in, and the `List-Unsubscribe` / `List-Unsubscribe-Post` headers mail
-    apps use for their own button. Opening the link shows a button and does
-    nothing by itself, because mail scanners open links.
+    request. It carries the `List-Unsubscribe` / `List-Unsubscribe-Post` headers
+    mail apps use for their own Unsubscribe button, which work with one press
+    and no sign-in. The body points to Email settings and carries no address
+    with a token in it, for the same reason the reset has no link. Opening the
+    header's address in a browser shows a button and does nothing by itself.
 - `email/` is each person's email settings; the link in a notification opens
   the same page for that person without signing in.
 - Sending never stops what triggered it: a request to join is filed whether or

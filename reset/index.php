@@ -1,7 +1,8 @@
 <?php
 /**
- * Forgotten password. Step one: ask for a link by email. Step two (the link): choose a new password.
- * The first step answers the same way whether or not the address has an account.
+ * Forgotten password. Step one: ask for a code by email. Step two: type the six-digit code and a new
+ * password. The email holds a code, never a link, because mail services rewrite links and can break them.
+ * Step two is shown the same way whether or not the address has an account.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../src/notify.php';
@@ -10,66 +11,70 @@ require_once __DIR__ . '/../src/page.php';
 $base  = mb_base_path();
 $here  = $base . 'reset/';
 $error = null;
-$sent  = false;
+$note  = null;
+$step  = 'email';
 $pdo   = null;
 try { $pdo = mb_db(); } catch (Throwable $t) { $error = 'This page is unavailable right now. Please try again shortly.'; }
-$token = (string) ($_POST['t'] ?? $_GET['t'] ?? '');
-$link  = $pdo && $token !== '' ? mb_reset_lookup($pdo, $token) : null;
+$email = trim((string) ($_POST['email'] ?? ''));
 
 if ($pdo && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $act = (string) ($_POST['act'] ?? 'request');
     try {
         if (!mb_csrf_ok((string) ($_POST['csrf'] ?? ''))) {
             throw new MbAccountError('This page expired. Please try again.');
         }
-        if ($token !== '') {
+        if ($act === 'complete') {
+            $step = 'code';
             if ((string) ($_POST['password'] ?? '') !== (string) ($_POST['password2'] ?? '')) {
                 throw new MbAccountError('The two passwords don\'t match. Type the new password again in both boxes.');
             }
-            mb_reset_complete($pdo, $token, (string) ($_POST['password'] ?? ''));
+            mb_reset_complete($pdo, $email, (string) ($_POST['code'] ?? ''), (string) ($_POST['password'] ?? ''));
             header('Location: ' . $base . 'signin/?reset=1', true, 303);
             exit;
         }
-        mb_reset_request($pdo, (string) ($_POST['email'] ?? ''));
-        $sent = true;
+        mb_reset_request($pdo, $email);
+        $step = 'code';
+        $note = $act === 'again' ? 'If that address has an account, a new code is on its way. The earlier one no longer works.' : null;
     } catch (MbAccountError $x) {
         $error = $x->getMessage();
     }
 }
 header('Cache-Control: no-store');
-header('Referrer-Policy: no-referrer');          // the link's token must not travel in a Referer header
 $csrf = mb_csrf_token();
-mb_page_start($token !== '' ? 'Choose a new password' : 'Reset your password');
+mb_page_start($step === 'code' ? 'Enter your code' : 'Reset your password');
 ?>
 <div class="form-page">
-<?php if ($token !== '' && !$link && !$error): ?>
-  <h1>This link has expired</h1>
-  <p>A reset link works once and for one hour. Ask for a new one and use it straight away.</p>
-  <p><a href="<?= mb_e($here) ?>">Send me a new link</a></p>
-<?php elseif ($token !== ''): ?>
-  <h1>Choose a new password</h1>
-  <?php if ($link): ?><p>For the account <strong>@<?= mb_e($link['handle']) ?></strong>. Changing it signs that account out everywhere else.</p><?php endif; ?>
+<?php if ($step === 'code'): ?>
+  <h1>Enter your code</h1>
+  <p>If <strong><?= mb_e($email) ?></strong> has a Mashpad account, we've emailed it a six-digit code. It works once and for 15 minutes.</p>
+  <?php if ($note): ?><p class="notice" role="status"><?= mb_e($note) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
-  <?php if ($link): ?>
-  <form method="post" action="<?= mb_e($here) ?>">
-    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="t" value="<?= mb_e($token) ?>">
+  <form method="post" action="<?= mb_e($here) ?>" class="reset-code-form">
+    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="complete"><input type="hidden" name="email" value="<?= mb_e($email) ?>">
+    <label for="reset-code">Code from the email</label>
+    <div class="code-entry" data-code-entry>
+      <input id="reset-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus aria-describedby="reset-code-hint" value="<?= mb_e(preg_replace('/\D+/', '', (string) ($_POST['code'] ?? ''))) ?>">
+      <div class="code-boxes" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <p class="hint" id="reset-code-hint">Six digits. Your browser may offer to fill it in from the email.</p>
     <label>New password <span class="hint">At least <?= MB_PASSWORD_MIN ?> characters. A few unrelated words works well.</span><input name="password" type="password" required minlength="<?= MB_PASSWORD_MIN ?>" autocomplete="new-password"></label>
     <label>New password, again <input name="password2" type="password" required autocomplete="new-password"></label>
     <button type="submit">Save new password</button>
   </form>
-  <?php else: ?><p><a href="<?= mb_e($here) ?>">Send me a new link</a></p><?php endif; ?>
-<?php elseif ($sent): ?>
-  <h1>Check your email</h1>
-  <p>If <strong><?= mb_e(trim((string) ($_POST['email'] ?? ''))) ?></strong> has a Mashpad account, a link to choose a new password is on its way. It works once and for one hour.</p>
-  <p>If it doesn't arrive in a few minutes, look in your spam folder, and check the address is the one you signed up with.</p>
-  <p><a href="<?= mb_e($base) ?>signin/">Back to sign in</a></p>
+  <form method="post" action="<?= mb_e($here) ?>" class="reset-again">
+    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="again"><input type="hidden" name="email" value="<?= mb_e($email) ?>">
+    <p>No email after a few minutes? Check your spam folder and that the address is the one you signed up with. <button type="submit" class="quiet">Send a new code</button></p>
+  </form>
+  <p><a href="<?= mb_e($here) ?>">Use a different address</a> · <a href="<?= mb_e($base) ?>signin/">Back to sign in</a></p>
+  <script src="<?= mb_e(mb_asset('code-entry.js')) ?>" defer></script>
 <?php else: ?>
   <h1>Reset your password</h1>
-  <p>Enter the email address you signed up with and we'll send a link to choose a new password.</p>
+  <p>Enter the email address you signed up with and we'll send you a six-digit code.</p>
   <?php if ($error): ?><p class="error" role="alert"><?= mb_e($error) ?></p><?php endif; ?>
   <form method="post" action="<?= mb_e($here) ?>">
-    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>">
-    <label>Email <input name="email" type="email" required autocomplete="email" value="<?= mb_e($_POST['email'] ?? '') ?>"></label>
-    <button type="submit">Send me a link</button>
+    <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="act" value="request">
+    <label>Email <input name="email" type="email" required autocomplete="email" value="<?= mb_e($email) ?>"></label>
+    <button type="submit">Send me a code</button>
   </form>
   <p><a href="<?= mb_e($base) ?>signin/">Back to sign in</a></p>
 <?php endif; ?>

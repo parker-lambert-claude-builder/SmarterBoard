@@ -132,3 +132,27 @@
 .legal h2 { margin-top: 34px; }
 .legal p, .legal li { max-width: 46rem; }
 .legal .legal-meta { color: var(--muted, #5c6b68); font-size: .9375rem; }
+
+/* Six-digit code entry. Without the script this is an ordinary text field; with it, six boxes are drawn over it. */
+.code-entry { position: relative; max-width: 22rem; margin: 6px 0 4px; }
+.code-entry input { width: 100%; font: 700 1.5rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .35em; text-align: center; }
+.code-entry .code-boxes { display: none; }
+.code-entry.enhanced { height: 4rem; }
+.code-entry.enhanced .code-boxes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; height: 100%; }
+.code-entry.enhanced .code-boxes span { display: flex; align-items: center; justify-content: center; border: 2px solid #8d9b96; background: #fff; color: #202726;
+  font: 700 1.75rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; transition: border-color .12s, box-shadow .12s, transform .12s; }
+.code-entry.enhanced .code-boxes span.filled { border-color: #202726; }
+.code-entry.enhanced .code-boxes span.active { border-color: #1f6f78; box-shadow: 0 0 0 3px rgb(31 111 120 / .22); transform: translateY(-1px); }
+/* The real field lies under the boxes, invisible but focusable, so typing, pasting and autofill all still work.
+   The boxes sit on top and let clicks through to it. (The selector is long on purpose: it has to outrank the
+   site's ordinary field styling, which would otherwise paint a white field over the boxes.) */
+.code-entry.enhanced .code-boxes { position: relative; z-index: 1; pointer-events: none; }
+.account-page .form-page .code-entry.enhanced input,
+.account-page .form-page .code-entry.enhanced input:focus,
+.account-page .form-page .code-entry.enhanced input:focus-visible { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: transparent; caret-color: transparent; letter-spacing: 0; outline: none; box-shadow: none; }
+.code-entry.enhanced input::selection { background: transparent; }
+@media (prefers-reduced-motion: reduce) { .code-entry.enhanced .code-boxes span { transition: none; } }
+@media (forced-colors: active) { .code-entry.enhanced .code-boxes span.active { outline: 2px solid Highlight; } }
+.reset-again { margin-top: 22px; }
+.account-page .form-page .reset-again button.quiet { background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; min-height: 40px; padding: 6px 14px; }

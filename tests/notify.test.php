@@ -51,35 +51,47 @@ check('and a join-request notification is skipped quietly', mb_notify_join_reque
 mb_set_setting($pdo, 'brevo_api_key', 'xkeysib-TEST');
 mb_set_setting($pdo, 'mail_from_email', 'hello@mashpad.ai');
 
-// Password reset
+// Password reset: a six-digit code, no link
 mb_reset_request($pdo, 'Dylan@Example.com');
 $m = end($mails);
-preg_match('~https://mashpad\.example/reset/\?t=([A-Za-z0-9_-]+)~', $m['textContent'], $mm);
-$token = $mm[1] ?? '';
-check('a reset request emails a one-hour link to the account\'s address', count($mails) === 1 && $m['to'][0]['email'] === 'dylan@example.com' && $m['subject'] === 'Reset your Mashpad password' && $token !== '' && str_contains($m['textContent'], 'one hour'));
+preg_match('/^Your Mashpad password reset code is (\d{6})$/', $m['subject'], $mm);
+$code = $mm[1] ?? '';
+check('a reset request emails the account\'s address, with the code in the subject line', count($mails) === 1 && $m['to'][0]['email'] === 'dylan@example.com' && $code !== '', $m['subject']);
+check('the body repeats the code, says 15 minutes, and contains no link of any kind', str_contains($m['textContent'], "Your Mashpad password reset code is $code") && str_contains($m['textContent'], '15 minutes') && !preg_match('~https?://|www\.~', $m['textContent']));
 check('the reset email has no unsubscribe header: it is not a subscription', !isset($m['headers']));
-check('only the link\'s hash is stored', !$pdo->query('SELECT COUNT(*) FROM password_resets WHERE token_hash = ' . $pdo->quote($token))->fetchColumn());
+check('the code itself is not stored, only a hash tied to the account', !$pdo->query("SELECT COUNT(*) FROM password_resets WHERE code_hash = " . $pdo->quote($code))->fetchColumn()
+      && mb_reset_hash($dylanId, $code) !== mb_reset_hash($samId, $code));
 $n = count($mails);
 mb_reset_request($pdo, 'nobody@example.com');
 check('an address with no account gets no email, and no error either', count($mails) === $n);
-check('the link names the right account', (mb_reset_lookup($pdo, $token)['handle'] ?? '') === 'dylan' && mb_reset_lookup($pdo, 'x') === null && mb_reset_lookup($pdo, str_repeat('a', 43)) === null);
-check('a short new password is refused and the link stays good', str_contains(err(fn () => mb_reset_complete($pdo, $token, 'short')), 'at least') && mb_reset_lookup($pdo, $token) !== null);
+$wrongMsg = err(fn () => mb_reset_complete($pdo, 'dylan@example.com', '000000' === $code ? '111111' : '000000', 'a brand new long password'));
+check('a wrong code is refused', str_contains($wrongMsg, 'isn\'t right, or it has expired'));
+check('an unknown address gets exactly the same refusal', err(fn () => mb_reset_complete($pdo, 'nobody@example.com', '123456', 'a brand new long password')) === $wrongMsg);
+check('a short new password is refused and doesn\'t cost the code', str_contains(err(fn () => mb_reset_complete($pdo, 'dylan@example.com', $code, 'short')), 'at least'));
 @mb_create_session($pdo, $dylanId);
 $live = fn () => (int) $pdo->query("SELECT COUNT(*) FROM tokens WHERE principal_id = $dylanId AND kind = 'session' AND revoked_at IS NULL")->fetchColumn();
 check('there is a signed-in session before the reset', $live() === 1);
-check('the reset goes through for the right account', mb_reset_complete($pdo, $token, 'a brand new long password') === $dylanId);
+check('the right code (typed with a space) sets the new password', mb_reset_complete($pdo, ' DYLAN@example.com ', substr($code, 0, 3) . ' ' . substr($code, 3), 'a brand new long password') === $dylanId);
 check('every earlier sign-in for the account was ended', $live() === 0);
 check('the new password signs in', @mb_sign_in($pdo, 'dylan@example.com', 'a brand new long password') === $dylanId);
 check('the old password no longer works', str_contains(err(fn () => mb_sign_in($pdo, 'dylan@example.com', 'correct horse battery')), 'match'));
-check('the link works once', mb_reset_lookup($pdo, $token) === null && str_contains(err(fn () => mb_reset_complete($pdo, $token, 'another long password here')), 'isn\'t valid any more'));
-mb_reset_request($pdo, 'sam@example.com'); preg_match('~t=([A-Za-z0-9_-]+)~', end($mails)['textContent'], $a);
-mb_reset_request($pdo, 'sam@example.com'); preg_match('~t=([A-Za-z0-9_-]+)~', end($mails)['textContent'], $b);
-check('asking again replaces the earlier link', $a[1] !== $b[1] && mb_reset_lookup($pdo, $a[1]) === null && mb_reset_lookup($pdo, $b[1]) !== null);
+check('the code works once', err(fn () => mb_reset_complete($pdo, 'dylan@example.com', $code, 'another long password here')) === $wrongMsg);
+$codeOf = fn () => preg_match('/(\d{6})$/', end($mails)['subject'], $x) ? $x[1] : '';
+mb_reset_request($pdo, 'sam@example.com'); $a = $codeOf();
+mb_reset_request($pdo, 'sam@example.com'); $b = $codeOf();
+check('asking again replaces the earlier code', ($a === $b) || err(fn () => mb_reset_complete($pdo, 'sam@example.com', $a, 'a long enough password')) === $wrongMsg);
+$bad = fn (string $c) => $c === $b ? ($c === '999999' ? '888888' : '999999') : $c;
+for ($i = 0; $i < MB_RESET_TRIES; $i++) { err(fn () => mb_reset_complete($pdo, 'sam@example.com', $bad(sprintf('%06d', $i)), 'a long enough password')); }
+check(MB_RESET_TRIES . ' wrong guesses cancel the code: even the right one is then refused', err(fn () => mb_reset_complete($pdo, 'sam@example.com', $b, 'a long enough password')) === $wrongMsg
+      && (int) $pdo->query("SELECT COUNT(*) FROM password_resets WHERE principal_id = $samId AND used_at IS NULL")->fetchColumn() === 0);
+check('and the password was never changed', @mb_sign_in($pdo, 'sam@example.com', 'correct horse battery') === $samId);
+mb_reset_request($pdo, 'sam@example.com'); $c = $codeOf();
 $pdo->exec('UPDATE password_resets SET expires_at = UTC_TIMESTAMP() - INTERVAL 1 SECOND WHERE used_at IS NULL');
-check('an expired link is refused', mb_reset_lookup($pdo, $b[1]) === null);
+check('an expired code is refused', err(fn () => mb_reset_complete($pdo, 'sam@example.com', $c, 'a long enough password')) === $wrongMsg);
 $n = count($mails);
 mb_reset_request($pdo, 'sam@example.com'); mb_reset_request($pdo, 'sam@example.com');
-check('one address gets at most ' . MB_RESET_PER_HOUR . ' reset emails an hour; further requests are quiet', count($mails) === $n + 1);
+check('one address gets at most ' . MB_RESET_PER_HOUR . ' reset emails an hour; further requests are quiet', count($mails) === $n);
+check('a code is always six digits, leading zeros kept', (function () { for ($i = 0; $i < 200; $i++) { if (!preg_match('/^\d{6}$/', str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT))) return false; } return true; })());
 for ($i = 0; $i < MB_RESET_PER_IP; $i++) { try { mb_reset_request($pdo, "flood$i@example.com"); } catch (Throwable $e) { break; } }
 check('one network address can only ask so often', str_contains(err(fn () => mb_reset_request($pdo, 'more@example.com')), 'Too many reset attempts'));
 
@@ -93,7 +105,9 @@ check('the pad\'s owner is emailed once, with who is asking and a link to the pa
       && str_contains($m['textContent'], 'https://mashpad.example/pads/dylan/scheduling') && str_contains($m['textContent'], 'an AI agent that says it acts for Lee') && str_contains($m['textContent'], 'hasn\'t verified'), json_encode($m));
 $prefs = mb_email_prefs($pdo, $dylanId);
 $unsub = 'https://mashpad.example/email/?t=' . $prefs['unsub_token'];
-check('it carries an unsubscribe link and the one-click headers', str_contains($m['textContent'], $unsub) && ($m['headers']['List-Unsubscribe'] ?? '') === "<$unsub>" && ($m['headers']['List-Unsubscribe-Post'] ?? '') === 'List-Unsubscribe=One-Click');
+check('it carries the one-click unsubscribe headers', ($m['headers']['List-Unsubscribe'] ?? '') === "<$unsub>" && ($m['headers']['List-Unsubscribe-Post'] ?? '') === 'List-Unsubscribe=One-Click');
+check('the body says how to stop the emails and holds no address with a token in it', str_contains($m['textContent'], 'Unsubscribe button') && str_contains($m['textContent'], 'https://mashpad.example/email/')
+      && !str_contains($m['textContent'], $prefs['unsub_token']) && !str_contains($m['textContent'], '?t='));
 check('a header value can\'t carry a line break', !preg_match('/[\r\n]/', implode('', $m['headers'])));
 mb_invite_use($pdo, $inv, $pad, $guest);
 check('asking again does not email again', count($mails) === $n + 1);

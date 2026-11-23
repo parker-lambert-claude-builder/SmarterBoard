@@ -5,13 +5,13 @@ ALTER TABLE auth_attempts
 CREATE TABLE password_resets (
   id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   principal_id BIGINT UNSIGNED NOT NULL,
-  token_hash   BINARY(32) NOT NULL,                 -- the link carries the token; only its hash is kept
+  code_hash    BINARY(32) NOT NULL,                 -- a six-digit code is emailed; only a hash tied to the account is kept
+  attempts     TINYINT UNSIGNED NOT NULL DEFAULT 0, -- wrong guesses against this code; it dies after a few
   created_at   DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at   DATETIME   NOT NULL,
   used_at      DATETIME   NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY password_resets_hash (token_hash),
-  KEY password_resets_principal (principal_id),
+  KEY password_resets_principal (principal_id, used_at),
   CONSTRAINT password_resets_principal FOREIGN KEY (principal_id) REFERENCES principals (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
