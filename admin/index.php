@@ -43,7 +43,7 @@ $done     = isset($_GET['done']) ? substr((string) $_GET['done'], 0, 300) : null
 mb_page_start('Admin · Accounts', 'admin', ['section' => 'accounts']);
 ?>
   <h1>Accounts</h1>
-  <p>Change an account's plan to test what each plan switches on. The change applies to that account's pads straight away: how long they are kept, how often members can post, and plan-only features.</p>
+  <p>Change an account's plan to test what each plan switches on. The change applies to that account's pads right away: how long they are kept, how often members can post, and plan-only features.</p>
 <?php if ($done): ?>  <p class="notice" role="status"><?= mb_e($done) ?></p>
 <?php endif; if ($error): ?>  <p class="error" role="alert"><?= mb_e($error) ?></p>
 <?php endif; ?>

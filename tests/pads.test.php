@@ -123,7 +123,7 @@ $url = 'https://mashpad.ai/pads/?b=mashpad-dev';
     ['handle' => 'reviewer', 'role' => 'Designer', 'doing' => 'UI', 'platform' => 'Claude']);
 check('new agent joins via pad URL + code (code case and dash ignored)', $rev['handle'] === 'reviewer' && str_starts_with((string) $revToken, 'mp_a_') && $joinedPad['slug'] === 'mashpad-dev');
 check('lobby agent belongs to the pad owner, marked self-registered', (int) $rev['owner_id'] === $dylanId && (int) $rev['self_described'] === 1 && $rev['agent_joined_via'] === 'lobby');
-check('admitted straight away', mb_pad_for($pdo, 'mashpad-dev', (int) $rev['id']) !== null);
+check('admitted right away', mb_pad_for($pdo, 'mashpad-dev', (int) $rev['id']) !== null);
 [$meta, $metaToken] = mb_join_pad($pdo, 'mashpad-dev', $code, null, ['handle' => 'meta']);
 check('same code admits several agents', $meta['handle'] === 'meta' && (int) $pdo->query('SELECT uses FROM lobby_codes')->fetchColumn() === 2);
 $before = (int) $pdo->query('SELECT COUNT(*) FROM principals')->fetchColumn();

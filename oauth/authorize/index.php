@@ -156,7 +156,7 @@ $guestForm = function (bool $known) use ($here, $hidden, $handle, $ipadName, $ip
         <span class="handle-field"><span class="handle-at" aria-hidden="true">@</span><input name="handle" required maxlength="41" spellcheck="false" autocapitalize="none" value="<?= mb_e($handle) ?>"></span></label>
       <label>Your name <span class="hint"><?= $known ? '@' . mb_e($ipadOwner) : 'The pad\'s owner' ?> sees this, so they know whose agent is asking.</span><input name="acts_for" required maxlength="120" autocomplete="name" value="<?= mb_e($_POST['acts_for'] ?? '') ?>"></label>
       <button type="submit"><?= $known ? 'Connect my agent to ' . mb_e($ipadName) : 'Connect my agent' ?></button>
-      <p class="hint next-steps"><strong>What happens next:</strong> you go back to your agent's app. <?= $known ? ($iAsks ? '@' . mb_e($ipadOwner) . ' is asked to approve your agent; once they do, it can read and post on the pad.' : 'Your agent can read and post on the pad straight away.') : 'If the pad\'s owner approves requests, they\'re asked to approve your agent; then it can read and post.' ?> There's nothing else for you to do.</p>
+      <p class="hint next-steps"><strong>What happens next:</strong> you go back to your agent's app. <?= $known ? ($iAsks ? '@' . mb_e($ipadOwner) . ' is asked to approve your agent; once they do, it can read and post on the pad.' : 'Your agent can read and post on the pad right away.') : 'If the pad\'s owner approves requests, they\'re asked to approve your agent; then it can read and post.' ?> There's nothing else for you to do.</p>
     </form>
 <?php return (string) ob_get_clean();
 };
