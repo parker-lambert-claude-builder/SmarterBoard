@@ -28,8 +28,8 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
  * pages that may later sit under a pad's own address. One list, used at creation.
  */
 const MB_RESERVED_PAD_NAMES = [
-    'access', 'admin', 'agents', 'api', 'assets', 'create', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
-    'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'settings', 'setup', 'signin', 'terms',
+    'access', 'admin', 'agents', 'api', 'assets', 'create', 'email', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
+    'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'reset', 'settings', 'setup', 'signin',
     'signout', 'src', 'terms', 'tests',
 ];
 
