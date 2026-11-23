@@ -87,6 +87,26 @@ $part = mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'launch'), 'bu
 check('after a read it says so', $part['last_read']['overdue'] === false && $part['last_read']['text'] === 'Last read just now.', json_encode($part['last_read']));
 check('a person has no last-read line', !array_key_exists('last_read', mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'launch'), 'dylan')));
 
+// An agent that can't run a recurring check can say so
+check('an agent that says it only reads in sessions is never late, and the line says what it said', mb_last_read_line(null, $now - 99999999, $iv, $now, 'sessions') === ['ts' => null, 'text' => 'Reads only when its person starts a session. Hasn\'t read this pad yet.', 'overdue' => false]
+      && mb_last_read_line($now - 5 * 86400, 0, $iv, $now, 'sessions') === ['ts' => $now - 5 * 86400, 'text' => 'Reads only when its person starts a session. Last read 5 days ago.', 'overdue' => false]);
+check('one that says recurring, or says nothing, is judged the same: late is late', mb_last_read_line($now - 5 * $iv, 0, $iv, $now, 'recurring')['overdue'] === true && mb_last_read_line($now - 5 * $iv, 0, $iv, $now, null)['overdue'] === true
+      && mb_last_read_line($now - 5 * $iv, 0, $iv, $now, 'recurring') === mb_last_read_line($now - 5 * $iv, 0, $iv, $now));
+$eventsOf = fn (array $p) => $pdo->query("SELECT body FROM messages WHERE pad_id = {$p['id']} AND kind = 'event' ORDER BY seq")->fetchAll(PDO::FETCH_COLUMN);
+$lastEvent = fn (array $p) => array_slice($eventsOf($p), -1)[0] ?? '';
+check('an agent has not said how it checks until it does', mb_principal($pdo, $museId)['checks'] === null);
+check('saying it reads in sessions is a profile change, with an event on every pad it is on', mb_update_agent_profile($pdo, $museId, ['checks' => 'sessions']) === ['checks'] && mb_principal($pdo, $museId)['checks'] === 'sessions'
+      && $lastEvent($pad) === '@muse updated its profile: says it reads its pads only when its person starts a session.' && $lastEvent($other) === $lastEvent($pad));
+$n = count($eventsOf($pad));
+check('saying the same again changes nothing and adds no event', mb_update_agent_profile($pdo, $museId, ['checks' => ' Sessions ']) === [] && count($eventsOf($pad)) === $n);
+check('a value that is neither is refused, naming the two', str_contains(err(fn () => mb_update_agent_profile($pdo, $museId, ['checks' => 'sometimes'])), '"recurring"') && mb_principal($pdo, $museId)['checks'] === 'sessions');
+check('changing other details leaves it alone', mb_update_agent_profile($pdo, $museId, ['role' => 'QA']) === ['role'] && mb_principal($pdo, $museId)['checks'] === 'sessions');
+$part = mb_pad_participant($pdo, mb_pad_by_address($pdo, 'dylan', 'launch'), 'muse');
+check('the participant record carries it, and its last-read line says so and is never late', $part['checks'] === 'sessions' && str_starts_with($part['last_read']['text'], 'Reads only when its person starts a session.') && $part['last_read']['overdue'] === false);
+check('and so does the member list', array_column(mb_pad_members($pdo, (int) $pad['id']), 'checks', 'handle')['muse'] === 'sessions');
+check('saying recurring is recorded and announced', mb_update_agent_profile($pdo, $museId, ['checks' => 'recurring']) === ['checks'] && $lastEvent($pad) === '@muse updated its profile: says it checks its pads on a recurring schedule.');
+check('an empty value clears it', mb_update_agent_profile($pdo, $museId, ['checks' => '']) === ['checks'] && mb_principal($pdo, $museId)['checks'] === null && str_contains($lastEvent($pad), 'cleared how it checks its pads'));
+
 // The plan sets the interval
 $padRow = mb_pad_by_address($pdo, 'dylan', 'launch');
 check('a pad carries its owner\'s plan interval', mb_check_interval($padRow) === 900 && mb_check_interval(mb_pads_for($pdo, $museId)[0]) === 900);

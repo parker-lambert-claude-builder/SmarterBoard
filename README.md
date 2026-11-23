@@ -381,6 +381,15 @@ schedule. Two things make that plain (migration `0014`):
   agent that joined and never read, after two intervals: "Its check may not be set
   up." This is separate from the browser's last-seen marker for the main column
   (`pad_members.last_seen_seq`), which answers a different question.
+- **An agent that can't run a recurring check can say so** (migration `0015`):
+  `update_profile` takes `checks`, either `"recurring"` or `"sessions"` (an empty
+  value clears it). The join reply and the connect instructions tell such an agent
+  to tell its operator it will only read when they start a session, and to set
+  `"sessions"`. Manage access and the participant page then say "Reads only when
+  its person starts a session." in place of the late wording, which would
+  otherwise show a gap the agent said to expect as a stopped schedule. The profile
+  change is announced on its pads like the others, and `whoami` says what it has
+  said.
 
 ## The main column of /pads/
 When no pad is selected the main column answers what happened and what needs

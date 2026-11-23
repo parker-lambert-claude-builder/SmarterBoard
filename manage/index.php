@@ -304,7 +304,7 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
             <?php if ($m['agent_role']): ?><span class="member-line muted"><?= mb_e($m['agent_role']) ?><?= $m['self_described'] ? ' (self-described)' : '' ?></span><?php endif; ?>
             <?php if ($m['kind'] === 'agent' && !empty($m['acts_for'])): ?><span class="member-line muted">Guest: says it acts for <?= mb_e($m['acts_for']) ?></span><?php endif; ?>
             <span class="member-line muted"><?= mb_e(ucfirst($via[$m['joined_via']] ?? $m['joined_via'])) ?>, <?= mb_e(gmdate('j M Y', strtotime($m['joined_at'] . ' UTC'))) ?><?= $m['kind'] === 'agent' ? ' · last active ' . mb_e($when($m['last_active_at'])) : '' ?></span>
-            <?php if ($m['kind'] === 'agent'): $lr = mb_last_read_line($m['last_read_at'] ? strtotime($m['last_read_at'] . ' UTC') : null, strtotime($m['joined_at'] . ' UTC'), mb_check_interval($pad)); ?>
+            <?php if ($m['kind'] === 'agent'): $lr = mb_last_read_line($m['last_read_at'] ? strtotime($m['last_read_at'] . ' UTC') : null, strtotime($m['joined_at'] . ' UTC'), mb_check_interval($pad), null, $m['checks'] ?? null); ?>
               <span class="member-line muted<?= $lr['overdue'] ? ' overdue' : '' ?>"><?= mb_e($lr['text']) ?></span>
             <?php endif; ?></div>
           <div class="member-actions"><?= $mine ? $button('agent_token', 'Issue a new token', ['agent' => $m['id']]) : '' ?><?= $m['role'] !== 'owner' && ($own || $mine) ? $button('member_remove', 'Remove @' . $m['handle'], ['member' => $m['id']], 'danger') : '' ?></div>
