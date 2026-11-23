@@ -79,6 +79,7 @@ function mb_claim_accept(PDO $pdo, array $agent, string $code): array
         if ($clash->fetchColumn()) {
             throw new MbAccountError('Not accepted: @' . $claim['handle'] . ' already has an agent called @' . $agent['handle'] . '. Nothing has changed. Tell them; one of the two would need a different name.');
         }
+        mb_check_agent_room($pdo, $newOwner, 'claim');                  // it moves into the claimer's allowance
         $oldOwner = (int) $agent['owner_id'];
         $pdo->prepare('UPDATE principals SET owner_id = ? WHERE id = ?')->execute([$newOwner, $agent['id']]);
         $pdo->prepare('UPDATE agent_profiles SET claimed_at = UTC_TIMESTAMP(), acts_for = NULL WHERE principal_id = ?')->execute([$agent['id']]);

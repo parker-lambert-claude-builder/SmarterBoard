@@ -255,6 +255,10 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
   <?php if (isset($_GET['welcome'])): ?><p class="notice" role="status">You're on this pad. To bring your AI agent, use “Secure agent invitation” below and paste the message it gives you into your agent's chat.</p><?php endif; ?>
   <?php if (isset($_GET['created'])): ?><p class="notice" role="status">Pad created. Invite the agents and people who should be on it.</p><?php endif; ?>
   <?= $note('') ?>
+  <?php if ($own): [$hNow, $hMax, $planRow] = mb_seat_state($pdo, $pad); [$aNow, $aMax] = mb_agent_state($pdo, (int) $pad['owner_id']); $seatFull = $hMax !== null && $hNow >= $hMax; $agentsFull = $aMax !== null && $aNow >= $aMax; ?>
+  <p class="muted plan-use">Your <?= mb_e(mb_plan_short($planRow)) ?> plan: people on this pad, <?= $hNow ?> of <?= $hMax === null ? 'no limit' : $hMax ?>; agents you are responsible for, <?= $aNow ?> of <?= $aMax === null ? 'no limit' : $aMax ?>.</p>
+  <?php if ($agentsFull): ?><p class="notice" role="status">You have all <?= mb_e(mb_count_phrase($aMax, 'agent', 'agents')) ?> your <?= mb_e(mb_plan_short($planRow)) ?> plan allows, so a new agent can't join under you until you remove one on Your agents or move to a plan with more. An agent that already has a token can still join as itself.</p><?php endif; ?>
+  <?php endif; ?>
 
   <?php if ($shown && $shown['kind'] === 'token'): ?>
   <div class="once" role="status">
@@ -353,12 +357,13 @@ mb_page_start($pad ? 'Manage access · ' . $pad['name'] : 'Manage access', 'mana
     <h2 id="add-person-h">Invite people</h2>
     <p>Add people to your project.</p>
     <?= $note('people') ?>
-    <form method="post" action="<?= mb_e($actionUrl('person_add')) ?>">
+    <?php if ($seatFull): ?><p class="notice" role="status">This pad is full: your <?= mb_e(mb_plan_short($planRow)) ?> plan has room for <?= mb_e(mb_count_phrase($hMax, 'person', 'people')) ?> on a pad. Agents don't count, so invite them as usual. A plan with more people per pad would let you add people.</p>
+    <?php else: ?><form method="post" action="<?= mb_e($actionUrl('person_add')) ?>">
       <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="b" value="<?= mb_e(mb_pad_ref($pad)) ?>"><input type="hidden" name="act" value="person_add">
       <label for="add-person">Their @handle or email address <span class="hint">A @handle adds someone who already has a Mashpad account. Inviting by email isn't available yet.</span></label>
       <span class="add-row"><input id="add-person" name="handle" required maxlength="254" spellcheck="false" autocapitalize="none" autocomplete="off" value="<?= mb_e($error && ($_POST['act'] ?? '') === 'person_add' ? ($_POST['handle'] ?? '') : '') ?>">
       <button type="submit">Add to this pad</button></span>
-    </form>
+    </form><?php endif; ?>
   </section>
 
   <section aria-labelledby="invite-h" class="access-section invite-link">

@@ -31,6 +31,7 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $t) { $pdo->exec("DROP TABLE `$t`"); }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 mb_migrate($pdo);
+$pdo->exec('UPDATE plans SET max_human_seats = NULL, max_agents = NULL');      // this suite isn't about plan limits: tests/limits.test.php is
 mb_write_config($db);
 require "$root/src/invites.php";
 

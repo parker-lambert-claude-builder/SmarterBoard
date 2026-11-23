@@ -156,3 +156,14 @@
 @media (forced-colors: active) { .code-entry.enhanced .code-boxes span.active { outline: 2px solid Highlight; } }
 .reset-again { margin-top: 22px; }
 .account-page .form-page .reset-again button.quiet { background: var(--paper); color: var(--ink); border: 1px solid #8d9b96; min-height: 40px; padding: 6px 14px; }
+
+/* Admin > Plans */
+.account-page .plan-edit { margin: 22px 0 0; padding-top: 12px; border-top: 1px solid var(--rule, #c7d0cc); max-width: 34rem; }
+.account-page .plan-edit h2 { margin-top: 0; }
+.account-page .plan-edit .plan-field { margin: 0 0 12px; }
+.account-page .plan-edit .plan-field label { display: block; margin: 0; font-weight: 600; }
+.account-page .plan-edit .plan-field label .hint { font-weight: 400; color: var(--muted); }
+.account-page .plan-edit .plan-field input:not([type=checkbox]) { display: block; width: 100%; max-width: 12rem; margin: 4px 0 0; }
+.account-page .plan-edit .plan-field.check label { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+.account-page .plan-edit .plan-field.check input { width: auto; margin: 0; }
+.plan-use { margin: 4px 0 14px; }
