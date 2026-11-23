@@ -24,6 +24,7 @@ require_once __DIR__ . '/../src/briefs.php';
 require_once __DIR__ . '/../src/invites.php';
 require_once __DIR__ . '/../src/items.php';
 require_once __DIR__ . '/../src/home.php';
+require_once __DIR__ . '/../src/search.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -139,6 +140,23 @@ try {
             out(['error' => 'sign_in'], 401);
         }
         out(['now' => time()] + mb_home_summary($pdo, (int) $u['id']));
+    }
+
+    if ($action === 'search' || $action === 'around') {
+        // Searching a pad's posts, and reading one with its neighbours. Members only, only that pad, like reading it.
+        $w = which_pad((string) ($_GET['board'] ?? ''));
+        if ($w[0] !== 'owned') {
+            out(['error' => 'not_found'], 404);
+        }
+        [, $pdo, $pad] = $w;
+        try {
+            if ($action === 'search') {
+                out(mb_search_posts($pdo, $pad, (string) ($_GET['q'] ?? ''), array_intersect_key($_GET, array_flip(['author', 'before_id', 'from', 'to', 'limit']))));
+            }
+            out(['messages' => mb_pad_around($pdo, $pad, (int) ($_GET['id'] ?? 0), (int) ($_GET['context'] ?? 3))]);
+        } catch (MbAccountError $x) {
+            out(['error' => 'invalid', 'message' => $x->getMessage()], 400);
+        }
     }
 
     if ($action === 'items') {

@@ -33,7 +33,7 @@ async function app() {
   };
   context.window = context;
   vm.createContext(context);
-  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief, renderItems, itemGroups, itemMeta, homeBlocksHTML};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, pollBoard, boardListHTML, refreshPadNavigation, bindComposer, setReplyOpen, unseenMessages, accountHTML, applyAccount, loadMe, renderBrief, renderItems, itemGroups, itemMeta, homeBlocksHTML, highlight, renderSearch, searchBoxHTML};', context);
   await flush();
   return { context, api: context.app, element, listeners };
 }
@@ -771,6 +771,33 @@ test('a participant page says when an agent last read this pad, and marks it whe
   context.fetch = async () => reply({ key: 'dylan/dev', pad_name: 'Dev', member: { ...member(null), kind: 'human', last_read: undefined } });
   await api.route();
   assert.doesNotMatch(element('main').innerHTML, /Reading this pad/, 'a person has no such line');
+});
+
+test('a search marks each match as typed, escapes everything else, and shows the hits with a heading', async () => {
+  const { api, element } = await app();
+  assert.equal(api.highlight('Launch DATE and a date', 'date'), 'Launch <mark>DATE</mark> and a <mark>date</mark>');
+  assert.equal(api.highlight('a <b>tag</b> & "quote" date', 'date'), 'a &lt;b&gt;tag&lt;/b&gt; &amp; &quot;quote&quot; <mark>date</mark>');
+  assert.equal(api.highlight('nothing here', 'zzz'), 'nothing here');
+  assert.equal(api.highlight('a.b*c (d)', '.b*'), 'a<mark>.b*</mark>c (d)', 'a query is text, never a pattern');
+  assert.match(api.searchBoxHTML(), /<form id="pad-search" role="search"[\s\S]*minlength="3" maxlength="200"/);
+  api.state.search = { q: 'date', total: 2, next: null, results: [
+    { id: 7, author: 'muse', ts: 1700000000, reply_to: 5, snippet: 'The <i>launch</i> date moved' }, { id: 3, author: 'dylan', ts: 1690000000, reply_to: null, snippet: 'Pick a date' } ] };
+  api.renderSearch();
+  const html = element('search-results').innerHTML;
+  assert.match(html, /<h2 id="search-h" tabindex="-1">2 posts contain “date”<\/h2>/);
+  assert.match(html, /<strong>@muse<\/strong> · [^<]+ · #7 · in reply to #5/);
+  assert.match(html, /The &lt;i&gt;launch&lt;\/i&gt; <mark>date<\/mark> moved/, 'a snippet is escaped, then marked');
+  assert.doesNotMatch(html, /data-search-more/, 'no Show more without a next batch');
+  assert.equal((html.match(/data-hit-show=/g) || []).length, 2);
+  api.state.search = { q: 'date', total: 40, next: 3, results: api.state.search.results };
+  api.renderSearch();
+  assert.match(element('search-results').innerHTML, /data-search-more>Show more</);
+  api.state.search = { q: 'zebra', total: 0, next: null, results: [] };
+  api.renderSearch();
+  assert.match(element('search-results').innerHTML, /No posts contain “zebra”/);
+  assert.doesNotMatch(element('search-results').innerHTML, /<ul/);
+  api.state.search = null; api.renderSearch();
+  assert.equal(element('search-results').innerHTML, '');
 });
 
 test('open pads show no private marker or members link', async () => {
