@@ -23,7 +23,8 @@ def fixture(url, doc): open('' + FIXTURES + '/' + hashlib.sha256(url.encode()).h
 good = {'client_id': URL, 'client_name': 'Claude <test>', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'none', 'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code'], 'client_uri': 'https://claude.example/'}
 fixture(URL, good)
 GPT = 'https://chatgpt.example/oauth/client.json'; fixture(GPT, {'client_id': GPT, 'client_name': 'ChatGPT', 'client_uri': 'https://chatgpt.example/', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'private_key_jwt',
-       'token_endpoint_auth_methods_supported': ['none', 'private_key_jwt'], 'token_endpoint_auth_signing_alg': 'RS256', 'jwks_uri': 'https://chatgpt.example/oauth/jwks.json', 'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code']})
+       'token_endpoint_auth_methods_supported': ['none', 'private_key_jwt'], 'token_endpoint_auth_signing_alg': 'RS256', 'jwks_uri': 'https://chatgpt.example/oauth/jwks.json', 'grant_types': ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'], 'response_types': ['code']})
+NOCODE = 'https://nocode.example/c.json'; fixture(NOCODE, {**good, 'client_id': NOCODE, 'grant_types': ['implicit']})
 KEYONLY = 'https://keyonly.example/oauth/client.json'; fixture(KEYONLY, {'client_id': KEYONLY, 'client_name': 'Keys only', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'private_key_jwt', 'token_endpoint_auth_methods_supported': ['private_key_jwt'], 'jwks_uri': 'https://keyonly.example/jwks.json'})
 BAD_ID = 'https://mismatch.example/c.json'; fixture(BAD_ID, {**good, 'client_id': 'https://someone-else.example/c.json'})
 SECRET = 'https://secret.example/c.json'; fixture(SECRET, {**good, 'client_id': SECRET, 'token_endpoint_auth_method': 'client_secret_basic'})
@@ -60,7 +61,7 @@ with sync_playwright() as p:
     ck('a document that can only authenticate with a key is still refused, and says why', "This connection can't continue" in tk and 'public apps only' in tk and 'doesn\'t say it can also use none' in tk, tk[:400])
     s, h, b = http('GET', B + '/.well-known/oauth-authorization-server'); ck('the server still offers only none, which is what makes ChatGPT use it', json.loads(b)['token_endpoint_auth_methods_supported'] == ['none'], b)
     # ---- an address it can't use
-    for what, cid, needle in [('a document whose client_id is not its own address', BAD_ID, "its client_id isn't the address it was fetched from"), ('one that asks for a shared secret', SECRET, 'public apps only'),
+    for what, cid, needle in [('a document whose client_id is not its own address', BAD_ID, "its client_id isn't the address it was fetched from"), ('one that asks for a shared secret', SECRET, 'public apps only'), ('one that cannot use the code flow', NOCODE, 'grant_types must include authorization_code (Mashpad supports the code flow with a refresh token); the document lists ["implicit"]'),
                               ('one with a redirect address that is neither https nor localhost', HTTPCB, 'redirect address must be https'), ('an address with nothing there', 'https://nothing.example/c.json', 'HTTP 404'),
                               ('a bare IP address', 'https://127.0.0.1/c.json', 'an IP address, not a hostname'), ('an internal hostname', 'https://nas.internal/c.json', 'internal'), ('a plain http address', 'http://claude.example/client.json', "isn't registered")]:
         v2, c2 = pkce(); al.goto(authorize_url(cid, c2)); t = al.inner_text('main')

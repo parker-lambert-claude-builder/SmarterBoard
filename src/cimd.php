@@ -280,6 +280,13 @@ function mb_cimd_ttl(array $headers): int
     return MB_CIMD_TTL_DEFAULT;
 }
 
+/** A value from a document, as short text for an error message, so a mismatch can be seen at once. */
+function mb_cimd_show(mixed $v): string
+{
+    $s = (string) json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    return mb_strlen($s) > 140 ? mb_substr($s, 0, 139) . '…' : $s;
+}
+
 /** Check a fetched document against the address it came from. Returns ['name', 'uris', 'client_uri', 'ttl']. */
 function mb_cimd_parse(string $url, string $host, array $resp): array
 {
@@ -326,13 +333,13 @@ function mb_cimd_parse(string $url, string $host, array $resp): array
     $method  = $d['token_endpoint_auth_method'] ?? 'none';
     $offered = $d['token_endpoint_auth_methods_supported'] ?? null;
     if (isset($d['client_secret']) || !is_string($method) || ($method !== 'none' && !(is_array($offered) && in_array('none', $offered, true)))) {
-        throw $bad('Mashpad serves public apps only, so it can\'t use a document that asks for a shared secret or key-based client authentication and doesn\'t say it can also use none');
+        throw $bad('Mashpad serves public apps only, so it can\'t use a document that asks for a shared secret or key-based client authentication and doesn\'t say it can also use none (it prefers ' . mb_cimd_show($d['token_endpoint_auth_method'] ?? 'none') . ' and lists ' . mb_cimd_show($offered) . ')');
     }
-    foreach (['grant_types' => ['authorization_code', 'refresh_token'], 'response_types' => ['code']] as $field => $allowed) {
-        if (isset($d[$field])) {
-            if (!is_array($d[$field]) || array_diff($d[$field], $allowed) || !in_array($allowed[0], $d[$field], true)) {
-                throw $bad($field . ' must be ' . implode(' and ', $allowed) . ' (Mashpad supports the code flow with a refresh token)');
-            }
+    // The client must be able to use the code flow. What else it lists it may use is its own business: Mashpad only ever
+    // takes part in the code flow (the authorization page refuses any other response_type, the token endpoint any other grant).
+    foreach (['grant_types' => 'authorization_code', 'response_types' => 'code'] as $field => $needed) {
+        if (isset($d[$field]) && (!is_array($d[$field]) || !in_array($needed, $d[$field], true))) {
+            throw $bad($field . ' must include ' . $needed . ' (Mashpad supports the code flow with a refresh token); the document lists ' . mb_cimd_show($d[$field]));
         }
     }
     $name = trim((string) preg_replace('/[\x00-\x1F\x7F]+|\s+/u', ' ', is_string($d['client_name'] ?? null) ? $d['client_name'] : ''));
