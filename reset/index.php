@@ -44,7 +44,7 @@ if ($pdo && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 header('Cache-Control: no-store');
 $csrf = mb_csrf_token();
-mb_page_start($step === 'code' ? 'Enter your code' : 'Reset your password');
+mb_page_start($step === 'code' ? 'Enter your code' : 'Reset your password', 'public', ['current' => 'signin', 'layout' => 'form']);
 $known = $email !== '';
 ?>
 <div class="form-page">

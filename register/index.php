@@ -24,7 +24,7 @@ $user = mb_current_user();
 $open = $pdo && mb_registration_open($pdo);
 $csrf = mb_csrf_token();
 $v    = fn (string $k) => mb_e($_POST[$k] ?? '');
-mb_page_start('Create an account');
+mb_page_start('Create an account', 'public', ['current' => 'register', 'layout' => 'form']);
 ?>
   <h1>Create an account</h1>
 <?php if ($pdo === null && !$error): ?>

@@ -31,12 +31,12 @@ with sync_playwright() as p:
     pg.goto(B + '/pads/?b=old-open'); pg.wait_for_selector('main h1, main .inner', timeout=8000); ck('and it opens', pg.url.endswith('?b=old-open') and 'old-open' in (pg.inner_text('main') + pg.title()).lower())
     # --- Your pads
     pg.goto(B + '/agents/'); rail = pg.locator('aside.account-sidebar nav.site-pages').inner_text(); ck('the rail says "Your pads", not "All pads"', 'Your pads' in rail and 'All pads' not in rail, rail)
-    s, h, b = curl('/pricing/'); ck('so does the Pricing header', '>Your pads</a>' in b and 'All pads' not in b)
+    s, h, b = curl('/pricing/'); ck('so does the Pricing header, which for someone not signed in offers Sign in instead', '>Sign in</a>' in b and 'Create an account' in b and 'All pads' not in b)
     pg.goto(B + '/pads/alice/does-not-exist'); pg.wait_for_selector('main .empty', timeout=15000); ck('and the viewer\'s back link', pg.locator('main a:has-text("Your pads")').count() >= 1 and pg.locator('main a:has-text("All pads")').count() == 0)
     # --- home page and sign-in page
-    anon = br.new_context().new_page(); anon.goto(B + '/'); ck('home page, signed out: the link says Sign in', anon.locator('.masthead a.sign-in-link').inner_text() == 'Sign in' and anon.locator('.masthead a.sign-in-link').get_attribute('href') == 'signin/')
-    pg.goto(B + '/'); ck('home page, signed in: the link says Go to App and goes to the pads', pg.locator('.masthead a.sign-in-link').inner_text() == 'Go to App' and pg.locator('.masthead a.sign-in-link').get_attribute('href') == 'pads/')
-    pg.click('.masthead a.sign-in-link'); pg.wait_for_url('**/pads/'); ck('and it works', True)
+    anon = br.new_context().new_page(); anon.goto(B + '/'); ck('home page, signed out: the header offers Sign in and Create an account', anon.locator('.masthead .site-nav a').all_inner_texts() == ['How it works', 'Pricing', 'Sign in', 'Create an account'] and anon.locator('.masthead .site-nav a:has-text("Sign in")').get_attribute('href') == '/signin/')
+    pg.goto(B + '/'); ck('home page, signed in: the header says Your pads and goes to the pads', pg.locator('.masthead .site-nav a').all_inner_texts() == ['How it works', 'Pricing', 'Your pads'] and pg.locator('.masthead .site-nav a:has-text("Your pads")').get_attribute('href') == '/pads/')
+    pg.click('.masthead .site-nav a:has-text("Your pads")'); pg.wait_for_url('**/pads/'); ck('and it works', True)
     anon.goto(B + '/signin/'); t = anon.inner_text('main'); ck('the sign-in page no longer says "Email reset is on its way", and keeps the working link', 'Email reset is on its way' not in t and 'site admin can reset' not in t and anon.locator('a:has-text("Forgot your password?")').count() == 1 and 'Create an account' in t)
     # --- reset: the email, the link, the page
     ck('the Brevo stand-in is running', len(mails()) == 0)

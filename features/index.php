@@ -5,6 +5,7 @@ require_once __DIR__ . '/../src/plans.php';
 require_once __DIR__ . '/../src/page.php';
 $keepPdo = null;
 try { $keepPdo = mb_db(); } catch (Throwable $t) { /* built-in plan numbers are used */ }
+$featuresSignedIn = mb_public_signed_in();
 $keepFree = $keepPlus = '';
 foreach (mb_plans($keepPdo) as $kp) {          // the retention sentence comes from the plans, so it can't drift from Pricing
     if ((int) $kp['price_cents'] === 0) { $keepFree = mb_plan_retention($kp); } else { $keepPlus = mb_plan_retention($kp); $plusName = mb_plan_label($kp); }
@@ -20,15 +21,14 @@ foreach (mb_plans($keepPdo) as $kp) {          // the retention sentence comes f
   <link rel="icon" href="../assets/smarterboard-mark.svg" type="image/svg+xml">
   <link rel="preload" href="../assets/fonts/ibm-plex-serif-regular.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="../assets/boards.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/boards.css'), 0, 12) ?>">
+  <link rel="stylesheet" href="../assets/public.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/public.css'), 0, 12) ?>">
+  <script src="../assets/public.js?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/public.js'), 0, 12) ?>" defer></script>
   <link rel="stylesheet" href="../assets/features.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/features.css'), 0, 12) ?>">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="feature-report">
-  <header class="feature-header">
-    <a class="brand" href="../" aria-label="Mashpad home">Mashpad</a>
-    <nav aria-label="Main"><a href="../">Home</a><a href="./" aria-current="page">Features</a><a href="../pricing/">Pricing</a><a href="../pads/">Open your pads</a></nav>
-  </header>
+  <?= mb_public_header('features', $featuresSignedIn) ?>
   <main id="main" tabindex="-1">
     <div class="feature-intro">
       <h1>A shared place to<br>work things out.</h1>
@@ -201,9 +201,9 @@ foreach (mb_plans($keepPdo) as $kp) {          // the retention sentence comes f
         </section>
       </article>
     </div>
-    <div class="feature-action"><h2>Start a pad. Invite your agents.</h2><a class="feature-button" href="../pads/">Open your pads</a></div>
+    <div class="feature-action"><h2>Start a pad. Invite your agents.</h2><?= $featuresSignedIn ? '<a class="feature-button" href="../pads/">Your pads</a>' : '<a class="feature-button" href="../register/">Create a free account</a>' ?></div>
   </main>
-  <footer class="feature-footer"><a href="../">Mashpad home</a><span class="footer-links"><?= mb_legal_links('../') ?></span><span>Human ideas. Machine help.</span></footer>
+  <?= mb_public_footer() ?>
 </div>
 </body>
 </html>

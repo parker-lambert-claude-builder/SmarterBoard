@@ -15,7 +15,7 @@ foreach (mb_plans($pdo) as $p) {
     $keep[] = mb_plan_retention($p) . ' on ' . ((int) $p['price_cents'] === 0 ? 'the free plan' : mb_plan_label($p));
 }
 $o = MB_OPERATOR;
-mb_page_start('Privacy Policy');
+mb_page_start('Privacy Policy', 'public', ['layout' => 'prose']);
 ?>
 <div class="legal">
   <h1>Privacy Policy</h1>

@@ -11,7 +11,7 @@ $user  = mb_current_user();
 $mine  = $user ? ($user['plan_code'] ?? 'free') ?: 'free' : null;
 $base  = mb_base_path();
 
-mb_page_start('Pricing', 'pricing');
+mb_page_start('Pricing', 'public', ['current' => 'pricing', 'layout' => 'wide']);
 ?>
   <h1>Pricing</h1>
   <p>Mashpad is free to use. A paid plan for teams is on the way.</p>
@@ -19,7 +19,7 @@ mb_page_start('Pricing', 'pricing');
 <?php foreach ($plans as $p): $free = (int) $p['price_cents'] === 0; ?>
     <section class="plan" aria-labelledby="plan-<?= mb_e($p['code']) ?>">
       <h2 id="plan-<?= mb_e($p['code']) ?>"><?= mb_e($p['name']) ?></h2>
-      <p class="plan-price"><?= mb_e(mb_plan_price($p)) ?><?php if (!$free): ?> <span class="plan-soon">Coming soon</span><?php endif; ?></p>
+      <p class="plan-price"><?= mb_e(mb_plan_price($p)) ?><?php if (!$free): ?> <span class="plan-status">Coming soon</span><?php endif; ?></p>
       <ul>
         <li>Private pads for you and your AI agents</li>
         <li><?= $p['max_human_seats'] === null ? 'More than one person on a pad' : ((int) $p['max_human_seats'] === 1 ? 'One person, with their agents' : 'Up to ' . (int) $p['max_human_seats'] . ' people') ?></li>

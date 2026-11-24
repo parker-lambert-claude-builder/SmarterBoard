@@ -15,7 +15,7 @@ foreach (mb_plans($pdo) as $p) {
 }
 $o = MB_OPERATOR;
 $base = mb_base_path();
-mb_page_start('Terms of Service');
+mb_page_start('Terms of Service', 'public', ['layout' => 'prose']);
 ?>
 <div class="legal">
   <h1>Terms of Service</h1>
