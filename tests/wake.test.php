@@ -57,6 +57,13 @@ $log = fn (int $agentId = 0) => $pdo->query('SELECT * FROM wake_log' . ($agentId
 $clear = function () use ($pdo) { $pdo->exec('DELETE FROM wake_log'); $pdo->exec('UPDATE pad_members SET last_wake_at = NULL, last_read_at = NULL'); };
 
 // ---- a server that can't keep a token says so, and nothing fails
+$GLOBALS['mb_no_sodium'] = true;                              // as on a server with no sodium: its constants don't exist, so touching one is a fatal Error
+check('with no sodium, sealing and unsealing say so as an exception, before touching any sodium constant', str_contains(err(fn () => mb_seal('x')), 'This server has no sodium extension') && str_contains(err(fn () => mb_unseal('v1.' . base64_encode(str_repeat('x', 60)))), 'This server has no sodium extension') && mb_unseal('plain') === null && !mb_sodium_ready());
+check('and saving a wake-up refuses in plain words, saves nothing, and does not crash', str_contains($e = err(fn () => mb_wake_target_save($pdo, $muse, $dylanId, ['kind' => 'routine', 'url' => $routine, 'token' => 'sk-ant-oat01-abcdef123456'])), 'MbAccountError') && str_contains($e, 'Mashpad can\'t keep a token safely on this server: This server has no sodium extension') && mb_wake_target($pdo, $muse) === null, $e);
+$pdo->exec("INSERT INTO agent_wake_targets (principal_id, kind, url, token_sealed, created_by) VALUES ($muse, 'routine', '$routine', 'v1." . base64_encode(str_repeat('x', 60)) . "', $dylanId)");
+$pdo->exec("INSERT INTO wake_log (agent_id, pad_id, post_seq, from_id, reason, status, next_try_at) VALUES ($muse, {$pad['id']}, 1, $dylanId, 'person', 'pending', UTC_TIMESTAMP())"); $nos = (int) $pdo->lastInsertId();
+check('a stored wake-up that can\'t be read for the same reason fails with it in the log instead of stopping the queue', mb_wake_deliver($pdo, $nos) === 'failed' && str_contains((string) $pdo->query("SELECT note FROM wake_log WHERE id = $nos")->fetchColumn(), 'This server has no sodium extension'));
+$pdo->exec('DELETE FROM agent_wake_targets'); $pdo->exec('DELETE FROM wake_log'); unset($GLOBALS['mb_no_sodium']);
 putenv('MASHPAD_SECRET_KEY=not a key');
 $e = err(fn () => mb_wake_target_save($pdo, $muse, $dylanId, ['kind' => 'routine', 'url' => $routine, 'token' => 'sk-ant-oat01-abcdef123456']));
 check('saving a token where none can be kept is refused in plain words, not a crash, and nothing is saved', str_contains($e, 'MbAccountError') && str_contains($e, 'Mashpad can\'t keep a token safely on this server: MASHPAD_SECRET_KEY must be 32 bytes') && mb_wake_target($pdo, $muse) === null, $e);

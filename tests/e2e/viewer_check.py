@@ -10,6 +10,14 @@ MUSE = open(E2E_ENV).read().split('TOK=')[1].split('\n')[0]
 def php(code): return subprocess.run(['php', '-r', 'require "' + SITE + '/src/pads.php"; $pdo = mb_db(); ' + code], capture_output=True, text=True).stdout.strip()
 def signin(ctx, who):
     pg = ctx.new_page(); pg.goto(B + '/signin/'); pg.fill('input[name=email]', who + '@example.com'); pg.fill('input[name=password]', 'correct horse battery'); pg.click('button[type=submit]'); pg.wait_for_url('**/pads/'); return pg
+def settle(pg, limit=6.0):
+    # a smooth scroll over thousands of pixels takes a second or two: wait until the page has stopped moving, not for a fixed time
+    last, steady, waited = None, 0, 0.0
+    while waited < limit:
+        y = pg.evaluate('scrollY'); steady = steady + 1 if y == last else 0; last = y
+        if steady >= 4: return y
+        pg.wait_for_timeout(100); waited += 0.1
+    return last
 def mcp(name, args):
     r = subprocess.run(['curl', '-s', '-X', 'POST', B + '/mcp/', '-H', 'Content-Type: application/json', '-H', 'Authorization: Bearer ' + MUSE, '-d', json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': name, 'arguments': args}})], capture_output=True, text=True).stdout
     return json.loads(r)['result']['content'][0]['text']
@@ -38,7 +46,7 @@ with sync_playwright() as p:
     ck('they are the same links as at the top: Pad info and Manage access, with the same addresses', ['Pad info', 'Manage access'] == [f[0] for f in foot[1:]] and foot[1:] == top[1:], (foot, top))
     ck('and a way back to the top, where the top has Go to latest', foot[0] == ['Back to top', '#'] and top[0] == ['Go to latest', '#reply-bottom'], top)
     ck('they sit after the reply box, at the very end of the page', pg.evaluate("(() => { const f = document.querySelector('.pad-foot'), r = document.querySelector('#reply-bottom'); return !!(r.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING) && !f.nextElementSibling; })()"))
-    pg.click('.pad-foot a:has-text("Back to top")'); pg.wait_for_timeout(600); ck('Back to top goes to the top', pg.evaluate('scrollY') < 5 and pg.locator('h1').first.is_visible())
+    pg.click('.pad-foot a:has-text("Back to top")'); settle(pg); ck('Back to top goes to the top', pg.evaluate('scrollY') < 5 and pg.locator('h1').first.is_visible())
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.click('.pad-foot a:has-text("Pad info")'); pg.wait_for_selector('h1:has-text("Pad info")'); ck('Pad info from the bottom opens the pad\'s info page, as it does from the top', 'view=settings' in pg.url)
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.click('.pad-foot a:has-text("Manage access")'); pg.wait_for_url('**/manage/alice/launch'); ck('Manage access from the bottom opens it', 'Manage access' in pg.inner_text('h1'), pg.inner_text('h1'))
     # ---- Go to latest, on a pad with a long conversation
@@ -46,7 +54,7 @@ with sync_playwright() as p:
         subprocess.run(['php', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'put.php'), 'launch', 'alice', f'Message number {i} with enough words in it to take up some room on the page when it wraps across a couple of lines.'], capture_output=True, env={**os.environ, 'MASHPAD_SITE': SITE})
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.wait_for_timeout(2000); pg.evaluate('window.scrollTo(0, 0)'); pg.wait_for_timeout(300)
     ck('at the top of a long conversation the oldest message is in view and the newest is far below', pg.evaluate("scrollY") == 0 and pg.evaluate("document.querySelector('#transcript').getBoundingClientRect().top") < 900 and pg.evaluate("[...document.querySelectorAll('#transcript .msg')].pop().getBoundingClientRect().top") > 2000)
-    pg.click('.board-head .reading-nav a:has-text("Go to latest")'); pg.wait_for_timeout(1200)
+    pg.click('.board-head .reading-nav a:has-text("Go to latest")'); settle(pg)
     ck('Go to latest takes the reader to the newest message, with the reply box under it', pg.evaluate("(() => { const last = [...document.querySelectorAll('#transcript .msg')].pop().getBoundingClientRect(); return last.top >= 0 && last.bottom <= innerHeight && innerHeight + scrollY >= document.body.scrollHeight - 5; })()") and 'Message number 40' in pg.evaluate("[...document.querySelectorAll('#transcript .msg')].pop().innerText"), pg.evaluate("scrollY"))
     ck('and the link has gone nowhere else: same page, no change to the address', pg.url.endswith('/pads/alice/launch'), pg.url)
     # ---- someone who is a member but doesn't own the pad

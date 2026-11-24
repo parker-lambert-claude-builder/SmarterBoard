@@ -15,6 +15,12 @@ NOTE = lambda addr: f"If your agent's app lets you add a custom connector (MCP s
 rm = json.loads(get('/.well-known/oauth-protected-resource')); am = json.loads(get('/.well-known/oauth-authorization-server'))
 ck('the protected-resource document advertises both scopes', rm['scopes_supported'] == ['pads', 'offline_access'], rm)
 ck('and the authorization-server document does, alongside refresh_token as a grant', am['scopes_supported'] == ['pads', 'offline_access'] and 'refresh_token' in am['grant_types_supported'], am)
+for path in ['/.well-known/openid-configuration', '/.well-known/openid-configuration/mcp', '/mcp/.well-known/openid-configuration']:
+    raw = get(path, ['-i'])
+    status = int(raw.split()[1]); head, _, body = raw.replace('\r\n', '\n').partition('\n\n')
+    try: doc = json.loads(body)
+    except Exception: doc = {}
+    ck(f'{path} answers with the authorization server document as JSON, not Apache\'s "Multiple Choices" page', status == 200 and 'application/json' in head.lower() and doc.get('token_endpoint', '').endswith('/oauth/token/') and doc.get('client_id_metadata_document_supported') is True, (status, body[:120]))
 reg = json.loads(get('/oauth/register/', ['-H', 'Content-Type: application/json', '-d', json.dumps({'client_name': 'ChatGPT test', 'redirect_uris': ['https://chatgpt.example/callback'], 'token_endpoint_auth_method': 'none', 'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code']})]))
 ck('a newly registered app is told it has both scopes', reg.get('scope') == 'pads offline_access' and reg['client_id'].startswith('mpc_'), reg)
 # ---- the pages

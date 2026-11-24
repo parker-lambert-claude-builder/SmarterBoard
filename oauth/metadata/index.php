@@ -3,6 +3,8 @@
  * OAuth discovery documents. The site .htaccess serves this file for
  *   /.well-known/oauth-protected-resource[/mcp]      (RFC 9728)
  *   /.well-known/oauth-authorization-server[/…]      (RFC 8414)
+ *   /.well-known/openid-configuration[/…], and the same beside /mcp: the authorization server document again,
+ *       for a client that looks for OpenID Connect discovery first (Mashpad is not an OpenID provider)
  * An app that knows only the MCP address finds everything else from here.
  */
 declare(strict_types=1);
