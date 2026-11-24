@@ -12,7 +12,7 @@ const MCP_URL = ROOT + 'mcp/';
 /* This script's own version (the ?v= on its URL). The pad list reports the version
    the server is now sending; when they differ, this tab predates a deploy. */
 const BUILD = (() => { try { return new URL(document.currentScript.src).searchParams.get('v') || ''; } catch { return ''; } })();
-const state = { stale: false, user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], now: Date.now() / 1000, ttl: 2592000, timers: [] };
+const state = { stale: false, user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], kinds: {}, now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- pad addresses ----------
    A pad's key is "owner/name" for a private pad (shown at pads/owner/name), or
@@ -199,14 +199,19 @@ async function loadHome() {
 }
 
 /* ---------- board ---------- */
+/* A person or a robot head in front of a name, so it is clear at a glance who is a person and who is an agent. */
+const KIND_MARK = { human: ['🧑', 'Person'], agent: ['🤖', 'Agent'] };
+const kindMark = a => { const k = KIND_MARK[state.kinds[a]]; return k ? `<span class="who-kind" role="img" aria-label="${k[1]}" title="${k[1]}">${k[0]}</span>` : ''; };
+
 function headMeta(d) {
+  Object.assign(state.kinds, d.kinds || {});
   const authors = [...new Set(d.messages.filter(m => m.kind !== 'event').map(m => m.author))];
   rememberPeople(authors); rememberPeople(d.members);        // who an @mention can point to
-  const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || authors;
+  const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || (d.members && d.members.length ? d.members : authors);   // the member list is in the pad itself, so no wait for the pads list
   // On a private pad the names are the member list, and each one opens that participant's page. (The rail no longer lists them.)
-  const nameOf = a => d.owned
+  const nameOf = a => kindMark(a) + (d.owned
     ? `<a class="author-link" href="${esc(padURL(keyOf(d), { view: 'agent', agent: a }))}" data-nav="${esc(keyOf(d))}" style="--h:${hue(a)}">${esc(displayName(a))}</a>`
-    : authorSpan(a);
+    : authorSpan(a));
   const who = known.length ? ` · ${known.map(nameOf).join(', ')}` : '';
   return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">Deleted in ${remaining(d.expires)} unless someone posts.</span>`;
 }
@@ -314,6 +319,7 @@ async function showBoard(slug, navigation) {
   }
   document.title = `${d.name || d.slug} · Mashpad`;
   state.threaded = !!d.threaded;
+  state.kinds = {};                                           // handles are only unique within a pad
   main.innerHTML = `
     <div class="inner board-head">
       <a class="back" href="${PADS}" data-nav="">Your pads</a>
@@ -327,7 +333,8 @@ async function showBoard(slug, navigation) {
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
     </div>
     <div class="inner reply-slot" id="reply-bottom">${replyBoxHTML('bottom')}
-    </div>`;
+    </div>
+    <nav class="inner reading-nav pad-foot" aria-label="Pad settings"><a href="#" data-top>Back to top</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>`;
   state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
   renderBrief();
   state.search = null;
@@ -339,7 +346,23 @@ async function showBoard(slug, navigation) {
   bindComposer(slug);
   const linkedMessage = /^#m\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (linkedMessage) linkedMessage.scrollIntoView();
-  else window.scrollTo(0, document.body.scrollHeight);
+  else {
+    window.scrollTo(0, document.body.scrollHeight);
+    stayAtBottomWhileSettling();
+  }
+}
+
+/* The pad opens at its latest message, but the About text, items and search box above it arrive a moment later and push the
+   bottom down, which would leave the settings links at the foot half off the screen. For the first second and a half, keep the
+   bottom in view, unless the reader has started to scroll. */
+function stayAtBottomWhileSettling() {
+  if (typeof ResizeObserver === 'undefined') return;
+  let scrolled = false;
+  const stop = () => { scrolled = true; };
+  ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(e => window.addEventListener(e, stop, { once: true, passive: true }));
+  const ro = new ResizeObserver(() => { if (!scrolled) window.scrollTo(0, document.body.scrollHeight); });
+  ro.observe(document.body);
+  setTimeout(() => { ro.disconnect(); ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(e => window.removeEventListener(e, stop)); }, 1500);
 }
 
 /* ---------- About this pad ----------
@@ -948,6 +971,7 @@ function route() {
 }
 
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-top]')) { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }     // "Back to top" at the foot of a pad
   const decide = e.target.closest('[data-decide]');
   if (decide) return decideRequest(decide);
   const cancel = e.target.closest('[data-reply-cancel]');

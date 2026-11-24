@@ -344,3 +344,10 @@ body.mp-modal-open { overflow: hidden; }
 .hit-snippet mark { background: #f6e7a8; color: inherit; padding: 0 1px; }
 .hit-actions { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 6px; }
 .hit-post { margin-top: 8px; padding: 8px 12px; border-left: 3px solid var(--rule); background: #f7f9f8; overflow-wrap: anywhere; }
+
+/* A person or robot head before each name in the member line */
+.who-kind { margin-right: .2em; font-style: normal; text-decoration: none; }
+
+/* The pad's settings links again at the foot, since a pad opens at its latest message */
+.pad-foot { margin: 22px auto 44px; padding-top: 14px; border-top: 1px solid var(--rule, #c7d0cc); }
+

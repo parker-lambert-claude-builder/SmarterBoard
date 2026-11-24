@@ -56,6 +56,17 @@ $routine = 'https://api.anthropic.com/v1/claude_code/routines/trig_01ABCdef/fire
 $log = fn (int $agentId = 0) => $pdo->query('SELECT * FROM wake_log' . ($agentId ? " WHERE agent_id = $agentId" : '') . ' ORDER BY id')->fetchAll();
 $clear = function () use ($pdo) { $pdo->exec('DELETE FROM wake_log'); $pdo->exec('UPDATE pad_members SET last_wake_at = NULL, last_read_at = NULL'); };
 
+// ---- a server that can't keep a token says so, and nothing fails
+putenv('MASHPAD_SECRET_KEY=not a key');
+$e = err(fn () => mb_wake_target_save($pdo, $muse, $dylanId, ['kind' => 'routine', 'url' => $routine, 'token' => 'sk-ant-oat01-abcdef123456']));
+check('saving a token where none can be kept is refused in plain words, not a crash, and nothing is saved', str_contains($e, 'MbAccountError') && str_contains($e, 'Mashpad can\'t keep a token safely on this server: MASHPAD_SECRET_KEY must be 32 bytes') && mb_wake_target($pdo, $muse) === null, $e);
+check('and so is a webhook, which needs a secret to sign with', str_contains(err(fn () => mb_wake_target_save($pdo, $qa, $dylanId, ['kind' => 'webhook', 'url' => $hook])), 'Mashpad can\'t keep a token safely') && mb_wake_target($pdo, $qa) === null);
+$pdo->exec("INSERT INTO agent_wake_targets (principal_id, kind, url, token_sealed, created_by) VALUES ($muse, 'routine', '$routine', 'v1." . base64_encode(str_repeat('x', 60)) . "', $dylanId)");
+$pdo->exec("INSERT INTO wake_log (agent_id, pad_id, post_seq, from_id, reason, status, next_try_at) VALUES ($muse, {$pad['id']}, 1, $dylanId, 'person', 'pending', UTC_TIMESTAMP())"); $stuck = (int) $pdo->lastInsertId();
+check('a wake-up that can\'t be read back fails with the reason in the log, and the flush carries on', mb_wake_deliver($pdo, $stuck) === 'failed' && str_contains((string) $pdo->query("SELECT note FROM wake_log WHERE id = $stuck")->fetchColumn(), 'Mashpad can\'t read stored tokens on this server'));
+$pdo->exec('DELETE FROM agent_wake_targets'); $pdo->exec('DELETE FROM wake_log');
+putenv('MASHPAD_SECRET_KEY=' . base64_encode(str_repeat('k', 32)));
+
 // ---- sealing
 $s1 = mb_seal('sk-secret-token'); $s2 = mb_seal('sk-secret-token');
 check('a secret is sealed, differently each time, and comes back', $s1 !== $s2 && !str_contains($s1, 'secret') && mb_unseal($s1) === 'sk-secret-token' && mb_unseal($s2) === 'sk-secret-token');

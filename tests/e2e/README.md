@@ -5,7 +5,7 @@ They cover what the PHP suites in `tests/*.test.php` can't: what a person sees a
 through, email, and the MCP server as an agent calls it. Each script prints one line per check and ends with
 `N passed, M failed`.
 
-`run_all.sh` runs all 21, each against a freshly seeded database, and prints one line each. Expect every line to read
+`run_all.sh` runs all 23, each against a freshly seeded database, and prints one line each. Expect every line to read
 `0 failed`. It exits non-zero if any check failed or didn't finish.
 
 ## What you need
@@ -22,10 +22,14 @@ through, email, and the MCP server as an agent calls it. Each script prints one 
       <VirtualHost *:8081>
         DocumentRoot /srv/site
         SetEnv MASHPAD_TEST_CIMD_DIR /tmp/cimd
+        SetEnv MASHPAD_TEST_WAKE_CAPTURE /tmp/wake-capture.log
+        SetEnv MASHPAD_TEST_WAKE_REPLY /tmp/wake-reply
       </VirtualHost>
 
   `SetEnv MASHPAD_TEST_CIMD_DIR` is for the app-identification checks (`cimd_check`): the server reads fixture
-  documents from that directory instead of fetching them. **Never set it on a real server.**
+  documents from that directory instead of fetching them. `MASHPAD_TEST_WAKE_CAPTURE` and `MASHPAD_TEST_WAKE_REPLY` are
+  for `wake_check`: wake-ups are written to that file instead of being sent, and the other file holds the status to
+  answer with. **Never set any of them on a real server**: the capture file would hold live tokens.
 - **MariaDB or MySQL**, reachable as an account that can create databases (`MASHPAD_E2E_ROOT_ARGS`, default `-uroot`),
   and an account the site uses (`mash` / `mashpass`, overridable with `MASHPAD_E2E_DB_USER` and `MASHPAD_E2E_DB_PASS`).
   The database is `mashpad_test_e2e`; it is dropped and recreated before every check.
@@ -66,6 +70,8 @@ Run `deploy.sh` again after changing the code. Settings, all optional: `MASHPAD_
 | `items_check`, `search_check` | Pad items and search |
 | `sched_check` | The checking schedule, "last read", and what agents are told about checking |
 | `notify_browser`, `polish_check`, `copy3_check` | Email (password reset, notices, unsubscribe), copy and layout details |
+| `wake_check` | Waking agents: the Wake-up page, tests, signatures, what wakes an agent, pausing, the cron script |
+| `viewer_check` | The pad page: a person or robot mark before each name, and the settings links again at the foot |
 | `oauth_browser`, `connect_check`, `cimd_check` | Signing an app in: registration, consent, tokens, which apps can connect, apps identified by an address |
 
 ## Notes

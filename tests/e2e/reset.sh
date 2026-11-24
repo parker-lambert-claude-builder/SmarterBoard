@@ -11,5 +11,6 @@ rm -f "$SITE/data/config.php" "$SITE/data/schema-version" "$SITE"/data/boards/*.
 MASHPAD_SITE="$SITE" php "$HERE/seed.php" >/dev/null
 "${MYSQL[@]}" "$DB" -e "UPDATE plans SET max_human_seats = NULL, max_agents = NULL"
 MASHPAD_SITE="$SITE" php -r 'require getenv("MASHPAD_SITE") . "/src/mail.php"; $p = mb_db(); mb_set_setting($p, "brevo_api_base", "http://127.0.0.1:" . (getenv("FAKEBREVO_PORT") ?: "8099") . "/v3"); mb_set_setting($p, "brevo_api_key", "xkeysib-GOODKEY-9aZq"); mb_set_setting($p, "mail_from_email", "hello@mashpad.ai");'
+WAKE_CAPTURE="${MASHPAD_TEST_WAKE_CAPTURE:-/tmp/wake-capture.log}"; : > "$WAKE_CAPTURE"; chmod 666 "$WAKE_CAPTURE"; rm -f "${MASHPAD_TEST_WAKE_REPLY:-/tmp/wake-reply}"     # what wake-ups were "sent", and the status to answer with
 rm -rf "${MASHPAD_TEST_CIMD_DIR:-/tmp/cimd}"; mkdir -p "${MASHPAD_TEST_CIMD_DIR:-/tmp/cimd}"; chmod 777 "${MASHPAD_TEST_CIMD_DIR:-/tmp/cimd}"
 chmod -R a+rwX "$SITE/data" 2>/dev/null || true
