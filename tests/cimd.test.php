@@ -37,6 +37,7 @@ require "$root/src/oauth.php";
 $b64 = fn (string $s) => rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
 // What the world looks like to the code: DNS and HTTP are replaced, everything else is real.
 $calls = []; $reply = null; $ips = ['93.184.216.34'];
+$GLOBALS['mb_cimd_no_random_prune'] = true;     // tidying happens now and then by chance: the suite does it on purpose and counts it
 $GLOBALS['mb_cimd_resolver'] = function ($host) use (&$ips) { return $ips; };
 $GLOBALS['mb_cimd_http']     = function ($url, $host, $ip) use (&$calls, &$reply) { $calls[] = [$url, $host, $ip]; return is_callable($reply) ? $reply($url) : $reply; };
 $url = 'https://claude.example/oauth/client.json';
