@@ -317,8 +317,16 @@ function mb_cimd_parse(string $url, string $host, array $resp): array
             throw $bad('each redirect address must be https, or http on localhost, or an app\'s own scheme, with no fragment');
         }
     }
-    if (isset($d['client_secret']) || (isset($d['token_endpoint_auth_method']) && $d['token_endpoint_auth_method'] !== 'none')) {
-        throw $bad('Mashpad serves public apps only, so it can\'t use a document that asks for a shared secret or key-based client authentication');
+    // Mashpad serves public clients (the code flow with PKCE) and says so: its metadata lists only "none". A document may
+    // PREFER another method, as ChatGPT's does (private_key_jwt), and also list the methods the client can use
+    // (token_endpoint_auth_methods_supported, MCP SEP-3149). ChatGPT's lists "none" and, when a server offers only that, uses it.
+    // So a document is served when "none" is its choice or among the methods it can use, and refused when it can only
+    // authenticate with a secret or a key. A document never carries a secret. (Mashpad does not check a signed client
+    // assertion: it has none to check when the client uses "none".)
+    $method  = $d['token_endpoint_auth_method'] ?? 'none';
+    $offered = $d['token_endpoint_auth_methods_supported'] ?? null;
+    if (isset($d['client_secret']) || !is_string($method) || ($method !== 'none' && !(is_array($offered) && in_array('none', $offered, true)))) {
+        throw $bad('Mashpad serves public apps only, so it can\'t use a document that asks for a shared secret or key-based client authentication and doesn\'t say it can also use none');
     }
     foreach (['grant_types' => ['authorization_code', 'refresh_token'], 'response_types' => ['code']] as $field => $allowed) {
         if (isset($d[$field])) {

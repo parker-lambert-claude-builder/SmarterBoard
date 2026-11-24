@@ -22,6 +22,9 @@ shutil.rmtree(FIXTURES, ignore_errors=True); os.makedirs(FIXTURES); os.chmod(FIX
 def fixture(url, doc): open('' + FIXTURES + '/' + hashlib.sha256(url.encode()).hexdigest() + '.json', 'w').write(json.dumps(doc)); os.chmod('' + FIXTURES + '/' + hashlib.sha256(url.encode()).hexdigest() + '.json', 0o666)
 good = {'client_id': URL, 'client_name': 'Claude <test>', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'none', 'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code'], 'client_uri': 'https://claude.example/'}
 fixture(URL, good)
+GPT = 'https://chatgpt.example/oauth/client.json'; fixture(GPT, {'client_id': GPT, 'client_name': 'ChatGPT', 'client_uri': 'https://chatgpt.example/', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'private_key_jwt',
+       'token_endpoint_auth_methods_supported': ['none', 'private_key_jwt'], 'token_endpoint_auth_signing_alg': 'RS256', 'jwks_uri': 'https://chatgpt.example/oauth/jwks.json', 'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code']})
+KEYONLY = 'https://keyonly.example/oauth/client.json'; fixture(KEYONLY, {'client_id': KEYONLY, 'client_name': 'Keys only', 'redirect_uris': [CB], 'token_endpoint_auth_method': 'private_key_jwt', 'token_endpoint_auth_methods_supported': ['private_key_jwt'], 'jwks_uri': 'https://keyonly.example/jwks.json'})
 BAD_ID = 'https://mismatch.example/c.json'; fixture(BAD_ID, {**good, 'client_id': 'https://someone-else.example/c.json'})
 SECRET = 'https://secret.example/c.json'; fixture(SECRET, {**good, 'client_id': SECRET, 'token_endpoint_auth_method': 'client_secret_basic'})
 HTTPCB = 'https://httpcb.example/c.json'; fixture(HTTPCB, {**good, 'client_id': HTTPCB, 'redirect_uris': ['http://evil.example/cb']})
@@ -46,6 +49,16 @@ with sync_playwright() as p:
     s, h, b = http('POST', B + '/oauth/token/', {'Content-Type': 'application/x-www-form-urlencoded'}, up.urlencode({'grant_type': 'refresh_token', 'client_id': URL, 'refresh_token': tok['refresh_token']}))
     ck('it refreshes the same way', s == 200 and json.loads(b)['access_token'].startswith('mp_o') and json.loads(b)['refresh_token'] != tok['refresh_token'], b)
     ck('only one client row exists for it, of the metadata kind, with its details kept', subprocess.run(['php', '-r', 'require "' + SITE + '/src/pads.php"; $r = mb_db()->query("SELECT COUNT(*), MAX(kind), MAX(name), MAX(client_uri) FROM oauth_clients WHERE client_id = \'' + URL + '\'")->fetch(PDO::FETCH_NUM); echo implode("|", $r);'], capture_output=True, text=True).stdout == '1|metadata|Claude <test>|https://claude.example/')
+    # ---- an app shaped like ChatGPT: it prefers a signed key, and says it can use none too
+    vg, cg = pkce(); al.goto(authorize_url(GPT, cg)); tg = al.inner_text('main')
+    ck('ChatGPT-shaped document: the page names the app and the address that identified it, instead of refusing it', 'ChatGPT' in tg and 'identifies itself with ' + GPT in tg and "This connection can't continue" not in tg, tg[:400])
+    al.check('input[name=agent][value=new]'); al.fill('input[name=handle]', 'chatgpt-app'); al.click('button:has-text("Allow")'); al.wait_for_url('**/callback**'); qg = up.parse_qs(up.urlparse(al.url).query)
+    s, h, b = http('POST', B + '/oauth/token/', {'Content-Type': 'application/x-www-form-urlencoded'}, up.urlencode({'grant_type': 'authorization_code', 'client_id': GPT, 'code': qg['code'][0], 'redirect_uri': CB, 'code_verifier': vg}))
+    tokg = json.loads(b); ck('and it signs in as a public client, with no client assertion: the code is exchanged', s == 200 and tokg['access_token'].startswith('mp_o') and tokg['refresh_token'].startswith('mp_r'), b)
+    s, h, b = http('POST', B + '/oauth/token/', {'Content-Type': 'application/x-www-form-urlencoded'}, up.urlencode({'grant_type': 'refresh_token', 'client_id': GPT, 'refresh_token': tokg['refresh_token']})); ck('and refreshes', s == 200 and json.loads(b)['access_token'].startswith('mp_o'), b)
+    vk, ck2 = pkce(); al.goto(authorize_url(KEYONLY, ck2)); tk = al.inner_text('main')
+    ck('a document that can only authenticate with a key is still refused, and says why', "This connection can't continue" in tk and 'public apps only' in tk and 'doesn\'t say it can also use none' in tk, tk[:400])
+    s, h, b = http('GET', B + '/.well-known/oauth-authorization-server'); ck('the server still offers only none, which is what makes ChatGPT use it', json.loads(b)['token_endpoint_auth_methods_supported'] == ['none'], b)
     # ---- an address it can't use
     for what, cid, needle in [('a document whose client_id is not its own address', BAD_ID, "its client_id isn't the address it was fetched from"), ('one that asks for a shared secret', SECRET, 'public apps only'),
                               ('one with a redirect address that is neither https nor localhost', HTTPCB, 'redirect address must be https'), ('an address with nothing there', 'https://nothing.example/c.json', 'HTTP 404'),
