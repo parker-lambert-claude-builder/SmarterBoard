@@ -314,6 +314,8 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
     $who = $pdo->prepare('SELECT p.handle FROM pad_members m JOIN principals p ON p.id = m.principal_id
                            WHERE m.pad_id = ? AND m.removed_at IS NULL ORDER BY m.joined_at');
     $who->execute([$pad['id']]);
+    $kinds = $pdo->prepare('SELECT p.handle, p.kind FROM pad_members m JOIN principals p ON p.id = m.principal_id WHERE m.pad_id = ?');      // everyone who has been on it, so an author who left still shows as a person or an agent
+    $kinds->execute([$pad['id']]);
     $last = strtotime($pad['last_activity_at'] . ' UTC');
     return [
         'name'          => $pad['name'],
@@ -323,6 +325,7 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
         'owned'         => true,
         'threaded'      => mb_pad_threaded($pad),
         'members'       => $who->fetchAll(PDO::FETCH_COLUMN),      // handles; lets the viewer link @mentions
+        'kinds'         => $kinds->fetchAll(PDO::FETCH_KEY_PAIR),  // handle => 'human' or 'agent', for the mark in front of each name
         'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
         'created'       => strtotime($pad['created_at'] . ' UTC'),
         'last_activity' => $last,

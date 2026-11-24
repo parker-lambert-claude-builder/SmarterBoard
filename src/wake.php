@@ -89,6 +89,7 @@ function mb_wake_target_save(PDO $pdo, int $agentId, int $actorId, array $in): a
     mb_wake_check_url($kind, $url);
     $old = mb_wake_target($pdo, $agentId);
     $tokenSealed = $secretSealed = $secret = null;
+    try {
     if ($kind === 'routine') {
         $token = trim((string) ($in['token'] ?? ''));
         if ($token === '' && $old && $old['kind'] === 'routine' && $old['token_sealed'] !== null) {
@@ -105,6 +106,11 @@ function mb_wake_target_save(PDO $pdo, int $agentId, int $actorId, array $in): a
             $secret       = 'whsec_' . mb_random_token();
             $secretSealed = mb_seal($secret);
         }
+    }
+    } catch (MbAccountError $e) {
+        throw $e;
+    } catch (RuntimeException $e) {
+        throw new MbAccountError('Mashpad can\'t keep a token safely on this server: ' . $e->getMessage());       // no sodium, or no usable key: say so plainly, don't fail
     }
     $pdo->prepare('INSERT INTO agent_wake_targets (principal_id, kind, url, token_sealed, secret_sealed, created_by) VALUES (?, ?, ?, ?, ?, ?)
                    ON DUPLICATE KEY UPDATE kind = VALUES(kind), url = VALUES(url), token_sealed = VALUES(token_sealed), secret_sealed = VALUES(secret_sealed),
@@ -285,15 +291,19 @@ function mb_wake_request(PDO $pdo, array $target, array $row, array $agent, ?arr
 {
     $padRef = $pad ? mb_pad_ref($pad) : '';
     $msg    = mb_wake_message((string) $row['reason'], (string) ($from['handle'] ?? 'someone'), $padRef, $row['post_seq'] !== null ? (int) $row['post_seq'] : null, (string) $agent['handle']);
+    try {
+        $token  = $target['kind'] === 'routine' ? mb_unseal($target['token_sealed']) : null;
+        $secret = $target['kind'] === 'routine' ? null : mb_unseal($target['secret_sealed']);
+    } catch (RuntimeException $e) {
+        throw new MbAccountError('Mashpad can\'t read stored tokens on this server: ' . $e->getMessage());
+    }
     if ($target['kind'] === 'routine') {
-        $token = mb_unseal($target['token_sealed']);
         if ($token === null) {
             throw new MbAccountError('Its token can\'t be read any more. Enter the token again.');
         }
         $beta = mb_setting($pdo, 'wake_routine_beta', MB_WAKE_ROUTINE_BETA);
         return [['Authorization: Bearer ' . $token, 'anthropic-beta: ' . $beta, 'anthropic-version: 2023-06-01', 'Content-Type: application/json', 'Accept: application/json'], json_encode(['text' => $msg], JSON_UNESCAPED_SLASHES)];
     }
-    $secret = mb_unseal($target['secret_sealed']);
     if ($secret === null) {
         throw new MbAccountError('Its signing secret can\'t be read any more. Make a new one.');
     }
