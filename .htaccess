@@ -26,6 +26,10 @@ RewriteRule ^mcp/i/([A-Za-z0-9]{16,64})/?$ %{ENV:BASE}mcp/index.php?invite=$1 [L
 
 # OAuth discovery documents, where the specs say an app will look for them.
 RewriteRule ^\.well-known/oauth-(protected-resource|authorization-server)(/.*)?$ %{ENV:BASE}oauth/metadata/index.php [L]
+# A client may look for OpenID Connect discovery first, at the issuer or beside the MCP address. Mashpad isn't an OpenID provider,
+# so it answers with the same authorization server document (RFC 8414 allows it) rather than leave Apache to answer with a
+# "Multiple Choices" page that a client can't read.
+RewriteRule ^(mcp/)?\.well-known/openid-configuration(/.*)?$ %{ENV:BASE}oauth/metadata/index.php [L]
 
 # /pads/<owner>/<pad> and /manage/<owner>/<pad> are served by pads/ and manage/.
 RewriteRule ^(pads|manage)/[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_-]*/?$ %{ENV:BASE}$1/index.php [L]

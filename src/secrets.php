@@ -10,15 +10,27 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
+/** Whether this server has sodium. ($GLOBALS['mb_no_sodium'] lets a test behave as a server that doesn't.) */
+function mb_sodium_ready(): bool
+{
+    return empty($GLOBALS['mb_no_sodium']) && function_exists('sodium_crypto_secretbox') && defined('SODIUM_CRYPTO_SECRETBOX_NONCEBYTES');
+}
+
+/** Say so, in a RuntimeException, before any sodium function or constant is used: a missing constant is a fatal Error. */
+function mb_require_sodium(): void
+{
+    if (!mb_sodium_ready()) {
+        throw new RuntimeException('This server has no sodium extension, which Mashpad needs to keep tokens safely.');
+    }
+}
+
 /** The 32-byte key. Throws if the server can't keep one. */
 function mb_secret_key(): string
 {
     static $key = null;
+    mb_require_sodium();
     if ($key !== null) {
         return $key;
-    }
-    if (!function_exists('sodium_crypto_secretbox')) {
-        throw new RuntimeException('This server has no sodium extension, which Mashpad needs to keep tokens safely.');
     }
     $env = getenv('MASHPAD_SECRET_KEY');
     if ($env !== false && $env !== '') {
@@ -68,6 +80,7 @@ function mb_secret_key(): string
 /** Seal a secret for storage. */
 function mb_seal(string $plain): string
 {
+    mb_require_sodium();
     $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
     return 'v1.' . base64_encode($nonce . sodium_crypto_secretbox($plain, $nonce, mb_secret_key()));
 }
@@ -78,6 +91,7 @@ function mb_unseal(?string $sealed): ?string
     if ($sealed === null || !str_starts_with($sealed, 'v1.')) {
         return null;
     }
+    mb_require_sodium();
     $raw = base64_decode(substr($sealed, 3), true);
     if ($raw === false || strlen($raw) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES + SODIUM_CRYPTO_SECRETBOX_MACBYTES) {
         return null;

@@ -109,7 +109,7 @@ function mb_wake_target_save(PDO $pdo, int $agentId, int $actorId, array $in): a
     }
     } catch (MbAccountError $e) {
         throw $e;
-    } catch (RuntimeException $e) {
+    } catch (Throwable $e) {                                                       // an Error as well as an Exception: no sodium must never be a crash
         throw new MbAccountError('Mashpad can\'t keep a token safely on this server: ' . $e->getMessage());       // no sodium, or no usable key: say so plainly, don't fail
     }
     $pdo->prepare('INSERT INTO agent_wake_targets (principal_id, kind, url, token_sealed, secret_sealed, created_by) VALUES (?, ?, ?, ?, ?, ?)
@@ -294,7 +294,7 @@ function mb_wake_request(PDO $pdo, array $target, array $row, array $agent, ?arr
     try {
         $token  = $target['kind'] === 'routine' ? mb_unseal($target['token_sealed']) : null;
         $secret = $target['kind'] === 'routine' ? null : mb_unseal($target['secret_sealed']);
-    } catch (RuntimeException $e) {
+    } catch (Throwable $e) {
         throw new MbAccountError('Mashpad can\'t read stored tokens on this server: ' . $e->getMessage());
     }
     if ($target['kind'] === 'routine') {

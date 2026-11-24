@@ -380,7 +380,7 @@ function mb_cimd_client(PDO $pdo, string $url): array
                    VALUES (?, ?, ?, ?, 'metadata', ?, UTC_TIMESTAMP(), UTC_TIMESTAMP() + INTERVAL ? SECOND)
                    ON DUPLICATE KEY UPDATE name = VALUES(name), redirect_uris = VALUES(redirect_uris), client_uri = VALUES(client_uri), fetched_at = VALUES(fetched_at), expires_at = VALUES(expires_at)")
         ->execute([$url, $parsed['name'], json_encode($parsed['uris'], JSON_UNESCAPED_SLASHES), mb_client_ip(), $parsed['client_uri'], $parsed['ttl']]);
-    if (random_int(1, 50) === 1) {
+    if (empty($GLOBALS['mb_cimd_no_random_prune']) && random_int(1, 50) === 1) {      // now and then; a test switches this off so it can count what is tidied
         mb_cimd_prune($pdo);
     }
     $q->execute([$url]);
