@@ -672,9 +672,18 @@ should support this.
   internal); the connection is **pinned** to a checked address; no redirects; 5 KB; 5
   seconds; JSON only.
 - **The document:** its `client_id` must equal the address exactly; `redirect_uris`
-  (1 to 10) must pass the rules registered apps pass; a shared secret or key-based client
-  authentication is refused (public clients only); grant and response types must be the
-  code flow. The name is cleaned and shown escaped. A logo is neither fetched nor kept.
+  (1 to 10) must pass the rules registered apps pass; a shared secret is refused; grant and
+  response types must be the code flow. **Client authentication:** Mashpad serves public
+  clients (the code flow with PKCE) and advertises only `none`. A document may *prefer*
+  another method and also list the methods the client can use
+  (`token_endpoint_auth_methods_supported`, MCP SEP-3149). It is served when `none` is its
+  choice or is listed, and refused when it can only authenticate with a secret or a key.
+  **ChatGPT's document is of this kind**: it prefers `private_key_jwt` (keys at
+  `https://chatgpt.com/oauth/jwks.json`) and lists `none` too, and with a server that
+  advertises only `none` it exchanges codes without a client assertion. Mashpad checks no
+  signed client assertion (it never fetches `jwks_uri`); if one is sent it is ignored, and
+  PKCE still decides. Supporting `private_key_jwt` properly (RFC 7523) would let a
+  confidential client prove who it is, and is a possible later addition. The name is cleaned and shown escaped. A logo is neither fetched nor kept.
 - **Kept and refreshed:** cache time from `Cache-Control`/`Expires`, between 5 minutes
   and a day (an hour with no word). If the host is down (a network error or a 5xx) an
   expired copy up to a day old is used; a document that is now invalid, or gone, is
