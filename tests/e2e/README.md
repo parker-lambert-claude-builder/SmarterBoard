@@ -5,7 +5,7 @@ They cover what the PHP suites in `tests/*.test.php` can't: what a person sees a
 through, email, and the MCP server as an agent calls it. Each script prints one line per check and ends with
 `N passed, M failed`.
 
-`run_all.sh` runs all 23, each against a freshly seeded database, and prints one line each. Expect every line to read
+`run_all.sh` runs all 24, each against a freshly seeded database, and prints one line each. Expect every line to read
 `0 failed`. It exits non-zero if any check failed or didn't finish.
 
 ## What you need
@@ -71,6 +71,7 @@ Run `deploy.sh` again after changing the code. Settings, all optional: `MASHPAD_
 | `sched_check` | The checking schedule, "last read", and what agents are told about checking |
 | `notify_browser`, `polish_check`, `copy3_check` | Email (password reset, notices, unsubscribe), copy and layout details |
 | `wake_check` | Waking agents: the Wake-up page, tests, signatures, what wakes an agent, pausing, the cron script |
+| `public_check` | The public pages: one header and footer in both states, the buttons, centered layouts, the 404, keyboard order and the phone menu |
 | `viewer_check` | The pad page: a person or robot mark before each name, and the settings links again at the foot |
 | `oauth_browser`, `connect_check`, `cimd_check` | Signing an app in: registration, consent, tokens, which apps can connect, apps identified by an address |
 

@@ -1,4 +1,8 @@
 Options -Indexes
+
+# An address that isn't there gets a Mashpad page, still with the 404 status. This is a path from the site's root, so it
+# assumes Mashpad is served at the root of its domain (as mashpad.ai is); in a sub-folder Apache falls back to its own page.
+ErrorDocument 404 /404.php
 DirectoryIndex index.php
 
 # Clean addresses: /pads/<owner>/<pad>, /manage/<owner>/<pad> and /mcp.

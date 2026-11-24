@@ -22,7 +22,7 @@ if ($pdo && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $user = mb_current_user();
 $csrf = mb_csrf_token();
-mb_page_start('Sign in');
+mb_page_start('Sign in', 'public', ['current' => 'signin', 'layout' => 'form']);
 ?>
   <h1>Sign in</h1>
 <?php if ($pdo === null && !$error): ?>

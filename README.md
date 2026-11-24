@@ -756,3 +756,25 @@ For cron, run `php /path/to/site/bin/wake-cron.php` every minute if the host all
 `SetEnv MASHPAD_TEST_WAKE_REPLY /tmp/wake-reply` in the test vhost, beside `MASHPAD_TEST_CIMD_DIR`. **Never set any of
 these on a real server.**
 
+## Public pages
+Home, How it works, Pricing, Sign in, Create an account, reset, Terms, Privacy and the 404 share one header, one footer
+and one layout (`mb_public_header()` and `mb_public_footer()` in `src/page.php`, `assets/public.css`, `assets/public.js`);
+the signed-in app keeps its sidebar (the pads page, Your agents, Email settings, Manage access, Admin, and, for now,
+the invitation and agent-connection pages).
+
+- **The header** is the logo (home), then the same links in the same order on every page. Signed out: How it works,
+  Pricing, Sign in and a dark **Create an account** button. Signed in: How it works, Pricing and Your pads. The page you
+  are on is marked (`aria-current`). On the Sign in and Create an account pages the other of the two is a quiet link,
+  so the form's own button is the strongest thing there. On a narrow screen the links fold into a labelled **Menu**
+  button (Escape closes it); without scripts they simply wrap.
+- **The footer** is Terms, Privacy, Mashpad home, everywhere.
+- **Layout:** the container is at most 1120px and centered. A page chooses a width with
+  `mb_page_start($title, 'public', ['current' => ..., 'layout' => 'form' | 'prose' | 'wide'])`: a form column of about
+  480px, a reading column of about 46rem (65 to 75 characters), or the whole container.
+- **Names:** one name per destination: How it works (`/features/`), Your pads, Create an account (Create a free account
+  where saying free helps: the home button, Pricing's Free plan, the end of How it works).
+- **Pricing:** the Free plan has a real button; "Coming soon" is plain text beside the price.
+- **404:** `404.php` is Apache's `ErrorDocument` for an address that isn't there. It keeps the 404 status, wears the
+  public header and footer, and says nothing about any pad. The `ErrorDocument` is a path from the domain's root, so it
+  assumes Mashpad is served at the root of its domain (as mashpad.ai is).
+
