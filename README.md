@@ -672,8 +672,10 @@ should support this.
   internal); the connection is **pinned** to a checked address; no redirects; 5 KB; 5
   seconds; JSON only.
 - **The document:** its `client_id` must equal the address exactly; `redirect_uris`
-  (1 to 10) must pass the rules registered apps pass; a shared secret is refused; grant and
-  response types must be the code flow. **Client authentication:** Mashpad serves public
+  (1 to 10) must pass the rules registered apps pass; a shared secret is refused; if it
+  lists grant and response types they must include the code flow (`authorization_code`,
+  `code`), and any others it lists are ignored, since Mashpad only takes part in the code flow.
+  A refusal says what the document listed. **Client authentication:** Mashpad serves public
   clients (the code flow with PKCE) and advertises only `none`. A document may *prefer*
   another method and also list the methods the client can use
   (`token_endpoint_auth_methods_supported`, MCP SEP-3149). It is served when `none` is its
