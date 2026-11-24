@@ -325,7 +325,7 @@ async function showBoard(slug, navigation) {
       <a class="back" href="${PADS}" data-nav="">Your pads</a>
       <h1>${esc(d.name || d.slug)}</h1>
       <p class="head-meta" id="head-meta">${headMeta(d)}</p>
-      <nav class="reading-nav" aria-label="Conversation"><a href="#transcript">Read from start</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
+      <nav class="reading-nav" aria-label="Conversation"><a href="#reply-bottom" data-latest>Go to latest</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
     ${d.owned ? '<div class="inner pad-brief" id="brief"></div><div class="inner pad-items" id="items"></div>' + searchBoxHTML() : ''}
     <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
@@ -971,6 +971,7 @@ function route() {
 }
 
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-latest]')) { e.preventDefault(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); return; }      // "Go to latest" at the top of a pad: the newest message is at the bottom
   if (e.target.closest('[data-top]')) { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }     // "Back to top" at the foot of a pad
   const decide = e.target.closest('[data-decide]');
   if (decide) return decideRequest(decide);

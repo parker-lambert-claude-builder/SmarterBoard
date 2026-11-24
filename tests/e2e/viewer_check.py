@@ -36,11 +36,19 @@ with sync_playwright() as p:
     ck('the page opens at the latest message, and the settings links are on screen without scrolling', pg.evaluate('innerHeight + scrollY >= document.body.scrollHeight - 5') and pg.locator('.pad-foot').is_visible() and pg.evaluate("(() => { const r = document.querySelector('.pad-foot').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; })()"))
     foot = pg.eval_on_selector_all('.pad-foot a', 'els => els.map(e => [e.textContent, e.getAttribute("href")])'); top = pg.eval_on_selector_all('.board-head .reading-nav a', 'els => els.map(e => [e.textContent, e.getAttribute("href")])')
     ck('they are the same links as at the top: Pad info and Manage access, with the same addresses', ['Pad info', 'Manage access'] == [f[0] for f in foot[1:]] and foot[1:] == top[1:], (foot, top))
-    ck('and a way back to the top in place of Read from start', foot[0] == ['Back to top', '#'] and top[0][0] == 'Read from start')
+    ck('and a way back to the top, where the top has Go to latest', foot[0] == ['Back to top', '#'] and top[0] == ['Go to latest', '#reply-bottom'], top)
     ck('they sit after the reply box, at the very end of the page', pg.evaluate("(() => { const f = document.querySelector('.pad-foot'), r = document.querySelector('#reply-bottom'); return !!(r.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING) && !f.nextElementSibling; })()"))
     pg.click('.pad-foot a:has-text("Back to top")'); pg.wait_for_timeout(600); ck('Back to top goes to the top', pg.evaluate('scrollY') < 5 and pg.locator('h1').first.is_visible())
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.click('.pad-foot a:has-text("Pad info")'); pg.wait_for_selector('h1:has-text("Pad info")'); ck('Pad info from the bottom opens the pad\'s info page, as it does from the top', 'view=settings' in pg.url)
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.click('.pad-foot a:has-text("Manage access")'); pg.wait_for_url('**/manage/alice/launch'); ck('Manage access from the bottom opens it', 'Manage access' in pg.inner_text('h1'), pg.inner_text('h1'))
+    # ---- Go to latest, on a pad with a long conversation
+    for i in range(1, 41):
+        subprocess.run(['php', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'put.php'), 'launch', 'alice', f'Message number {i} with enough words in it to take up some room on the page when it wraps across a couple of lines.'], capture_output=True, env={**os.environ, 'MASHPAD_SITE': SITE})
+    pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.wait_for_timeout(2000); pg.evaluate('window.scrollTo(0, 0)'); pg.wait_for_timeout(300)
+    ck('at the top of a long conversation the oldest message is in view and the newest is far below', pg.evaluate("scrollY") == 0 and pg.evaluate("document.querySelector('#transcript').getBoundingClientRect().top") < 900 and pg.evaluate("[...document.querySelectorAll('#transcript .msg')].pop().getBoundingClientRect().top") > 2000)
+    pg.click('.board-head .reading-nav a:has-text("Go to latest")'); pg.wait_for_timeout(1200)
+    ck('Go to latest takes the reader to the newest message, with the reply box under it', pg.evaluate("(() => { const last = [...document.querySelectorAll('#transcript .msg')].pop().getBoundingClientRect(); return last.top >= 0 && last.bottom <= innerHeight && innerHeight + scrollY >= document.body.scrollHeight - 5; })()") and 'Message number 40' in pg.evaluate("[...document.querySelectorAll('#transcript .msg')].pop().innerText"), pg.evaluate("scrollY"))
+    ck('and the link has gone nowhere else: same page, no change to the address', pg.url.endswith('/pads/alice/launch'), pg.url)
     # ---- someone who is a member but doesn't own the pad
     bob = br.new_context(viewport={'width': 1100, 'height': 800}); bp = signin(bob, 'bob'); bp.goto(B + '/pads/alice/launch'); bp.wait_for_selector('#head-meta .who-kind')
     ck('another member sees the same marks and the same links at the foot', bp.locator('#head-meta .who-kind').count() >= 4 and bp.locator('.pad-foot a').count() == bp.locator('.board-head .reading-nav a').count())
