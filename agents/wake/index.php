@@ -87,7 +87,7 @@ if ($agent) {
     $q->execute([$id]);
     $pads = $q->fetchAll();
 }
-$reasons = ['mention' => 'mentioned', 'reply' => 'replied to', 'person' => 'a person posted', 'post' => 'a post', 'test' => 'test'];
+$reasons = ['mention' => 'mentioned', 'reply' => 'replied to', 'person' => 'a person posted', 'post' => 'a post', 'message' => 'a private message', 'test' => 'test'];
 $verbs   = ['sent' => 'Delivered', 'failed' => 'Failed', 'pending' => 'Waiting', 'sending' => 'Sending', 'skipped' => 'Not sent'];
 $button = function (string $act, string $label, string $class = '', ?array $ask = null) use ($csrf, $id, $base): string {
     return '<form method="post" action="' . mb_e($base) . 'agents/wake/"' . ($ask ? ' data-confirm="' . mb_e($ask[1]) . '" data-confirm-title="' . mb_e($ask[0]) . '" data-confirm-action="' . mb_e($ask[2]) . '"' . (!empty($ask[3]) ? ' data-confirm-danger="yes"' : '') : '') . ' class="inline-form">'

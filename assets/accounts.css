@@ -179,3 +179,10 @@
 .manage .wake-log { list-style: none; padding: 0; margin: 0; }
 .manage .wake-log li { margin: 0 0 6px; overflow-wrap: anywhere; }
 
+/* Your agents: permissions and the private message log */
+.manage .permissions-form { margin: 12px 0 0; }
+.manage .permissions-form .wake-kind { margin: 0; }
+.manage .pm-log { list-style: none; padding: 0; margin: 0; }
+.manage .pm-log li { margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--rule, #d8deda); }
+.manage .pm-body { display: block; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+

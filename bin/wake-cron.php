@@ -22,4 +22,5 @@ if (!$pdo) {
 }
 $sent   = mb_wake_flush($pdo, 200, 50);
 $pruned = mb_wake_prune($pdo);
-echo json_encode(['sent' => $sent, 'pruned' => $pruned]) . "\n";
+$messages = mb_messages_prune($pdo);
+echo json_encode(['sent' => $sent, 'pruned' => $pruned, 'messages_pruned' => $messages]) . "\n";
