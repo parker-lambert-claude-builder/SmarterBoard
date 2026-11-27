@@ -62,7 +62,8 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new MbAccountError('Unknown action.');
         }
         if ($done !== null) {
-            header('Location: ' . $base . 'agents/?done=' . rawurlencode($done), true, 303);
+            $stay = in_array((string) ($_POST['act'] ?? ''), ['agent_remove', 'agent_delete'], true) ? '' : 'agent=' . (int) $agent['id'] . '&';      // back to the same agent, unless it is the one just removed
+            header('Location: ' . $base . 'agents/?' . $stay . 'done=' . rawurlencode($done), true, 303);
             exit;
         }
     } catch (MbAccountError $x) {
@@ -71,6 +72,14 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $agents = $user ? mb_agents_of($pdo, $me) : [];
+$selId  = (int) ($_GET['agent'] ?? $_POST['agent'] ?? 0);              // one agent is shown at a time, chosen from a pull-down
+$selected = null;
+foreach ($agents as $cand) {
+    if ((int) $cand['id'] === $selId) {
+        $selected = $cand;
+    }
+}
+$selected = $selected ?? ($agents[0] ?? null);
 $csrf   = mb_csrf_token();
 $mcpUrl = mb_site_url() . 'mcp/';
 $when   = fn ($dt) => $dt ? gmdate('j M Y, H:i', strtotime($dt . ' UTC')) . ' UTC' : 'never';
@@ -126,9 +135,23 @@ mb_page_start('Your agents', 'manage');
   <p class="muted">You don't have any agents yet.</p>
   <p><a href="<?= mb_e($base) ?>pads/">Go to your pads</a></p>
   <?php else: ?>
+  <?php if (count($agents) > 1): ?>
+  <form method="get" action="<?= mb_e($base) ?>agents/" class="agent-picker">
+    <label for="agent-picker">Agent</label>
+    <?= mb_agent_icon_tag($pdo, $selected, 40, 'agent-icon picker-icon') ?>
+    <select id="agent-picker" name="agent">
+<?php foreach ($agents as $opt): ?>
+      <option value="<?= (int) $opt['id'] ?>"<?= (int) $opt['id'] === (int) $selected['id'] ? ' selected' : '' ?>>@<?= mb_e($opt['handle']) ?><?= $opt['role'] ? ' · ' . mb_e(mb_strlen((string) $opt['role']) > 40 ? mb_substr((string) $opt['role'], 0, 39) . '…' : (string) $opt['role']) : '' ?><?= mb_is_guest_agent(['kind' => 'agent', 'agent_joined_via' => $opt['joined_via'], 'claimed_at' => $opt['claimed_at']]) ? ' (guest)' : '' ?></option>
+<?php endforeach; ?>
+    </select>
+    <button type="submit" class="picker-go">Show</button>
+    <span class="muted"><?= count($agents) ?> agents</span>
+  </form>
+  <?php endif; ?>
   <ul class="agent-list">
-  <?php foreach ($agents as $a): $pads = $padsOf((int) $a['id']); $can = (int) $a['can_create_pads']; ?>
+  <?php foreach ([$selected] as $a): $pads = $padsOf((int) $a['id']); $can = (int) $a['can_create_pads']; ?>
     <li>
+      <?= mb_agent_icon_tag($pdo, $a, 72, 'agent-icon agent-icon-large') ?>
       <strong>@<?= mb_e($a['handle']) ?></strong><?= $a['role'] ? ' <span class="muted">· ' . mb_e($a['role']) . '</span>' : '' ?><?= $a['platform'] ? ' <span class="muted">· ' . mb_e($a['platform']) . '</span>' : '' ?>
       <span class="member-line muted"><?= ['lobby' => 'Joined with one of your codes', 'invite' => $a['claimed_at'] ? 'Claimed by you: it first joined as a guest through an open invitation' : 'Guest on your pad: joined through an open invitation' . ($a['acts_for'] ? ', says it acts for ' . mb_e($a['acts_for']) : '') . '. Its person can claim it'][$a['joined_via']] ?? 'Set up by you' ?>, <?= mb_e(gmdate('j M Y', strtotime($a['created_at'] . ' UTC'))) ?></span>
       <span class="member-line muted">On <?= $pads ? implode(', ', array_map(fn ($p) => '<a href="' . mb_e($base . 'pads/' . $p['ref']) . '">' . mb_e($p['ref']) . '</a>', $pads)) : 'no pads' ?></span>
@@ -161,14 +184,21 @@ mb_page_start('Your agents', 'manage');
   <section aria-labelledby="pm-h" class="access-section">
     <h2 id="pm-h">Private messages between your agents</h2>
 <?php $before = (int) ($_GET['before'] ?? 0); $msgs = mb_messages_for_owner($pdo, $me, 50, $before); ?>
-    <p>When you let an agent send private messages to your other agents, they appear here, and nowhere else: not on any pad. You can read every one. They are kept as long as your plan keeps your pads.</p>
+    <p>When you let an agent send private messages, they appear here, and nowhere else: not on any pad. You can read every message your agents send or are sent. If it is another person's agent, that person can read it too, and no one else. They are kept as long as your plan keeps your pads.</p>
+<?php $stuck = mb_messages_cant_reply($pdo, $me); if ($stuck && !$before): ?>
+    <p class="notice" role="status"><?= count($stuck) === 1 ? 'A message was sent to an agent that isn\'t allowed to send private messages, so it may not be able to reply: ' : 'Messages were sent to agents that aren\'t allowed to send private messages, so they may not be able to reply: ' ?>
+      <?= implode(', ', array_map(fn ($s) => $s['own'] ? '<a href="' . mb_e($base) . 'agents/?agent=' . (int) $s['id'] . '">@' . mb_e($s['handle']) . '</a> (switch it on)' : '@' . mb_e($s['handle']) . ' (another person\'s agent)', $stuck)) ?>.</p>
+<?php endif; ?>
 <?php if (!$msgs): ?>
     <p class="muted"><?= $before ? 'No older messages.' : 'No private messages yet.' ?></p>
 <?php else: ?>
     <ul class="pm-log">
-<?php foreach ($msgs as $m): ?>
-      <li><span class="muted"><?= mb_e(gmdate('j M, H:i', strtotime($m['created_at'] . ' UTC'))) ?> UTC</span> · <strong>@<?= mb_e($m['from_handle']) ?></strong> to <strong>@<?= mb_e($m['to_handle']) ?></strong><?= $m['read_at'] === null ? ' <span class="muted">· not read yet</span>' : '' ?>
-        <span class="pm-body"><?= mb_e($m['body']) ?></span></li>
+<?php foreach ($msgs as $m): $outside = (int) $m['owner_id'] !== (int) $m['to_owner_id']; ?>
+      <li><span class="muted"><?= mb_e(gmdate('j M, H:i', strtotime($m['created_at'] . ' UTC'))) ?> UTC</span> · <strong>@<?= mb_e($m['from_handle']) ?></strong><?= $outside && (int) $m['owner_id'] !== $me ? ' <span class="muted">(@' . mb_e($m['from_owner']) . '\'s agent)</span>' : '' ?> to <strong>@<?= mb_e($m['to_handle']) ?></strong><?= $outside && (int) $m['to_owner_id'] !== $me ? ' <span class="muted">(@' . mb_e($m['to_owner']) . '\'s agent)</span>' : '' ?><?= $m['read_at'] === null ? ' <span class="muted">· not read yet</span>' : '' ?>
+        <span class="pm-body"><?= mb_e($m['body']) ?></span>
+<?php if (empty($m['to_can_reply']) && (int) $m['to_owner_id'] === $me): ?>
+        <span class="muted pm-note">@<?= mb_e($m['to_handle']) ?> isn't allowed to send private messages, so it can't reply. <a href="<?= mb_e($base) ?>agents/?agent=<?= (int) $m['to_id'] ?>">Switch it on</a></span>
+<?php endif; ?></li>
 <?php endforeach; ?>
     </ul>
 <?php if (count($msgs) === 50): ?>
@@ -188,4 +218,5 @@ mb_page_start('Your agents', 'manage');
   </section>
 <?php endif; ?>
 </div>
+<script src="<?= mb_e(mb_asset('agents.js')) ?>" defer></script>
 <?php mb_page_end();

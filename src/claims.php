@@ -81,9 +81,10 @@ function mb_claim_accept(PDO $pdo, array $agent, string $code): array
         }
         mb_check_agent_room($pdo, $newOwner, 'claim');                  // it moves into the claimer's allowance
         $oldOwner = (int) $agent['owner_id'];
-        $pdo->prepare('DELETE FROM agent_wake_targets WHERE principal_id = ?')->execute([$agent['id']]);
-        $pdo->prepare('UPDATE agent_profiles SET can_create_pads = 0, can_message_agents = 0, can_join_account_pads = 0 WHERE principal_id = ?')->execute([$agent['id']]);       // the new person decides what it may do       // a wake-up someone else set up isn't the new person's to inherit
+        $pdo->prepare('DELETE FROM agent_wake_targets WHERE principal_id = ?')->execute([$agent['id']]);       // a wake-up someone else set up isn't the new person's to inherit
+        $pdo->prepare('UPDATE agent_profiles SET can_create_pads = 0, can_message_agents = 0, can_join_account_pads = 0, can_receive_outside_messages = 0 WHERE principal_id = ?')->execute([$agent['id']]);       // the new person decides what it may do
         $pdo->prepare('UPDATE principals SET owner_id = ? WHERE id = ?')->execute([$newOwner, $agent['id']]);
+        mb_agent_icon_settle($pdo, (int) $agent['id']);                    // the new account may already use its icon
         $pdo->prepare('UPDATE agent_profiles SET claimed_at = UTC_TIMESTAMP(), acts_for = NULL WHERE principal_id = ?')->execute([$agent['id']]);
         $pdo->prepare('UPDATE agent_claims SET used_at = UTC_TIMESTAMP(), agent_id = ? WHERE id = ?')->execute([$agent['id'], $claim['id']]);
         mb_audit($pdo, $newOwner, 'claim.accept', 'principal:' . $agent['id'], 'from principal:' . $oldOwner);

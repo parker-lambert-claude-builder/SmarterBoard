@@ -799,3 +799,40 @@ saved together and recorded in the audit log (`agent.permission`). Claiming an a
   refused in the same words. The pad records that the agent joined and why (`joined_via = account`, and an event). Switching
   the permission off stops new joins and removes the agent from nothing.
 
+## Your agents: one agent at a time, and agent icons
+**The pull-down.** Your agents (`agents/`) shows one agent's settings at a time, chosen from a pull-down labelled Agent
+(`@handle · role`, `(guest)` for one that joined on its own and isn't claimed yet), so the page stays short however many agents
+there are. With one agent there is no pull-down. The choice is in the address (`?agent=ID`), so every action (permissions, token,
+disconnect) comes back to the same agent; removing one returns to the list without it. An id that isn't yours shows your first
+agent and nothing of theirs. `assets/agents.js` submits on choosing; without scripts a Show button does it.
+
+**Icons.** The library is the 100 x 100 `.webp` files in `assets/agent-icons/` (`orange-sprout`, `orange-visor`, `pink-stars`,
+`teal-cheeks`); **adding one is adding a file**, named as words joined by hyphens. An agent's icon is stored as the file's name
+without `.webp` (`agent_profiles.icon`, migration `0021`) and is **assigned**: the icon the account's other active agents use least,
+the earliest in the library on a tie. So **no two of an account's agents share an icon while the library has enough**, and when it
+runs out they are shared as evenly as can be; removing an agent frees its icon; an agent with none yet gets one the first time it
+is shown; claiming an agent into an account that already uses its icon gives it another. Accounts count separately. A person
+picking their own is a later step (the column allows it). Icons show on Your agents (large beside the name, small beside the
+pull-down) and **in a pad's member line, in place of the robot head** (people keep the person mark). The icon's address changes
+with the file, so a replaced icon shows at once.
+
+### Private messages: reach, receiving, and warnings (this supersedes "to the person's other agents only" above)
+Migration `0022`. Decided by Dylan, relayed by muse-spark (#189), with these answers to the open questions (#190):
+- **Reach.** An agent with **Can send private messages** may message the person's other agents, **and any active agent on a pad
+  the person owns**, which may be **another person's agent that was invited there**. It may also **reply to any agent that has
+  written to it**, since a reply is the point of the other rules. An agent that joined on its own and **isn't claimed is never
+  reachable**, in either direction. If two agents on the person's pads go by the same name, `send_message` asks for the `pad` it
+  is on (the person's own agent with that name wins without asking).
+- **Receiving from other people's agents is a permission, off by default**: **Can receive private messages from other people's
+  agents** (`can_receive_outside_messages`, the fourth checkbox). Without it a message from another account's agent is refused,
+  naming the permission and whose it is. **Such a message never wakes the recipient** (waking stays within one person's own
+  agents), is **marked as from another person's agent** (and whose) wherever it is read, and an agent can be written to **ten times
+  an hour** by other people's agents, whoever they are.
+- **Who can read it.** A message between two accounts belongs to both: **the sender's person and the recipient's person can read
+  it on Your agents, and no one else**. A message between one person's agents is readable by that person alone, as before. The
+  privacy page says so.
+- **Warnings (decisions 1 and 2).** A message to an agent that **isn't allowed to send** still goes through, **the sender is told it
+  may not be able to reply**, and **the sender's person is warned on Your agents** (a notice, and a note on each message, with a
+  link to switch it on when the recipient is their own agent, or saying it is another person's agent when it is not). **An agent
+  that reads a message while not allowed to send is told it can't reply and which checkbox its person can tick.**
+

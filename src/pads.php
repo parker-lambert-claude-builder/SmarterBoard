@@ -58,7 +58,7 @@ class MbThrottled extends MbAccountError
 
 function mb_principal(PDO $pdo, int $id): ?array
 {
-    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.joined_via AS agent_joined_via,
+    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.can_receive_outside_messages, a.icon, a.joined_via AS agent_joined_via,
                                a.self_described, a.last_active_at, a.last_messages_read_at, a.checks, a.checks_note
                           FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
     $q->execute([$id]);
@@ -314,8 +314,15 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
     $who = $pdo->prepare('SELECT p.handle FROM pad_members m JOIN principals p ON p.id = m.principal_id
                            WHERE m.pad_id = ? AND m.removed_at IS NULL ORDER BY m.joined_at');
     $who->execute([$pad['id']]);
-    $kinds = $pdo->prepare('SELECT p.handle, p.kind FROM pad_members m JOIN principals p ON p.id = m.principal_id WHERE m.pad_id = ?');      // everyone who has been on it, so an author who left still shows as a person or an agent
+    $kinds = $pdo->prepare('SELECT p.handle, p.kind, p.id, a.icon FROM pad_members m JOIN principals p ON p.id = m.principal_id LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE m.pad_id = ?');      // everyone who has been on it, so an author who left still shows as a person or an agent
     $kinds->execute([$pad['id']]);
+    $kindRows = $kinds->fetchAll();
+    $icons = [];
+    foreach ($kindRows as $kr) {
+        if ($kr['kind'] === 'agent') {
+            $icons[$kr['handle']] = mb_agent_icon_url(mb_agent_icon($pdo, ['id' => $kr['id'], 'icon' => $kr['icon']]));
+        }
+    }
     $last = strtotime($pad['last_activity_at'] . ' UTC');
     return [
         'name'          => $pad['name'],
@@ -325,7 +332,8 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
         'owned'         => true,
         'threaded'      => mb_pad_threaded($pad),
         'members'       => $who->fetchAll(PDO::FETCH_COLUMN),      // handles; lets the viewer link @mentions
-        'kinds'         => $kinds->fetchAll(PDO::FETCH_KEY_PAIR),  // handle => 'human' or 'agent', for the mark in front of each name
+        'kinds'         => array_column($kindRows, 'kind', 'handle'),  // handle => 'human' or 'agent', for the mark in front of each name
+        'icons'         => $icons,                                  // handle => the address of an agent's icon
         'is_owner'      => ($pad['my_role'] ?? '') === 'owner',
         'created'       => strtotime($pad['created_at'] . ' UTC'),
         'last_activity' => $last,
@@ -708,6 +716,7 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
                        $prof['webhook_url'] ? 'whsec_' . mb_random_token() : null, $canCreate ? 1 : 0, $via, $via === 'owner' ? 0 : 1]);
         $token = mb_issue_agent_token($pdo, $id);
         mb_audit($pdo, $via === 'owner' ? $ownerId : $id, 'agent.create', 'principal:' . $id, $via);
+        mb_agent_icon_assign($pdo, $id);                                    // its icon: the one this account's other agents use least
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -811,8 +820,8 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
 /** Agents a human is responsible for. */
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
-    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
-                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.joined_via, a.self_described, a.last_active_at,
+    $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
+                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.can_receive_outside_messages, a.icon, a.joined_via, a.joined_via AS agent_joined_via, a.self_described, a.last_active_at,
                                (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
                                (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used
                           FROM principals p JOIN agent_profiles a ON a.principal_id = p.id
@@ -1022,3 +1031,4 @@ function mb_open_pads_visible(?array $user): bool
 
 require_once __DIR__ . '/wake.php';       // after everything above is defined: waking agents calls back into this file
 require_once __DIR__ . '/messages.php';   // likewise
+require_once __DIR__ . '/icons.php';
