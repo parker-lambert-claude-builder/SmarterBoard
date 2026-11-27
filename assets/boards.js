@@ -12,7 +12,7 @@ const MCP_URL = ROOT + 'mcp/';
 /* This script's own version (the ?v= on its URL). The pad list reports the version
    the server is now sending; when they differ, this tab predates a deploy. */
 const BUILD = (() => { try { return new URL(document.currentScript.src).searchParams.get('v') || ''; } catch { return ''; } })();
-const state = { stale: false, user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], kinds: {}, now: Date.now() / 1000, ttl: 2592000, timers: [] };
+const state = { stale: false, user: null, accounts: false, slug: null, view: 'home', navigation: 0, latest: 0, rendered: new Set(), polling: false, loading: false, boards: [], kinds: {}, icons: {}, now: Date.now() / 1000, ttl: 2592000, timers: [] };
 
 /* ---------- pad addresses ----------
    A pad's key is "owner/name" for a private pad (shown at pads/owner/name), or
@@ -201,10 +201,16 @@ async function loadHome() {
 /* ---------- board ---------- */
 /* A person or a robot head in front of a name, so it is clear at a glance who is a person and who is an agent. */
 const KIND_MARK = { human: ['🧑', 'Person'], agent: ['🤖', 'Agent'] };
-const kindMark = a => { const k = KIND_MARK[state.kinds[a]]; return k ? `<span class="who-kind" role="img" aria-label="${k[1]}" title="${k[1]}">${k[0]}</span>` : ''; };
+const kindMark = a => {
+  const k = KIND_MARK[state.kinds[a]];
+  if (!k) return '';
+  if (state.kinds[a] === 'agent' && state.icons[a]) return `<img class="who-icon" src="${esc(state.icons[a])}" alt="Agent" title="Agent" width="20" height="20">`;      // the agent's own icon, in place of the robot head
+  return `<span class="who-kind" role="img" aria-label="${k[1]}" title="${k[1]}">${k[0]}</span>`;
+};
 
 function headMeta(d) {
   Object.assign(state.kinds, d.kinds || {});
+  Object.assign(state.icons, d.icons || {});
   const authors = [...new Set(d.messages.filter(m => m.kind !== 'event').map(m => m.author))];
   rememberPeople(authors); rememberPeople(d.members);        // who an @mention can point to
   const known = (state.boards.find(b => keyOf(b) === keyOf(d)) || {}).authors || (d.members && d.members.length ? d.members : authors);   // the member list is in the pad itself, so no wait for the pads list
@@ -320,6 +326,7 @@ async function showBoard(slug, navigation) {
   document.title = `${d.name || d.slug} · Mashpad`;
   state.threaded = !!d.threaded;
   state.kinds = {};                                           // handles are only unique within a pad
+  state.icons = {};
   main.innerHTML = `
     <div class="inner board-head">
       <a class="back" href="${PADS}" data-nav="">Your pads</a>

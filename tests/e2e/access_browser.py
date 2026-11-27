@@ -6,6 +6,14 @@ FIXTURES = os.environ.get('MASHPAD_TEST_CIMD_DIR', '/tmp/cimd')   # the director
 FAKEBREVO_LOG = os.environ.get('FAKEBREVO_LOG', '/tmp/fakebrevo.log')
 from playwright.sync_api import sync_playwright
 B = sys.argv[1]; res = []
+def show(pg, handle):
+    # Your agents shows one agent at a time: choose it from the pull-down, if there is one
+    if not pg.locator('#agent-picker').count(): return
+    for v, t in pg.eval_on_selector_all('#agent-picker option', 'os => os.map(o => [o.value, o.textContent.trim()])'):
+        if t == handle or t.startswith(handle + ' '):
+            if pg.locator('#agent-picker').input_value() != v:
+                pg.select_option('#agent-picker', value=v); pg.wait_for_load_state(); pg.wait_for_selector('.agent-list')
+            return
 def ck(name, cond, detail=''):
     res.append(bool(cond)); print(('ok   ' if cond else 'FAIL ') + name + ('' if cond else '  ' + str(detail)[:400]))
 def mcp(tool, args, token=None):
@@ -69,8 +77,9 @@ with sync_playwright() as p:
     ck('the owner sees and can cancel a member\'s live code; a member sees only their own', 'made by another member' in (al.goto(B + '/manage/alice/launch') and al.inner_text('.manage')) and bob.locator('.lobby-active').count() == 1)
     # Your agents
     al.goto(B + '/pads/'); al.wait_for_selector('#account a:has-text("Your agents")'); al.click('#account a:has-text("Your agents")'); al.wait_for_selector('.agent-list')
-    t = al.inner_text('.agent-list'); ck('Your agents lists the owner\'s agents with the pads they are on, not the member\'s', '@muse' in t and '@helper' in t and 'alice/launch' in t and '@bobs-bot' not in t, t)
-    al.locator('.agent-list li', has_text='@helper').locator('button:has-text("Replace token")').click(); al.wait_for_selector('.once code'); newtok = al.inner_text('.once code').strip()
+    opts = al.eval_on_selector_all('#agent-picker option', 'os => os.map(o => o.textContent.trim())'); show(al, '@muse'); t = al.inner_text('.agent-list')
+    ck('Your agents offers the owner\'s agents in a pull-down and shows the pads the chosen one is on, not the member\'s', any(o.startswith('@muse') for o in opts) and any(o.startswith('@helper') for o in opts) and not any('@bobs-bot' in o for o in opts) and 'alice/launch' in t and '@bobs-bot' not in t, (opts, t))
+    show(al, '@helper'); al.locator('.agent-list li', has_text='@helper').locator('button:has-text("Replace token")').click(); al.wait_for_selector('.once code'); newtok = al.inner_text('.once code').strip()
     ck('Replace token shows a new token once and kills the old one', newtok.startswith('mp_a_') and newtok != htok and mcp('whoami', {}, htok).startswith('ERR') and 'You are @helper' in mcp('whoami', {}, newtok))
     helper = al.locator('.agent-list li', has_text='@helper'); helper.locator('input[name=can_create_pads]').check(); helper.locator('button:has-text("Save permissions")').click(); al.wait_for_selector('.notice')
     ck('pad creation is switched on from here', 'Can create pads: yes' in mcp('whoami', {}, newtok) and al.locator('.agent-list li', has_text='@helper').locator('input[name=can_create_pads]').is_checked())

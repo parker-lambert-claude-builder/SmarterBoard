@@ -6,6 +6,14 @@ FIXTURES = os.environ.get('MASHPAD_TEST_CIMD_DIR', '/tmp/cimd')   # the director
 FAKEBREVO_LOG = os.environ.get('FAKEBREVO_LOG', '/tmp/fakebrevo.log')
 from playwright.sync_api import sync_playwright
 B = sys.argv[1]; res = []
+def show(pg, handle):
+    # Your agents shows one agent at a time: choose it from the pull-down, if there is one
+    if not pg.locator('#agent-picker').count(): return
+    for v, t in pg.eval_on_selector_all('#agent-picker option', 'os => os.map(o => [o.value, o.textContent.trim()])'):
+        if t == handle or t.startswith(handle + ' '):
+            if pg.locator('#agent-picker').input_value() != v:
+                pg.select_option('#agent-picker', value=v); pg.wait_for_load_state(); pg.wait_for_selector('.agent-list')
+            return
 def ck(name, cond, detail=''):
     res.append(bool(cond)); print(('ok   ' if cond else 'FAIL ') + name + ('' if cond else '  ' + str(detail)[:600]))
 def http(method, url, headers=None, data=None):
@@ -97,7 +105,7 @@ with sync_playwright() as p:
     al.goto(B + '/pads/alice/solo-notes'); al.wait_for_selector('.pad-event .event-actions button'); al.locator('.pad-event', has_text='@lee-assistant').locator('button:has-text("Approve")').click()
     al.wait_for_function("[...document.querySelectorAll('.pad-event')].some(e => e.innerText.includes('@lee-assistant (an agent acting for Lee Park) joined'))", timeout=10000)
     ck('once the owner approves in the pad, the same connection can read: no request code, nothing to paste', tool(B + '/mcp/', 'read_board', {'board': 'alice/solo-notes'}, gt).startswith('OK'))
-    al.goto(B + '/agents/'); ck('no personal token was ever created for it', 'Connected through Bodhi <test>' in al.locator('.agent-list li', has_text='@lee-assistant').inner_text() and 'personal token' not in al.locator('.agent-list li', has_text='@lee-assistant').inner_text(), al.locator('.agent-list li', has_text='@lee-assistant').inner_text())
+    al.goto(B + '/agents/'); show(al, '@lee-assistant'); ck('no personal token was ever created for it', 'Connected through Bodhi <test>' in al.locator('.agent-list li', has_text='@lee-assistant').inner_text() and 'personal token' not in al.locator('.agent-list li', has_text='@lee-assistant').inner_text(), al.locator('.agent-list li', has_text='@lee-assistant').inner_text())
     # 5b. connecting through an invitation address: the page already knows the pad
     tokn = link.rsplit('/', 1)[1]; IA = link
     ck('the invitation link is still a web page for a person', http('GET', link)[0] == 200 and 'For people' in http('GET', link)[2])
@@ -117,7 +125,7 @@ with sync_playwright() as p:
     ck('an invitation that no longer exists is said plainly, and the ordinary choices are offered', 'no longer valid' in i2.inner_text('main') and 'Someone invited me to their pad' in i2.inner_text('main') and i2.locator('input[name=invite]').count() == 1)
     i1.set_viewport_size({'width': 390, 'height': 844}); i1.goto(authorize_url(cid, c6, 'shot').replace(up.quote(B + '/mcp/', safe=''), up.quote(IA, safe=''))); i1.screenshot(path='/tmp/consent_invite.png', full_page=True)
     # 6. disconnecting
-    al.goto(B + '/agents/'); row = al.locator('.agent-list li', has_text='@bodhi'); ck('Your agents shows which app each agent is connected through', 'Connected through Bodhi <test> (since' in row.inner_text(), row.inner_text())
+    al.goto(B + '/agents/'); show(al, '@bodhi'); row = al.locator('.agent-list li', has_text='@bodhi'); ck('Your agents shows which app each agent is connected through', 'Connected through Bodhi <test> (since' in row.inner_text(), row.inner_text())
     row.locator('button:has-text("Disconnect")').click(); al.click('.mp-modal-ok'); al.wait_for_selector('.notice')
     s, h, b = rpc(B + '/mcp/', 'initialize', bearer=at); ck('Disconnect signs the app out at once', '@bodhi is disconnected' in al.inner_text('.notice') and s == 401 and 'invalid_token' in h)
     al.set_viewport_size({'width': 320, 'height': 700}); v5, c5 = pkce(); al.goto(authorize_url(cid, c5)); ck('the consent page fits a 320px screen', al.evaluate('document.documentElement.scrollWidth <= innerWidth'))

@@ -351,3 +351,6 @@ body.mp-modal-open { overflow: hidden; }
 /* The pad's settings links again at the foot, since a pad opens at its latest message */
 .pad-foot { margin: 22px auto 44px; padding-top: 14px; border-top: 1px solid var(--rule, #c7d0cc); }
 
+/* An agent's own icon before its name in the member line */
+.who-icon { width: 20px; height: 20px; margin-right: .25em; border-radius: 22%; vertical-align: -5px; }
+

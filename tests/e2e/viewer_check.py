@@ -28,17 +28,17 @@ with sync_playwright() as p:
     br = p.chromium.launch(); errs = []
     ctx = br.new_context(viewport={'width': 1100, 'height': 800}); pg = signin(ctx, 'alice'); pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('#head-meta .who-kind')
-    marks = pg.eval_on_selector_all('#head-meta .who-kind', 'els => els.map(e => [e.textContent, e.getAttribute("aria-label"), e.nextElementSibling && e.nextElementSibling.textContent])')
+    marks = pg.eval_on_selector_all('#head-meta .who-kind, #head-meta .who-icon', 'els => els.map(e => [e.tagName === "IMG" ? "ICON" : e.textContent, e.tagName === "IMG" ? e.getAttribute("alt") : e.getAttribute("aria-label"), e.nextElementSibling && e.nextElementSibling.textContent, e.getAttribute("src")])')
     by = {m[2]: m for m in marks}
     ck('every name in the member line has a mark in front of it', len(marks) >= 4 and all(m[2] for m in marks), marks)
-    ck('people have the person mark and agents the robot head', by['@alice'][0] == '🧑' and by['@bob'][0] == '🧑' and by['@muse'][0] == '🤖' and by['@qa-bot'][0] == '🤖', marks)
-    ck('each mark says what it is to a screen reader, and as a tooltip', by['@alice'][1] == 'Person' and by['@muse'][1] == 'Agent' and pg.get_attribute('#head-meta .who-kind', 'title') in ('Person', 'Agent'))
-    ck('the mark is in front of the name, outside the link, so the link still opens that participant\'s page and is not underlined around the emoji', pg.locator('#head-meta .who-kind + a.author-link').count() == len(marks) and pg.locator('#head-meta a .who-kind').count() == 0)
+    ck('people have the person mark and each agent its own icon, different from the other agent\'s', by['@alice'][0] == '🧑' and by['@bob'][0] == '🧑' and by['@muse'][0] == 'ICON' and by['@qa-bot'][0] == 'ICON' and '/assets/agent-icons/' in by['@muse'][3] and by['@muse'][3] != by['@qa-bot'][3], marks)
+    ck('each mark says what it is to a screen reader, and as a tooltip', by['@alice'][1] == 'Person' and by['@muse'][1] == 'Agent' and pg.get_attribute('#head-meta .who-kind', 'title') == 'Person' and pg.get_attribute('#head-meta .who-icon', 'title') == 'Agent')
+    ck('the mark is in front of the name, outside the link, so the link still opens that participant\'s page and is not underlined around the emoji', pg.locator('#head-meta .who-kind + a.author-link, #head-meta .who-icon + a.author-link').count() == len(marks) and pg.locator('#head-meta a .who-kind, #head-meta a .who-icon').count() == 0)
     ck('the names are still the same names, in the same order, after the marks', [m[2] for m in marks] == pg.eval_on_selector_all('#head-meta a.author-link', 'els => els.map(e => e.textContent)'))
     # ---- it keeps its marks when the page updates by itself
     mcp('post_message', {'board': 'alice/launch', 'message': 'A post that makes the page refresh its header.'})
     pg.wait_for_function("() => document.querySelector('#transcript').innerText.includes('refresh its header')", timeout=20000)
-    ck('and keeps them when a new post arrives and the header is redrawn', pg.locator('#head-meta .who-kind').count() >= 4 and pg.locator('#head-meta .who-kind').first.text_content() in ('🧑', '🤖'))
+    ck('and keeps them when a new post arrives and the header is redrawn', pg.locator('#head-meta .who-kind, #head-meta .who-icon').count() >= 4 and pg.locator('#head-meta .who-icon').count() == 2)
     # ---- the settings links again at the bottom
     pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); pg.wait_for_timeout(500)
     ck('the page opens at the latest message, and the settings links are on screen without scrolling', pg.evaluate('innerHeight + scrollY >= document.body.scrollHeight - 5') and pg.locator('.pad-foot').is_visible() and pg.evaluate("(() => { const r = document.querySelector('.pad-foot').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; })()"))
@@ -59,7 +59,7 @@ with sync_playwright() as p:
     ck('and the link has gone nowhere else: same page, no change to the address', pg.url.endswith('/pads/alice/launch'), pg.url)
     # ---- someone who is a member but doesn't own the pad
     bob = br.new_context(viewport={'width': 1100, 'height': 800}); bp = signin(bob, 'bob'); bp.goto(B + '/pads/alice/launch'); bp.wait_for_selector('#head-meta .who-kind')
-    ck('another member sees the same marks and the same links at the foot', bp.locator('#head-meta .who-kind').count() >= 4 and bp.locator('.pad-foot a').count() == bp.locator('.board-head .reading-nav a').count())
+    ck('another member sees the same marks and the same links at the foot', bp.locator('#head-meta .who-kind, #head-meta .who-icon').count() >= 4 and bp.locator('.pad-foot a').count() == bp.locator('.board-head .reading-nav a').count())
     # ---- small screens, and a pad with no messages
     pg.set_viewport_size({'width': 320, 'height': 700}); pg.goto(B + '/pads/alice/launch'); pg.wait_for_selector('.pad-foot'); ck('a 320px screen has no sideways scroll, with the marks and the foot', pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))
     php('$a = (int) $pdo->query("SELECT id FROM principals WHERE handle = \'alice\'")->fetchColumn(); mb_create_pad($pdo, mb_principal($pdo, $a), "Empty Pad");')

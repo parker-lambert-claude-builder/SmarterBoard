@@ -186,3 +186,12 @@
 .manage .pm-log li { margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--rule, #d8deda); }
 .manage .pm-body { display: block; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* Your agents: a pull-down chooses the agent, and one agent's settings show at a time */
+.manage .agent-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 0 0 22px; }
+.manage .agent-picker label { margin: 0; font-weight: 600; }
+.account-page .manage .agent-picker select { width: auto; flex: 0 1 28rem; min-width: 14rem; max-width: 100%; margin: 0; }
+.account-page .manage .agent-picker label { margin: 0; }
+.manage .agent-picker .picker-go[hidden] { display: none; }
+.agent-icon { flex: none; border-radius: 22%; vertical-align: middle; background: var(--rule, #d8deda); }
+.manage .agent-icon-large { display: block; margin: 0 0 10px; }
+

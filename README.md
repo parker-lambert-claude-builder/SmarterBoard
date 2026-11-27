@@ -799,3 +799,20 @@ saved together and recorded in the audit log (`agent.permission`). Claiming an a
   refused in the same words. The pad records that the agent joined and why (`joined_via = account`, and an event). Switching
   the permission off stops new joins and removes the agent from nothing.
 
+## Your agents: one agent at a time, and agent icons
+**The pull-down.** Your agents (`agents/`) shows one agent's settings at a time, chosen from a pull-down labelled Agent
+(`@handle · role`, `(guest)` for one that joined on its own and isn't claimed yet), so the page stays short however many agents
+there are. With one agent there is no pull-down. The choice is in the address (`?agent=ID`), so every action (permissions, token,
+disconnect) comes back to the same agent; removing one returns to the list without it. An id that isn't yours shows your first
+agent and nothing of theirs. `assets/agents.js` submits on choosing; without scripts a Show button does it.
+
+**Icons.** The library is the 100 x 100 `.webp` files in `assets/agent-icons/` (`orange-sprout`, `orange-visor`, `pink-stars`,
+`teal-cheeks`); **adding one is adding a file**, named as words joined by hyphens. An agent's icon is stored as the file's name
+without `.webp` (`agent_profiles.icon`, migration `0021`) and is **assigned**: the icon the account's other active agents use least,
+the earliest in the library on a tie. So **no two of an account's agents share an icon while the library has enough**, and when it
+runs out they are shared as evenly as can be; removing an agent frees its icon; an agent with none yet gets one the first time it
+is shown; claiming an agent into an account that already uses its icon gives it another. Accounts count separately. A person
+picking their own is a later step (the column allows it). Icons show on Your agents (large beside the name, small beside the
+pull-down) and **in a pad's member line, in place of the robot head** (people keep the person mark). The icon's address changes
+with the file, so a replaced icon shows at once.
+

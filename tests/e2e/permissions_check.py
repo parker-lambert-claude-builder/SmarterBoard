@@ -4,6 +4,14 @@ E2E_ENV = os.environ.get('MASHPAD_E2E_ENV', '/tmp/e2e.env')
 CAPTURE = os.environ.get('MASHPAD_TEST_WAKE_CAPTURE', '/tmp/wake-capture.log')
 from playwright.sync_api import sync_playwright
 B = sys.argv[1]; res = []
+def show(pg, handle):
+    # Your agents shows one agent at a time: choose it from the pull-down, if there is one
+    if not pg.locator('#agent-picker').count(): return
+    for v, t in pg.eval_on_selector_all('#agent-picker option', 'os => os.map(o => [o.value, o.textContent.trim()])'):
+        if t == handle or t.startswith(handle + ' '):
+            if pg.locator('#agent-picker').input_value() != v:
+                pg.select_option('#agent-picker', value=v); pg.wait_for_load_state(); pg.wait_for_selector('.agent-list')
+            return
 def ck(name, cond, detail=''):
     res.append(bool(cond)); print(('ok   ' if cond else 'FAIL ') + name + ('' if cond else '  ' + str(detail)[:700]))
 MUSE = open(E2E_ENV).read().split('TOK=')[1].split('\n')[0]
@@ -31,15 +39,15 @@ with sync_playwright() as p:
     al = br.new_context(viewport={'width': 1280, 'height': 1000}); ap = signin(al, 'alice'); ap.on('pageerror', lambda e: errs.append(str(e))); ap.on('dialog', lambda d: (native.append(d.message), d.dismiss()))
     bp = signin(br.new_context(), 'bob')
     # ---- the form
-    ap.goto(B + '/agents/'); card = ap.locator('.agent-list li', has_text='@muse')
+    ap.goto(B + '/agents/'); show(ap, '@muse'); card = ap.locator('.agent-list li', has_text='@muse')
     ck('Your agents has a Permissions form for each agent with three checkboxes, all off to begin with', card.locator('input[type=checkbox]').count() == 3 and card.locator('input[type=checkbox]:checked').count() == 0 and card.locator('button:has-text("Save permissions")').count() == 1)
     t = card.inner_text()
     ck('each says what it means, in words', 'Can create pads' in t and 'Can send private messages to my other agents' in t and 'you can read every one of them here' in t and 'Can find and join my other pads' in t and 'with no code and no approval from you' in t and 'It sees nothing inside a pad until it joins' in t, t[:600])
     ck('the old toggle button is gone', ap.locator('button:has-text("Let it create pads"), button:has-text("Stop it creating pads")').count() == 0)
     php('require_once "' + SITE + '/src/invites.php"; $a = (int) $pdo->query("SELECT id FROM principals WHERE handle = \'alice\'")->fetchColumn(); $pad = mb_pad_by_address($pdo, "alice", "launch"); mb_invite_make($pdo, $pad, $a); mb_invite_guest_agent($pdo, $pad, ["handle" => "stranger", "acts_for" => "Sam"], false);')
-    ap.goto(B + '/agents/'); gc = ap.locator('.agent-list li', has_text='@stranger')
+    ap.goto(B + '/agents/'); show(ap, '@stranger'); gc = ap.locator('.agent-list li', has_text='@stranger')
     ck('an agent that joined on its own and is not claimed has no Permissions form, only a line saying to claim it first', gc.locator('input[type=checkbox]').count() == 0 and gc.locator('button:has-text("Save permissions")').count() == 0 and 'Claim it to choose what it may do.' in gc.inner_text(), gc.inner_text()[:300])
-    ck('while a claimed agent beside it still has the form', ap.locator('.agent-list li', has_text='@muse').locator('input[type=checkbox]').count() == 3)
+    show(ap, '@muse'); ck('while a claimed agent beside it still has the form', ap.locator('.agent-list li', has_text='@muse').locator('input[type=checkbox]').count() == 3)
     # ---- what an agent is told, and what it can't do, before it is allowed
     w = tool('whoami', None, MUSE)
     ck('whoami says it can\'t send private messages or join the person\'s pads, and that the person can switch them on', 'Can send private messages to your person\'s other agents: no (your person can switch it on for you on Your agents)' in w and 'Can find and join your person\'s other pads: no (your person can switch it on for you on Your agents)' in w and 'Can create pads: no.' in w, w[-700:])
@@ -72,7 +80,7 @@ with sync_playwright() as p:
     ck('a second read has nothing new, and its whoami no longer says unread', '(new)' not in tool('read_messages', None, QA) and 'unread private message' not in tool('whoami', None, QA))
     ap.goto(B + '/agents/'); ck('and the person\'s log no longer says not read yet', 'not read yet' not in ap.inner_text('.pm-log'))
     ck('the recipient can read but not reply, until its person allows it', tool('send_message', {'to': 'muse', 'message': 'thanks'}, QA).startswith('ERR Not sent: your person hasn\'t allowed you to send private messages'))
-    qa_card = ap.locator('.agent-list li', has_text='@qa-bot'); qa_card.locator('input[name=can_message_agents]').check(); qa_card.locator('button:has-text("Save permissions")').click(); ap.wait_for_load_state()
+    show(ap, '@qa-bot'); qa_card = ap.locator('.agent-list li', has_text='@qa-bot'); qa_card.locator('input[name=can_message_agents]').check(); qa_card.locator('button:has-text("Save permissions")').click(); ap.wait_for_load_state()
     ck('allowed, it replies, and the conversation shows both ways', tool('send_message', {'to': 'muse', 'message': 'Thanks, reading it now.'}, QA).startswith('OK Sent privately') and tool('read_messages', {'with': 'qa-bot'}, MUSE).count('--- ') == 2 and 'Thanks, reading it now.' in tool('read_messages', {'with': 'qa-bot'}, MUSE))
     ck('none of it is on any pad', 'review it' not in tool('read_board', {'board': 'alice/secret-plans'}, MUSE) and 'review it' not in tool('read_board', {'board': 'alice/launch'}, MUSE) and 'reading it now' not in tool('read_board', {'board': 'alice/launch'}, MUSE))
     bp.goto(B + '/agents/'); ck('another person sees none of it', 'review it' not in bp.inner_text('main') and 'No private messages yet.' in bp.inner_text('main'))
@@ -84,7 +92,7 @@ with sync_playwright() as p:
     ck('a message wakes a recipient that has a wake-up, with who and what to do, and nothing that was said', len(s) == 1 and json.loads(s[0]['body'])['message'] == '@muse sent you a private message. Read it with read_messages.' and 'Tuesday' not in s[0]['body'] and json.loads(s[0]['body'])['pad'] is None, s)
     ap.goto(B + '/agents/wake/?agent=' + QAID); ck('the wake-up list says it was for a private message', 'a private message' in ap.inner_text('.wake-log'))
     # ---- the person switches a permission off
-    ap.goto(B + '/agents/'); card = ap.locator('.agent-list li', has_text='@muse'); card.locator('input[name=can_message_agents]').uncheck(); card.locator('button:has-text("Save permissions")').click(); ap.wait_for_load_state()
+    ap.goto(B + '/agents/'); show(ap, '@muse'); card = ap.locator('.agent-list li', has_text='@muse'); card.locator('input[name=can_message_agents]').uncheck(); card.locator('button:has-text("Save permissions")').click(); ap.wait_for_load_state()
     ck('switching it off says so, and stops new messages', '@muse can no longer send private messages to my other agents.' in ap.inner_text('main') and tool('send_message', {'to': 'qa-bot', 'message': 'again'}, MUSE).startswith('ERR Not sent'))
     ck('and an agent already on a pad stays there', 'alice/secret-plans' in tool('list_boards', None, MUSE))
     ck('a message already sent stays readable, by the person and the recipient', 'Thanks, reading it now.' in ap.inner_text('.pm-log') and 'Secret detail' in tool('read_messages', None, QA))
