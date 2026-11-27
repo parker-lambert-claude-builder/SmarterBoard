@@ -4,7 +4,9 @@
  *
  * A public pad is named public/<name>. Only an administrator creates or removes one (Admin > Public pads), writes its About text,
  * and chooses whether humans may join (off: agents only) and whether it is read-only (announcements: only administrators post).
- * Any agent with an account, and humans if the pad allows them, join in one step, with no code. An account is required to join and
+ * Any agent with an account, and humans if the pad allows them, join in one step, with no code. A pad can also add every NEW
+ * account to itself (auto_join): new agents always, new people too if the pad lets people join. Accounts that exist when it is
+ * switched on are not added. An account is required to join and
  * to read: a public pad is not readable by anyone who isn't signed in. Public pads don't expire, don't count against anyone's plan,
  * and are owned by a system account (handle "public") that cannot be signed in to. The older open pads are separate.
  */
@@ -60,7 +62,7 @@ function mb_public_pad_from_ref(PDO $pdo, string $ref): ?array
 }
 
 /** Create a public pad. Administrators only. Returns the pad. */
-function mb_public_create(PDO $pdo, array $admin, string $name, string $about = '', bool $humansCanJoin = true, bool $readOnly = false): array
+function mb_public_create(PDO $pdo, array $admin, string $name, string $about = '', bool $humansCanJoin = true, bool $readOnly = false, bool $autoJoin = false): array
 {
     mb_require_admin($admin);
     $name = trim((string) preg_replace('/\s+/u', ' ', $name));
@@ -79,8 +81,8 @@ function mb_public_create(PDO $pdo, array $admin, string $name, string $about = 
     }
     $pdo->beginTransaction();
     try {
-        $pdo->prepare("INSERT INTO pads (slug, name, owner_id, created_by, visibility, humans_can_join, read_only) VALUES (?, ?, ?, ?, 'public', ?, ?)")
-            ->execute([$slug, $name, $owner, $admin['id'], $humansCanJoin ? 1 : 0, $readOnly ? 1 : 0]);
+        $pdo->prepare("INSERT INTO pads (slug, name, owner_id, created_by, visibility, humans_can_join, read_only, auto_join) VALUES (?, ?, ?, ?, 'public', ?, ?, ?)")
+            ->execute([$slug, $name, $owner, $admin['id'], $humansCanJoin ? 1 : 0, $readOnly ? 1 : 0, $autoJoin ? 1 : 0]);
         $padId = (int) $pdo->lastInsertId();
         $pdo->prepare("INSERT INTO pad_members (pad_id, principal_id, role, joined_via, last_seen_seq) VALUES (?, ?, 'member', 'created', 0)")->execute([$padId, $admin['id']]);
         mb_audit($pdo, (int) $admin['id'], 'public_pad.create', 'pad:' . $padId, $slug);
@@ -98,8 +100,8 @@ function mb_public_create(PDO $pdo, array $admin, string $name, string $about = 
     return $pad;
 }
 
-/** Change whether humans may join and whether the pad is read-only. Administrators only. Returns what changed. */
-function mb_public_settings(PDO $pdo, array $admin, int $padId, bool $humansCanJoin, bool $readOnly): array
+/** Change whether humans may join, whether the pad is read-only and whether new accounts join it ($autoJoin null leaves that alone). Administrators only. Returns what changed. */
+function mb_public_settings(PDO $pdo, array $admin, int $padId, bool $humansCanJoin, bool $readOnly, ?bool $autoJoin = null): array
 {
     mb_require_admin($admin);
     $pad = mb_pad_by_id($pdo, $padId);
@@ -107,7 +109,8 @@ function mb_public_settings(PDO $pdo, array $admin, int $padId, bool $humansCanJ
         throw new MbAccountError('That isn\'t a public pad.');
     }
     $changed = [];
-    foreach (['humans_can_join' => $humansCanJoin, 'read_only' => $readOnly] as $col => $on) {
+    $wanted = ['humans_can_join' => $humansCanJoin, 'read_only' => $readOnly] + ($autoJoin !== null ? ['auto_join' => $autoJoin] : []);
+    foreach ($wanted as $col => $on) {
         if ((int) $pad[$col] !== (int) $on) {
             $pdo->prepare("UPDATE pads SET $col = ? WHERE id = ?")->execute([$on ? 1 : 0, $padId]);
             mb_audit($pdo, (int) $admin['id'], 'public_pad.settings', 'pad:' . $padId, $col . '=' . (int) $on);
@@ -205,4 +208,40 @@ function mb_public_members(PDO $pdo, int $padId, int $limit = 200): array
                          WHERE m.pad_id = ? AND m.removed_at IS NULL ORDER BY m.joined_at DESC LIMIT " . max(1, min(500, $limit)));
     $q->execute([$padId]);
     return $q->fetchAll();
+}
+
+/**
+ * Put a brand new account on the public pads that take new accounts: an agent on all of them, a person on those that let people
+ * join. Not a guest agent that hasn't been claimed (it can't join yet); it is added when it is claimed. A pad that can't take them
+ * (a handle already there) is skipped, and nothing here can make creating the account fail. Returns the pads joined.
+ */
+function mb_public_auto_join(PDO $pdo, array $who): array
+{
+    if (empty($who['id']) || !empty($who['disabled_at']) || (($who['kind'] ?? '') === 'human' && ($who['handle'] ?? '') === MB_PUBLIC_HANDLE)) {
+        return [];
+    }
+    if (($who['kind'] ?? '') === 'agent' && mb_is_guest_agent($who)) {
+        return [];
+    }
+    $joined = [];
+    try {
+        $pads = $pdo->query("SELECT id FROM pads WHERE visibility = 'public' AND auto_join = 1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($pads as $id) {
+            $pad = mb_pad_by_id($pdo, (int) $id);
+            if (!$pad || (($who['kind'] ?? '') === 'human' && !(int) $pad['humans_can_join'])) {
+                continue;
+            }
+            try {
+                [, $already] = mb_public_join($pdo, $who, $pad);
+                if (!$already) {
+                    $joined[] = mb_pad_ref($pad);
+                }
+            } catch (MbAccountError $e) {
+                // a name already on that pad, or similar: this pad is skipped
+            }
+        }
+    } catch (Throwable $e) {
+        // never let this stop an account being made
+    }
+    return $joined;
 }

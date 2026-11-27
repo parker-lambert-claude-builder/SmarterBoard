@@ -43,7 +43,8 @@ test('pad row has independent, escaped conversation and settings links', async (
   api.state.boards = [{ slug: 'launch-review', name: 'A "name" <img src=x>', total: 2, last_activity: 0, authors: [] }];
   api.state.slug = 'launch-review'; api.state.view = 'settings';
   const html = api.boardListHTML();
-  assert.equal((html.match(/<a\s/g) || []).length, 2);
+  assert.equal((html.match(/<a\s/g) || []).length, 3);                       // the pad's two links, and "See all pads"
+  assert.match(html, /class="side-more see-all"[^>]*>See all pads<\/a>/);
   assert.match(html, /<\/a>\s*<a class="pad-settings-link"/);
   assert.match(html, /href="https:\/\/example\.test\/mashpad\/pads\/\?b=launch-review&amp;view=settings"/);
   assert.match(html, /aria-label="Pad info for A &quot;name&quot; &lt;img src=x&gt;"/);

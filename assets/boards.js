@@ -117,17 +117,25 @@ function padRowHTML(b, named) {
     </div>`;
 }
 
-function boardListHTML() {
+/* The left menu lists the five pads updated most recently, then "See all". The full list is the home page's. */
+const RAIL_PADS = 5;
+function boardListHTML(full = false) {
   // Pads owned by different people can share a name. Then, and only then, the name carries a short owner label.
   const named = {};
   for (const b of state.boards) { const k = String(b.name || b.slug).toLowerCase(); named[k] = (named[k] || 0) + 1; }
-  const own = state.boards.filter(b => !b.public), pub = state.boards.filter(b => b.public);
-  let html = own.length ? own.map(b => padRowHTML(b, named)).join('') : (pub.length && state.user ? '' : '<p class="side-empty">No pads yet.</p>');
+  const byRecent = (a, b) => (Number(b.last_activity) || 0) - (Number(a.last_activity) || 0);
+  const own = state.boards.filter(b => !b.public).sort(byRecent), pub = state.boards.filter(b => b.public).sort(byRecent);
+  let shown = full ? own : own.slice(0, RAIL_PADS);
+  if (!full) { const cur = own.find(b => keyOf(b) === state.slug); if (cur && !shown.includes(cur)) shown = shown.concat(cur); }   // the pad you are reading stays in view
+  let html = shown.length ? shown.map(b => padRowHTML(b, named)).join('') : (pub.length && state.user ? '' : '<p class="side-empty">No pads yet.</p>');
+  if (!full && own.length) {
+    html += `<a class="side-more see-all" href="${esc(PADS)}" data-nav="">${own.length > RAIL_PADS ? `See all ${own.length} pads` : 'See all pads'}</a>`;
+  }
   if (state.user) {
     // Public pads are their own group: up to five here, and the rest, and the ones not joined yet, on their own page.
     html += `<section class="public-pads" aria-labelledby="public-pads-h"><h2 class="side-title" id="public-pads-h">Your Public Pads</h2>`
-      + (pub.length ? pub.slice(0, 5).map(b => padRowHTML(b, named)).join('') : '<p class="side-empty">None joined yet.</p>')
-      + `<a class="side-more" href="${esc(PUBLIC_PADS_URL)}">${pub.length > 5 ? `All ${pub.length} public pads` : 'More public pads'}</a></section>`;
+      + (pub.length ? pub.slice(0, RAIL_PADS).map(b => padRowHTML(b, named)).join('') : '<p class="side-empty">None joined yet.</p>')
+      + `<a class="side-more" href="${esc(PUBLIC_PADS_URL)}">${pub.length > RAIL_PADS ? `All ${pub.length} public pads` : 'More public pads'}</a></section>`;
   }
   return html || '<p class="side-empty">No pads yet.</p>';
 }
@@ -137,12 +145,15 @@ function gearIcon() {
 }
 
 function refreshPadNavigation() {
-  const html = boardListHTML();
-  document.querySelectorAll('#board-nav, .mobile-boards').forEach(nav => {
-    // Polling must not remove a focused link or interrupt a pointer click.
-    if (nav.contains(document.activeElement) || nav.matches(':hover')) return;
-    if (nav.innerHTML !== html) nav.innerHTML = html;
-  });
+  // The left menu is the short list; the home page's list is every pad.
+  const lists = [['#board-nav', boardListHTML()], ['.mobile-boards', boardListHTML(true)]];
+  for (const [sel, html] of lists) {
+    document.querySelectorAll(sel).forEach(nav => {
+      // Polling must not remove a focused link or interrupt a pointer click.
+      if (nav.contains(document.activeElement) || nav.matches(':hover')) return;
+      if (nav.innerHTML !== html) nav.innerHTML = html;
+    });
+  }
 }
 
 async function loadBoards() {
@@ -163,7 +174,8 @@ function showHome() {
     <div class="inner home">
       <h1>Your pads</h1>
       <div id="home-blocks">${homeBlocksHTML()}</div>
-      <nav class="mobile-boards" aria-label="Pads">${boardListHTML()}</nav>
+      <h2 class="all-pads-h" id="all-pads">All your pads</h2>
+      <nav class="mobile-boards" aria-label="All your pads">${boardListHTML(true)}</nav>
 
       <details class="agent-setup">
       <summary>Connect an AI agent</summary>

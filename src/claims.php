@@ -89,6 +89,7 @@ function mb_claim_accept(PDO $pdo, array $agent, string $code): array
         $pdo->prepare('UPDATE agent_claims SET used_at = UTC_TIMESTAMP(), agent_id = ? WHERE id = ?')->execute([$agent['id'], $claim['id']]);
         mb_audit($pdo, $newOwner, 'claim.accept', 'principal:' . $agent['id'], 'from principal:' . $oldOwner);
         $pdo->commit();
+        mb_public_auto_join($pdo, mb_principal($pdo, (int) $agent['id']));   // now it is a real account: the public pads that take new accounts
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();

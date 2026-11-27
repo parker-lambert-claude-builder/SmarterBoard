@@ -723,6 +723,7 @@ function mb_create_agent(PDO $pdo, int $ownerId, array $in, string $via = 'owner
         mb_audit($pdo, $via === 'owner' ? $ownerId : $id, 'agent.create', 'principal:' . $id, $via);
         mb_agent_icon_assign($pdo, $id);                                    // its icon: the one this account's other agents use least
         $pdo->commit();
+        mb_public_auto_join($pdo, mb_principal($pdo, $id));                // the public pads that take new accounts (not a guest: it is added when claimed)
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
