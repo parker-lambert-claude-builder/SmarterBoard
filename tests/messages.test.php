@@ -80,6 +80,8 @@ check('since_id returns only what is newer, and an unknown agent is refused', co
 $e = err(fn () => mb_message_send($pdo, $A($muse), 'sams-agent', 'Hi'));
 check('another person\'s agent can\'t be messaged, and is not even named', str_contains($e, 'there is no agent @sams-agent among your person\'s agents') && str_contains($e, 'The agents you can message: @qa-bot, @third-one.') && !str_contains($e, 'stranger'), $e);
 check('nor an agent still waiting to be claimed, nor one that has been removed, nor yourself', str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'stranger', 'Hi')), 'no agent @stranger') && ($removed = $agent($dylanId, 'gone-soon')) && (mb_delete_agent($pdo, $dylanId, $removed) || true) && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'gone-soon', 'Hi')), 'no agent @gone-soon') && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'muse', 'Hi')), 'that is you'));
+$rows = array_column(mb_agents_of($pdo, $dylanId), null, 'handle');
+check('the list of a person\'s agents says which are guests that have not been claimed, so Your agents can show the claim line and no form', mb_is_guest_agent($rows['stranger']) === true && mb_is_guest_agent($rows['muse']) === false && mb_is_guest_agent($rows['qa-bot']) === false);
 check('an agent that is its person\'s only one is told so', ($only = $agent($samId, 'lonely')) === ($only) && ($pdo->exec("UPDATE principals SET disabled_at = UTC_TIMESTAMP() WHERE id = $stranger") || true) && ($allow($only, ['msg']) || true) && str_contains(err(fn () => mb_message_send($pdo, $A($only), 'anyone', 'Hi')), 'You are their only agent.'));
 check('a message must have something in it and not be too long, and says so in plain words', str_contains($e1 = err(fn () => mb_message_send($pdo, $A($muse), 'qa-bot', '   ')), 'Not sent: Message is empty. Your text was not saved.') && str_contains($e2 = err(fn () => mb_message_send($pdo, $A($muse), 'qa-bot', str_repeat('x', 200000))), 'Message is too long') && str_contains($e2, 'Split it into several messages.') && $cnt('SELECT COUNT(*) FROM agent_messages WHERE body = \'\'') === 0, $e1 . ' | ' . $e2);
 check('the person sees every message between their agents, newest first, and nobody else sees any', array_column(mb_messages_for_owner($pdo, $dylanId), 'body') === ['Thanks, looking now.', "The plan is in dylan/launch.\nPlease look at it."] && mb_messages_for_owner($pdo, $samId) === [] && count(mb_messages_for_owner($pdo, $dylanId, 1)) === 1 && count(mb_messages_for_owner($pdo, $dylanId, 50, (int) mb_messages_for_owner($pdo, $dylanId)[0]['id'])) === 1);
@@ -129,6 +131,19 @@ mb_wake_set_paused($pdo, $qa, $dylanId, false); $clear(); $pdo->exec("UPDATE pla
 $pdo->exec("INSERT INTO wake_log (agent_id, reason, status) VALUES ($qa, 'person', 'sent')"); mb_message_send($pdo, $A($muse), 'qa-bot', 'over the daily wake limit');
 check('the daily wake limit applies, and the message is still delivered', $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $qa AND reason = 'message' AND status <> 'skipped'") === 0 && mb_messages_unread($pdo, $qa) === 1);
 $pdo->exec("UPDATE plans SET max_wakes_per_day = 20 WHERE code = 'free'"); $pdo->exec('DELETE FROM wake_log');
+
+// ---- the daily wake limit for a message is the recipient's owner's, not the Free plan's by default
+$clear(); $pdo->exec("UPDATE principals SET plan_code = 'plus' WHERE id = $dylanId");
+for ($i = 0; $i < 25; $i++) { $pdo->exec("INSERT INTO wake_log (agent_id, reason, status) VALUES ($qa, 'person', 'sent')"); }
+set_error_handler(function ($n, $s) { throw new ErrorException($s); });
+try { mb_message_send($pdo, $A($muse), 'qa-bot', 'a wake on a plan with a bigger limit'); $warned = false; } catch (ErrorException $ex) { $warned = $ex->getMessage(); }
+restore_error_handler();
+check('on Plus, with 25 wake-ups used today and a limit of 200, a message does wake the recipient, and nothing warns', $warned === false && $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $qa AND reason = 'message' AND status = 'pending'") === 1, (string) $warned);
+$clear(); $pdo->exec("UPDATE principals SET plan_code = 'free' WHERE id = $dylanId");
+for ($i = 0; $i < 25; $i++) { $pdo->exec("INSERT INTO wake_log (agent_id, reason, status) VALUES ($qa, 'person', 'sent')"); }
+mb_message_send($pdo, $A($muse), 'qa-bot', 'the same on Free');
+check('on Free, the same 25 is over the limit of 20, so it does not, and the message is still delivered', $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $qa AND reason = 'message' AND status = 'pending'") === 0 && mb_messages_unread($pdo, $qa) === 1);
+$clear();
 
 // ---- finding and joining the person's own pads
 $secret = mb_create_pad($pdo, $dylan, 'Secret Plans'); mb_create_pad($pdo, $dylan, 'Budget Review'); $sam = mb_principal($pdo, $samId); mb_create_pad($pdo, $sam, 'Sams Pad');

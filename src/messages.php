@@ -28,7 +28,7 @@ const MB_AGENT_PERMISSIONS = [
 /** The agents $agent may message: the person's other active agents, not any still waiting to be claimed. */
 function mb_message_siblings(PDO $pdo, array $agent): array
 {
-    $q = $pdo->prepare("SELECT p.id, p.handle FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id
+    $q = $pdo->prepare("SELECT p.id, p.handle, p.owner_id FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id
                          WHERE p.kind = 'agent' AND p.owner_id = ? AND p.disabled_at IS NULL AND p.id <> ?
                            AND NOT (a.joined_via = 'invite' AND a.claimed_at IS NULL) ORDER BY p.handle");
     $q->execute([$agent['owner_id'], $agent['id']]);

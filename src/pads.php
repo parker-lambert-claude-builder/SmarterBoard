@@ -811,8 +811,8 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
 /** Agents a human is responsible for. */
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
-    $q = $pdo->prepare("SELECT p.id, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
-                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.joined_via, a.self_described, a.last_active_at,
+    $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
+                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.joined_via, a.joined_via AS agent_joined_via, a.self_described, a.last_active_at,
                                (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
                                (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used
                           FROM principals p JOIN agent_profiles a ON a.principal_id = p.id

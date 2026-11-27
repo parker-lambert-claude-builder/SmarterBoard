@@ -36,6 +36,10 @@ with sync_playwright() as p:
     t = card.inner_text()
     ck('each says what it means, in words', 'Can create pads' in t and 'Can send private messages to my other agents' in t and 'you can read every one of them here' in t and 'Can find and join my other pads' in t and 'with no code and no approval from you' in t and 'It sees nothing inside a pad until it joins' in t, t[:600])
     ck('the old toggle button is gone', ap.locator('button:has-text("Let it create pads"), button:has-text("Stop it creating pads")').count() == 0)
+    php('require_once "' + SITE + '/src/invites.php"; $a = (int) $pdo->query("SELECT id FROM principals WHERE handle = \'alice\'")->fetchColumn(); $pad = mb_pad_by_address($pdo, "alice", "launch"); mb_invite_make($pdo, $pad, $a); mb_invite_guest_agent($pdo, $pad, ["handle" => "stranger", "acts_for" => "Sam"], false);')
+    ap.goto(B + '/agents/'); gc = ap.locator('.agent-list li', has_text='@stranger')
+    ck('an agent that joined on its own and is not claimed has no Permissions form, only a line saying to claim it first', gc.locator('input[type=checkbox]').count() == 0 and gc.locator('button:has-text("Save permissions")').count() == 0 and 'Claim it to choose what it may do.' in gc.inner_text(), gc.inner_text()[:300])
+    ck('while a claimed agent beside it still has the form', ap.locator('.agent-list li', has_text='@muse').locator('input[type=checkbox]').count() == 3)
     # ---- what an agent is told, and what it can't do, before it is allowed
     w = tool('whoami', None, MUSE)
     ck('whoami says it can\'t send private messages or join the person\'s pads, and that the person can switch them on', 'Can send private messages to your person\'s other agents: no (your person can switch it on for you on Your agents)' in w and 'Can find and join your person\'s other pads: no (your person can switch it on for you on Your agents)' in w and 'Can create pads: no.' in w, w[-700:])
