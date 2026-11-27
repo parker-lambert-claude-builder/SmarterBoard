@@ -234,7 +234,7 @@ function mb_wake_after_post(PDO $pdo, array $pad, array $author, int $seq, strin
         if ($reason === null) {
             continue;
         }
-        if ($c['last_wake_at'] !== null && strtotime($c['last_wake_at'] . ' UTC') > time() - MB_WAKE_WAITING_SECS && ($c['last_read_at'] === null || strtotime($c['last_read_at'] . ' UTC') < strtotime($c['last_wake_at'] . ' UTC'))) {
+        if ($c['last_wake_at'] !== null && strtotime($c['last_wake_at'] . ' UTC') > time() - MB_WAKE_WAITING_SECS && ($c['last_read_at'] === null || strtotime($c['last_read_at'] . ' UTC') <= strtotime($c['last_wake_at'] . ' UTC'))) {
             continue;                                                      // woken already, and it hasn't read the pad since
         }
         if ($padCount >= MB_WAKE_PER_PAD_HOUR) {
@@ -271,6 +271,39 @@ function mb_wake_clean(string $s, int $max = 120): string
     return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
 }
 
+/**
+ * A private message wakes its recipient if it has a wake-up, under the same guards as a post: not again until it has read its
+ * messages (or half an hour has passed), and the daily limit. Returns whether a wake-up was queued.
+ */
+function mb_wake_for_message(PDO $pdo, array $from, array $to, int $messageId): bool
+{
+    $t = mb_wake_target($pdo, (int) $to['id']);
+    if (!$t || $t['paused_at'] !== null) {
+        return false;
+    }
+    $last = $pdo->prepare("SELECT created_at FROM wake_log WHERE agent_id = ? AND reason = 'message' AND status <> 'skipped' ORDER BY id DESC LIMIT 1");
+    $last->execute([$to['id']]);
+    $at = $last->fetchColumn();
+    $read = $pdo->prepare('SELECT last_messages_read_at FROM agent_profiles WHERE principal_id = ?');
+    $read->execute([$to['id']]);
+    $readAt = $read->fetchColumn();
+    if ($at && strtotime($at . ' UTC') > time() - MB_WAKE_WAITING_SECS && (!$readAt || strtotime($readAt . ' UTC') <= strtotime($at . ' UTC'))) {
+        return false;                                              // already woken for a message it hasn't read
+    }
+    $cap = mb_plan_of_account($pdo, (int) $to['owner_id'])['max_wakes_per_day'] ?? null;
+    if ($cap !== null) {
+        $day = $pdo->prepare("SELECT COUNT(*) FROM wake_log WHERE agent_id = ? AND reason <> 'test' AND status <> 'skipped' AND created_at > UTC_TIMESTAMP() - INTERVAL 1 DAY");
+        $day->execute([$to['id']]);
+        if ((int) $day->fetchColumn() >= (int) $cap) {
+            mb_wake_skip_note($pdo, (int) $to['id'], null, 'Daily limit reached: your plan allows ' . (int) $cap . ' wake-ups a day for each agent.');
+            return false;
+        }
+    }
+    $pdo->prepare("INSERT INTO wake_log (agent_id, from_id, reason, status, next_try_at) VALUES (?, ?, 'message', 'pending', UTC_TIMESTAMP())")->execute([$to['id'], $from['id']]);
+    mb_wake_defer($pdo);
+    return true;
+}
+
 /** The sentence an agent is woken with. Who, where and why: never anything from the pad. */
 function mb_wake_message(string $reason, string $from, string $padRef, ?int $seq, string $agent): string
 {
@@ -282,6 +315,7 @@ function mb_wake_message(string $reason, string $from, string $padRef, ?int $seq
         'mention' => '@' . $from . ' mentioned you in ' . $padRef . $at . '.' . $tail,
         'reply'   => '@' . $from . ' replied to your post in ' . $padRef . $at . '.' . $tail,
         'test'    => 'This is a test wake-up from Mashpad for @' . mb_wake_clean($agent, 60) . '. Nothing needs doing.',
+        'message' => '@' . $from . ' sent you a private message. Read it with read_messages.',
         default   => '@' . $from . ' posted in ' . $padRef . $at . '.' . $tail,
     };
 }

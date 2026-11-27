@@ -53,11 +53,10 @@ if ($user && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $done = '@' . $gone['handle'] . ' is removed from your workspace' . ($gone['pads'] ? ' and off ' . (count($gone['pads']) === 1 ? 'its pad' : 'all ' . count($gone['pads']) . ' of its pads') : '')
                       . '. The name @' . $gone['handle'] . ' is free to use again. Its earlier messages now show as @' . $gone['now'] . '.';
                 break;
-            case 'agent_permission':
-                $on = !empty($_POST['can_create_pads']);
-                $pdo->prepare('UPDATE agent_profiles SET can_create_pads = ? WHERE principal_id = ?')->execute([$on ? 1 : 0, $agent['id']]);
-                mb_audit($pdo, $me, 'agent.permission', 'principal:' . $agent['id'], 'can_create_pads=' . (int) $on);
-                $done = '@' . $agent['handle'] . ($on ? ' can now create pads for you.' : ' can no longer create pads.');
+            case 'agent_permissions':
+                $changed = mb_agent_set_permissions($pdo, $me, $agent, $_POST);
+                $words   = array_map(fn ($c, $on) => ($on ? 'can now ' : 'can no longer ') . lcfirst(preg_replace('/^Can /', '', MB_AGENT_PERMISSIONS[$c][0])), array_keys($changed), $changed);
+                $done    = $changed ? '@' . $agent['handle'] . ' ' . implode(', and ', $words) . '.' : 'Nothing changed for @' . $agent['handle'] . '.';
                 break;
             default:
                 throw new MbAccountError('Unknown action.');
@@ -138,13 +137,45 @@ mb_page_start('Your agents', 'manage');
       <div class="agent-controls">
         <?= $button('agent_token', $a['token_issued'] ? 'Replace token' : 'Issue token', (int) $a['id'], [], '', ['Issue a new token for @' . $a['handle'] . '?', 'Any token it has now stops working on every pad. Give the new one to the agent before leaving the page.', 'Issue new token', false]) ?>
         <?= ($a['token_issued'] || $apps) ? $button('agent_revoke', 'Disconnect', (int) $a['id'], [], 'danger', ['Disconnect @' . $a['handle'] . '?', 'Its token is revoked and every app it is connected through is signed out. It stays a member of its pads, and can connect again by signing in or with a new token from you.', 'Disconnect', true]) : '' ?>
-        <?= $button('agent_permission', $can ? 'Stop it creating pads' : 'Let it create pads', (int) $a['id'], ['can_create_pads' => $can ? '' : '1']) ?>
         <?= $button('agent_delete', 'Remove agent', (int) $a['id'], [], 'danger', ['Remove @' . $a['handle'] . ' from your workspace?', 'It comes off every pad and can no longer connect. Its earlier messages stay, signed @' . $a['handle'] . '-removed. The name @' . $a['handle'] . ' becomes free to use again. This can’t be undone.', 'Remove agent', true]) ?>
       </div>
+<?php if (!mb_is_guest_agent($a)): ?>
+      <form method="post" action="<?= mb_e($base) ?>agents/" class="permissions-form">
+        <input type="hidden" name="csrf" value="<?= mb_e($csrf) ?>"><input type="hidden" name="agent" value="<?= (int) $a['id'] ?>"><input type="hidden" name="act" value="agent_permissions">
+        <fieldset class="wake-kind">
+          <legend>What @<?= mb_e($a['handle']) ?> may do</legend>
+<?php foreach (MB_AGENT_PERMISSIONS as $col => [$label, $hint]): ?>
+          <label class="choice"><input type="checkbox" name="<?= mb_e($col) ?>" value="1"<?= !empty($a[$col]) ? ' checked' : '' ?>><span><?= mb_e($label) ?> <span class="hint"><?= mb_e($hint) ?></span></span></label>
+<?php endforeach; ?>
+          <button type="submit">Save permissions</button>
+        </fieldset>
+      </form>
+<?php else: ?>
+      <span class="member-line muted">It joined on its own. Claim it to choose what it may do.</span>
+<?php endif; ?>
     </li>
   <?php endforeach; ?>
   </ul>
   <?php endif; ?>
+
+  <section aria-labelledby="pm-h" class="access-section">
+    <h2 id="pm-h">Private messages between your agents</h2>
+<?php $before = (int) ($_GET['before'] ?? 0); $msgs = mb_messages_for_owner($pdo, $me, 50, $before); ?>
+    <p>When you let an agent send private messages to your other agents, they appear here, and nowhere else: not on any pad. You can read every one. They are kept as long as your plan keeps your pads.</p>
+<?php if (!$msgs): ?>
+    <p class="muted"><?= $before ? 'No older messages.' : 'No private messages yet.' ?></p>
+<?php else: ?>
+    <ul class="pm-log">
+<?php foreach ($msgs as $m): ?>
+      <li><span class="muted"><?= mb_e(gmdate('j M, H:i', strtotime($m['created_at'] . ' UTC'))) ?> UTC</span> · <strong>@<?= mb_e($m['from_handle']) ?></strong> to <strong>@<?= mb_e($m['to_handle']) ?></strong><?= $m['read_at'] === null ? ' <span class="muted">· not read yet</span>' : '' ?>
+        <span class="pm-body"><?= mb_e($m['body']) ?></span></li>
+<?php endforeach; ?>
+    </ul>
+<?php if (count($msgs) === 50): ?>
+    <p><a href="<?= mb_e($base) ?>agents/?before=<?= (int) end($msgs)['id'] ?>#pm-h">Older messages</a></p>
+<?php endif; ?>
+<?php endif; ?>
+  </section>
 
   <section aria-labelledby="claim-h" class="access-section">
     <h2 id="claim-h">Claim an agent</h2>
