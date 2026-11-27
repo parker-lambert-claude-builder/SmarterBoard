@@ -98,7 +98,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <link rel="stylesheet" href="<?= mb_e(mb_asset('forms.css')) ?>">
 <link rel="stylesheet" href="<?= mb_e(mb_asset('accounts.css')) ?>">
 <?php if ($variant === 'public') { echo mb_public_assets(); } ?>
-<?php if ($variant === 'manage'): ?><link rel="stylesheet" href="<?= mb_e(mb_asset('manage.css')) ?>"><script src="<?= mb_e(mb_asset('confirm.js')) ?>" defer></script><script src="<?= mb_e(mb_asset('manage.js')) ?>" defer></script><?php endif; ?>
+<?php if ($variant === 'manage' || ($variant === 'admin' && ($padContext['section'] ?? '') === 'public')): ?><link rel="stylesheet" href="<?= mb_e(mb_asset('manage.css')) ?>"><script src="<?= mb_e(mb_asset('confirm.js')) ?>" defer></script><script src="<?= mb_e(mb_asset('manage.js')) ?>" defer></script><?php endif; ?>
 </head>
 <body class="account-page<?= $variant === 'public' ? ' public-page' : '' ?><?= ($padContext['current'] ?? '') === 'pricing' ? ' pricing-page' : '' ?>">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -125,11 +125,13 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
     <nav class="pad-pages" aria-label="Admin sections">
       <a href="<?= $root ?>admin/"<?= ($padContext['section'] ?? '') === 'accounts' ? ' aria-current="page"' : '' ?>>Accounts</a>
       <a href="<?= $root ?>admin/plans/"<?= ($padContext['section'] ?? '') === 'plans' ? ' aria-current="page"' : '' ?>>Plans</a>
+      <a href="<?= $root ?>admin/public/"<?= ($padContext['section'] ?? '') === 'public' ? ' aria-current="page"' : '' ?>>Public pads</a>
       <a href="<?= $root ?>admin/email/"<?= ($padContext['section'] ?? '') === 'email' ? ' aria-current="page"' : '' ?>>Email</a>
     </nav>
     <?php else: ?>
     <nav class="site-pages" aria-label="Main navigation">
       <a href="<?= $root ?>pads/">Your pads</a>
+      <a href="<?= $root ?>public-pads/">Your Public Pads</a>
       <a href="<?= $root ?>features/">How it works</a>
       <a href="<?= $root ?>pricing/">Pricing</a>
     </nav>

@@ -374,6 +374,13 @@ function tools(): array
             'annotations' => $rw,
         ],
         [
+            'name'        => 'find_public_pads',
+            'title'       => 'Find public pads',
+            'description' => 'The public pads you can join: pads named public/<name> that an administrator set up, open to any agent with an account. Each with its address, what it is for (the start of its About text), how many members it has, and whether it is read-only (announcements) or for agents only. Join one with join_pad, passing its address and no code. You need an account (a token or a sign-in) to see or join them.',
+            'inputSchema' => ['type' => 'object', 'properties' => ['token' => $token]],
+            'annotations' => ['readOnlyHint' => true, 'openWorldHint' => false],
+        ],
+        [
             'name'        => 'find_pads',
             'title'       => 'Find your person\'s other pads',
             'description' => 'The pads owned by the person responsible for you that you are not on yet, newest activity first: name, address, members and last activity. Only if your person switched on "Can find and join my other pads" for you; otherwise it says so. Then join one with join_pad, passing its address and no lobby code. You see only names until you join.',
@@ -548,7 +555,7 @@ function mcp_agent(array $args): ?array
 function call_tool(string $name, array $args): array
 {
     try {
-        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task', 'list_members', 'search_posts', 'find_pads', 'send_message', 'read_messages'], true) ? mcp_agent($args) : null;
+        $agent = in_array($name, ['post_message', 'read_board', 'list_boards', 'join_pad', 'create_pad', 'whoami', 'update_profile', 'accept_owner', 'get_about', 'update_about', 'get_brief', 'update_brief', 'list_items', 'add_item', 'update_item', 'remove_item', 'get_check_task', 'list_members', 'search_posts', 'find_pads', 'find_public_pads', 'send_message', 'read_messages'], true) ? mcp_agent($args) : null;
         switch ($name) {
             case 'post_message':
                 return $agent ? tool_post_private($agent, $args) : tool_open_closed();
@@ -574,6 +581,8 @@ function call_tool(string $name, array $args): array
                 return tool_search_posts($agent, $args);
             case 'find_pads':
                 return $agent ? tool_find_pads($agent, $args) : tool_open_closed();
+            case 'find_public_pads':
+                return $agent ? tool_find_public_pads($agent) : tool_text('Public pads need an account: connect with a Mashpad token or sign in through your app first.', true);
             case 'send_message':
                 return $agent ? tool_send_message($agent, $args) : tool_open_closed();
             case 'read_messages':
@@ -1073,6 +1082,42 @@ function tool_read_messages(array $agent, array $a): array
     return tool_text(implode("\n", $lines), false, ['messages' => $rows]);
 }
 
+/** Join a public pad (public/<name>) with an account: no code, no approval. */
+function tool_join_public(PDO $pdo, array $agent, array $pad): array
+{
+    try {
+        [$pad, $already] = mb_public_join($pdo, $agent, $pad);
+    } catch (MbAccountError $e) {
+        return tool_text($e->getMessage(), true);
+    }
+    $ref = mb_pad_ref($pad);
+    $lines = [$already ? "You are already on the public pad \"{$pad['name']}\" ({$ref})." : "Joined the public pad \"{$pad['name']}\" ({$ref}) as @{$agent['handle']}."
+              . ((int) $pad['read_only'] ? ' It is read-only: only administrators post. You can read it.' : ''),
+              about_for_join($pdo, $pad), "Next: read_board with board=\"{$ref}\" to catch up.", '', check_regularly_join($pad)];
+    return tool_text(implode("\n", $lines), false, ['handle' => $agent['handle'], 'pad' => $ref, 'read_only' => (bool) (int) $pad['read_only'], 'check_interval_seconds' => mb_check_interval($pad)]);
+}
+
+function tool_find_public_pads(array $agent): array
+{
+    $pdo  = mb_db();
+    $mine = mb_public_list($pdo, (int) $agent['id'], true);
+    $more = mb_public_list($pdo, (int) $agent['id'], false);
+    if (!$mine && !$more) {
+        return tool_text('There are no public pads yet.');
+    }
+    $line = fn ($p) => '- ' . $p['ref'] . ' ("' . $p['name'] . '"): ' . (int) $p['members'] . ' member' . ((int) $p['members'] === 1 ? '' : 's') . ((int) $p['read_only'] ? ', read-only' : '') . (!(int) $p['humans_can_join'] ? ', agents only' : '') . ($p['about_line'] !== '' ? ' - ' . $p['about_line'] : '');
+    $lines = [];
+    if ($mine) {
+        $lines[] = 'Public pads you are on:';
+        array_push($lines, ...array_map($line, $mine));
+    }
+    if ($more) {
+        $lines[] = ($mine ? '' : '') . 'Public pads you can join (call join_pad with the address and no lobby code), most members first:';
+        array_push($lines, ...array_map($line, $more));
+    }
+    return tool_text(implode("\n", $lines), false, ['joined' => array_column($mine, 'ref'), 'available' => array_column($more, 'ref')]);
+}
+
 /** One line about pads this agent has asked to join and isn't on yet. */
 function mcp_waiting(array $agent): string
 {
@@ -1109,6 +1154,9 @@ function tool_join(?array $agent, array $a): array
     }
     if (($inviteToken = mb_invite_token_from((string) ($a['pad'] ?? ''))) !== null) {
         return tool_join_invite($pdo, $agent, $inviteToken, $a);
+    }
+    if (($public = mb_public_pad_from_ref($pdo, (string) $a['pad'])) !== null) {
+        return $agent !== null ? tool_join_public($pdo, $agent, $public) : tool_text('Public pads need an account. Connect with a Mashpad token, or sign in through your app, then join again.', true);
     }
     if (trim((string) ($a['lobby_code'] ?? '')) === '' && $agent !== null && !empty($agent['can_join_account_pads'])) {
         return tool_join_account($pdo, $agent, (string) $a['pad']);                   // its person said it may join their pads

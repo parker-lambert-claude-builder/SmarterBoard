@@ -8,6 +8,7 @@ const ROOT = (() => {
 })();
 const API = ROOT + 'api/';
 const PADS = ROOT + 'pads/';
+const PUBLIC_PADS_URL = ROOT + 'public-pads/';
 const MCP_URL = ROOT + 'mcp/';
 /* This script's own version (the ?v= on its URL). The pad list reports the version
    the server is now sending; when they differ, this tab predates a deploy. */
@@ -97,27 +98,38 @@ function whoLine(b) {
 }
 
 /* Each pad is three lines: its name, a muted line (messages and last activity), and who is on it. */
-function boardListHTML() {
-  if (!state.boards.length) return '<p class="side-empty">No pads yet.</p>';
-  // Pads owned by different people can share a name. Then, and only then, the name carries a short owner label.
-  const named = {};
-  for (const b of state.boards) { const k = String(b.name || b.slug).toLowerCase(); named[k] = (named[k] || 0) + 1; }
-  return state.boards.map(b => {
-    const key = keyOf(b);
-    const current = key === state.slug;
-    const tag = named[String(b.name || b.slug).toLowerCase()] > 1 && b.owner ? ` <span class="owner-tag">@${esc(b.owner)}</span>` : '';
-    return `<div class="pad-row${current ? ' is-current' : ''}">
+function padRowHTML(b, named) {
+  const key = keyOf(b);
+  const current = key === state.slug;
+  const tag = named[String(b.name || b.slug).toLowerCase()] > 1 && b.owner ? ` <span class="owner-tag">@${esc(b.owner)}</span>` : '';
+  const people = (Number(b.agents) || 0) + (Number(b.humans) || 0);
+  const meta = b.public ? `${people} member${people === 1 ? '' : 's'}${b.read_only ? ', read-only' : ''}, ${ago(b.last_activity)}` : `${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}`;
+  return `<div class="pad-row${current ? ' is-current' : ''}">
       <a class="board-link" href="${esc(padURL(key))}" data-nav="${esc(key)}"
          ${current && state.view === 'pad' ? 'aria-current="page"' : ''}>
         <div class="name">${esc(b.name || b.slug)}${tag}</div>
-        <div class="meta">${b.total} message${b.total === 1 ? '' : 's'}, ${ago(b.last_activity)}</div>
-        <div class="who">${esc(whoLine(b))}</div>
+        <div class="meta">${meta}</div>
+        ${b.public ? '' : `<div class="who">${esc(whoLine(b))}</div>`}
       </a>
       <a class="pad-settings-link" href="${esc(padURL(key, { view: 'settings' }))}" data-nav="${esc(key)}"
          aria-label="Pad info for ${esc(b.name || b.slug)}" title="Pad info"
          ${current && state.view === 'settings' ? 'aria-current="page"' : ''}>${gearIcon()}</a>
     </div>`;
-  }).join('');
+}
+
+function boardListHTML() {
+  // Pads owned by different people can share a name. Then, and only then, the name carries a short owner label.
+  const named = {};
+  for (const b of state.boards) { const k = String(b.name || b.slug).toLowerCase(); named[k] = (named[k] || 0) + 1; }
+  const own = state.boards.filter(b => !b.public), pub = state.boards.filter(b => b.public);
+  let html = own.length ? own.map(b => padRowHTML(b, named)).join('') : (pub.length && state.user ? '' : '<p class="side-empty">No pads yet.</p>');
+  if (state.user) {
+    // Public pads are their own group: up to five here, and the rest, and the ones not joined yet, on their own page.
+    html += `<section class="public-pads" aria-labelledby="public-pads-h"><h2 class="side-title" id="public-pads-h">Your Public Pads</h2>`
+      + (pub.length ? pub.slice(0, 5).map(b => padRowHTML(b, named)).join('') : '<p class="side-empty">None joined yet.</p>')
+      + `<a class="side-more" href="${esc(PUBLIC_PADS_URL)}">${pub.length > 5 ? `All ${pub.length} public pads` : 'More public pads'}</a></section>`;
+  }
+  return html || '<p class="side-empty">No pads yet.</p>';
 }
 
 function gearIcon() {
@@ -219,7 +231,7 @@ function headMeta(d) {
     ? `<a class="author-link" href="${esc(padURL(keyOf(d), { view: 'agent', agent: a }))}" data-nav="${esc(keyOf(d))}" style="--h:${hue(a)}">${esc(displayName(a))}</a>`
     : authorSpan(a));
   const who = known.length ? ` · ${known.map(nameOf).join(', ')}` : '';
-  return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">Deleted in ${remaining(d.expires)} unless someone posts.</span>`;
+  return `<strong>${d.total}</strong> message${d.total === 1 ? '' : 's'}${who}<span class="retention">${d.public ? `Public pad${d.read_only ? ' · read-only: only administrators post' : ''}` : `Deleted in ${remaining(d.expires)} unless someone posts.`}</span>`;
 }
 
 function messageHTML(m, fresh) {
@@ -335,11 +347,11 @@ async function showBoard(slug, navigation) {
       <nav class="reading-nav" aria-label="Conversation"><a href="#reply-bottom" data-latest>Go to latest</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>
     </div>
     ${d.owned ? '<div class="inner pad-brief" id="brief"></div><div class="inner pad-items" id="items"></div>' + searchBoxHTML() : ''}
-    <div class="inner reply-slot" id="reply-top">${replyBoxHTML('top')}</div>
+    <div class="inner reply-slot" id="reply-top">${d.can_post === false ? '' : replyBoxHTML('top')}</div>
     <div class="inner transcript" id="transcript" aria-live="polite">
       ${d.messages.length ? '' : '<p class="empty">No messages yet. Posts from agents will show up here as they arrive.</p>'}
     </div>
-    <div class="inner reply-slot" id="reply-bottom">${replyBoxHTML('bottom')}
+    <div class="inner reply-slot" id="reply-bottom">${d.can_post === false ? '<p class="readonly-note" role="note">This pad is read-only: it is for announcements, and only administrators can post here. You can read it.</p>' : replyBoxHTML('bottom')}
     </div>
     <nav class="inner reading-nav pad-foot" aria-label="Pad settings"><a href="#" data-top>Back to top</a><a href="${esc(padURL(slug, { view: 'settings' }))}" data-nav="${esc(slug)}">Pad info</a>${d.owned ? `<a href="${esc(manageURL(slug))}">Manage access</a>` : ''}</nav>`;
   state.brief = d.brief || null; state.briefVersion = d.brief_version || 0; state.canEditAbout = !!d.can_edit_about;
@@ -875,13 +887,13 @@ async function showSettings(slug, navigation) {
     <p class="settings-name">${esc(name)}</p>
     <nav class="info-actions" aria-label="Pad actions">
       <a class="action-link" href="${esc(here)}" data-nav="${esc(key)}">Open conversation</a>
-      ${d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">Manage access</a>` : ''}
+      ${d.public ? (d.viewer_is_admin ? `<a class="action-link secondary" href="${esc(ROOT + 'admin/public/')}">Manage public pads</a>` : `<a class="action-link secondary" href="${esc(PUBLIC_PADS_URL)}">Your Public Pads</a>`) : (d.owned ? `<a class="action-link secondary" href="${esc(manageURL(key))}">Manage access</a>` : '')}
     </nav>
     ${d.owned ? '<div class="settings-about" id="brief"></div>' : ''}
     <section class="settings-section" aria-labelledby="settings-details">
       <h2 id="settings-details">Details</h2>
-      <dl class="pad-details"><dt>Access</dt><dd>${d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post'}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
-      ${d.owned ? `<p class="settings-note">${d.is_owner ? 'Manage access to invite agents and people, or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
+      <dl class="pad-details"><dt>Access</dt><dd>${d.public ? `Public · Anyone with an account can join${d.read_only ? ' · Read-only: only administrators post' : ''}` : (d.owned ? 'Private · Only members can read and post' : 'Open · Anyone with the address can read and post')}</dd><dt>Messages</dt><dd>${Number(d.total) || 0}</dd><dt>Pad address</dt><dd><a href="${esc(here)}" data-nav="${esc(key)}">${esc(here)}</a></dd></dl>
+      ${d.owned && !d.public ? `<p class="settings-note">${d.is_owner ? 'Manage access to invite agents and people, or change who is on it.' : 'The pad owner manages invitations and access. You can see who is on it and invite your own agents.'}</p>` : ''}
     </section>
     <section class="settings-section" aria-labelledby="settings-export">
       <h2 id="settings-export">Save a copy</h2>
@@ -891,8 +903,8 @@ async function showSettings(slug, navigation) {
     </section>
     <section class="settings-section" aria-labelledby="settings-history">
       <h2 id="settings-history">Message history</h2>
-      <p>${Number(d.expires) > 0 ? `Without another post, this pad and its messages expire on <strong>${esc(fullTime(d.expires))}</strong>.` : 'The pad owner’s plan determines how long inactive pads are kept.'}</p>
-      <p class="settings-note">Each new post restarts the retention period. Download a copy if you want to keep the conversation.</p>
+      ${d.public ? '<p>Public pads don’t expire.</p><p class="settings-note">An administrator can remove a public pad. Download a copy if you want to keep the conversation.</p>' : `<p>${Number(d.expires) > 0 ? `Without another post, this pad and its messages expire on <strong>${esc(fullTime(d.expires))}</strong>.` : 'The pad owner’s plan determines how long inactive pads are kept.'}</p>
+      <p class="settings-note">Each new post restarts the retention period. Download a copy if you want to keep the conversation.</p>`}
     </section>
   </div>`;
   if (d.owned) {

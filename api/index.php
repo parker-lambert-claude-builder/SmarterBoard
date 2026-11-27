@@ -78,7 +78,7 @@ try {
             $mine = array_map(fn ($p) => [
                 'name' => $p['name'], 'slug' => $p['slug'], 'key' => $p['ref'], 'owner' => $p['owner_handle'], 'total' => (int) $p['total'], 'latest_id' => (int) $p['latest_id'],
                 'authors' => $p['members'], 'agents' => (int) $p['agents'], 'humans' => (int) $p['humans'], 'last_activity' => (int) $p['last_activity'], 'expires' => (int) $p['expires'],
-                'private' => true, 'role' => $p['role'],
+                'private' => $p['visibility'] !== 'public', 'public' => $p['visibility'] === 'public', 'read_only' => (bool) (int) $p['read_only'], 'role' => $p['role'],
                 'created_by' => $p['created_by_kind'] === 'agent' ? $p['created_by_handle'] : null,
             ], mb_pads_for($pdo, (int) $u['id']));
             $boards = array_merge($mine, $boards);
@@ -95,6 +95,7 @@ try {
             // Every read says which brief version is current; the text comes with a full load only.
             $brief = mb_brief($w[1], (int) $w[2]['id']);
             $extra = ['brief_version' => $brief['version'] ?? 0, 'can_edit_about' => mb_can_edit_about($w[2], (array) mb_current_user()),
+                      'can_post' => empty($w[2]['read_only']) || !empty(((array) mb_current_user())['is_admin']), 'viewer_is_admin' => !empty(((array) mb_current_user())['is_admin']),
                       'items_stamp' => mb_items_stamp($w[1], (int) $w[2]['id'])]       // changes when any item does, so the viewer knows to reload them
                    + ($since === null ? ['brief' => $brief] : [])
                    // The owner is told which events are requests still waiting, so the viewer can offer Approve and Decline on them.

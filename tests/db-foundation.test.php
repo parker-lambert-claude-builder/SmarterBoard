@@ -90,7 +90,7 @@ function fresh_admin(array $in): string {
 check('short password rejected', throws(fn () => fresh_admin(['password' => 'short', 'password2' => 'short']), 'at least 12'));
 check('bad handle rejected', throws(fn () => fresh_admin(['handle' => 'no spaces!']), 'Handles are'));
 check('bad email rejected', throws(fn () => fresh_admin(['email' => 'not-an-email']), 'valid email'));
-check('nothing created by rejected attempts', (int) $pdo->query('SELECT COUNT(*) FROM principals')->fetchColumn() === 0);
+check('nothing created by rejected attempts (the one account that owns public pads is made by the migration)', (int) $pdo->query("SELECT COUNT(*) FROM principals WHERE handle <> 'public'")->fetchColumn() === 0);
 
 $out = fresh_admin([]);
 check('admin created', str_starts_with($out, 'id='), $out);
