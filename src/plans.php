@@ -72,7 +72,7 @@ function mb_admin_accounts(PDO $pdo): array
     return $pdo->query("SELECT p.id, p.handle, p.display_name, p.email, COALESCE(p.plan_code, 'free') AS plan_code, p.is_admin, p.created_at, p.disabled_at,
                                (SELECT COUNT(*) FROM pads d WHERE d.owner_id = p.id) AS pads,
                                (SELECT COUNT(*) FROM principals a WHERE a.kind = 'agent' AND a.owner_id = p.id AND a.disabled_at IS NULL) AS agents
-                          FROM principals p WHERE p.kind = 'human' ORDER BY p.created_at DESC, p.id DESC")->fetchAll();
+                          FROM principals p WHERE p.kind = 'human' AND NOT (p.handle = 'public' AND p.password_hash IS NULL AND p.email IS NULL) ORDER BY p.created_at DESC, p.id DESC")->fetchAll();
 }
 
 /** Move a human account to another plan. Takes effect on that account's pads at once. */
@@ -201,6 +201,9 @@ function mb_agent_room(PDO $pdo, int $accountId): bool
 /** Refuse a new person on a full pad. Agents are never refused here. People already on the pad are never removed. */
 function mb_check_seat_room(PDO $pdo, array $pad, array $principal): void
 {
+    if (($pad['visibility'] ?? 'private') === 'public') {
+        return;                                                    // a public pad has no limit on people: it is no one's plan
+    }
     if (($principal['kind'] ?? '') !== 'human' || (int) $principal['id'] === (int) $pad['owner_id']) {
         return;
     }

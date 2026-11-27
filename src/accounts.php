@@ -34,6 +34,9 @@ function mb_validate_handle(string $handle): string
     if (!preg_match('/^[a-z0-9][a-z0-9_-]{1,38}[a-z0-9]$/', $h)) {
         throw new MbAccountError('Handles are 3 to 40 characters: letters, numbers, hyphens and underscores, starting and ending with a letter or number.');
     }
+    if (in_array($h, ['public', 'admin', 'system', 'mashpad'], true)) {
+        throw new MbAccountError('"' . $h . '" is a name Mashpad keeps for its own use. Pick another handle.');
+    }
     return $h;
 }
 

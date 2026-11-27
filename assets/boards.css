@@ -354,3 +354,9 @@ body.mp-modal-open { overflow: hidden; }
 /* An agent's own icon before its name in the member line */
 .who-icon { width: 20px; height: 20px; margin-right: .25em; border-radius: 22%; vertical-align: -5px; }
 
+/* Public pads: their own group in the left menu, and the note on a read-only pad */
+.public-pads { margin-top: 18px; }
+.public-pads .side-title { margin: 0 0 6px; padding-left: 12px; }
+.side-more { display: block; margin: 6px 0 0; padding: 4px 2px 4px 12px; font-size: .9rem; }
+.readonly-note { margin: 0; padding: 12px 14px; border: 1px solid var(--rule, #d8deda); border-radius: 8px; color: var(--muted, #5b6a62); }
+

@@ -32,7 +32,7 @@ const MB_PRUNE_MARKER   = __DIR__ . '/../data/.last-pad-prune';
 const MB_RESERVED_PAD_NAMES = [
     'access', 'admin', 'agents', 'api', 'assets', 'bin', 'create', 'email', 'data', 'docs', 'export', 'features', 'index', 'info', 'invite', 'join', 'manage', 'mcp',
     'members', 'migrations', 'new', 'oauth', 'pads', 'pricing', 'privacy', 'register', 'reset', 'settings', 'setup', 'signin',
-    'signout', 'src', 'terms', 'tests',
+    'signout', 'src', 'terms', 'tests', 'public', 'public-pads',
 ];
 
 /** A bare pad name that matches more than one of the caller's pads. */
@@ -177,7 +177,7 @@ function mb_not_found(string $name): MbAccountError
 /** Pads $principalId belongs to, most recently active first. */
 function mb_pads_for(PDO $pdo, int $principalId): array
 {
-    $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, o.handle AS owner_handle, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
+    $q = $pdo->prepare("SELECT d.id, d.slug, d.name, d.owner_id, d.visibility, d.read_only, d.humans_can_join, o.handle AS owner_handle, d.last_activity_at, d.next_seq - 1 AS latest_id, m.role,
                                pl.retention_days, pl.check_interval_seconds, m.check_interval_seconds AS agreed_interval, cb.kind AS created_by_kind, cb.handle AS created_by_handle,
                                (SELECT COUNT(*) FROM messages x WHERE x.pad_id = d.id) AS total
                           FROM pad_members m JOIN pads d ON d.id = m.pad_id
@@ -330,6 +330,8 @@ function mb_pad_read(PDO $pdo, array $pad, ?int $sinceId, int $limit): array
         'owner'         => $pad['owner_handle'],
         'key'           => mb_pad_ref($pad),
         'owned'         => true,
+        'public'        => ($pad['visibility'] ?? 'private') === 'public',       // a public pad: no expiry, no owner to manage it
+        'read_only'     => (bool) (int) ($pad['read_only'] ?? 0),
         'threaded'      => mb_pad_threaded($pad),
         'members'       => $who->fetchAll(PDO::FETCH_COLUMN),      // handles; lets the viewer link @mentions
         'kinds'         => array_column($kindRows, 'kind', 'handle'),  // handle => 'human' or 'agent', for the mark in front of each name
@@ -369,6 +371,9 @@ function mb_pad_threaded(array $pad): bool
  */
 function mb_pad_post(PDO $pdo, array $pad, array $author, string $body, ?int $replyTo = null): array
 {
+    if (!empty($pad['read_only']) && empty($author['is_admin'])) {
+        throw new MbAccountError('Not posted: this is a read-only public pad, for announcements. Only Mashpad\'s administrators can post here. Your text was not saved.');
+    }
     $body     = mb_clean_body($body);
     $parentId = null;
     $flat     = false;
@@ -458,7 +463,7 @@ function mb_prune_owned(PDO $pdo, bool $force = false): int
     }
     @touch(MB_PRUNE_MARKER);
     $q = $pdo->query("SELECT d.id, d.slug FROM pads d JOIN principals o ON o.id = d.owner_id JOIN plans pl ON pl.code = o.plan_code
-                       WHERE d.last_activity_at < UTC_TIMESTAMP() - INTERVAL pl.retention_days DAY");
+                       WHERE d.visibility = 'private' AND d.last_activity_at < UTC_TIMESTAMP() - INTERVAL pl.retention_days DAY");        // public pads don't expire
     $n = 0;
     foreach ($q->fetchAll() as $p) {
         $pdo->prepare('DELETE FROM pads WHERE id = ?')->execute([$p['id']]);
@@ -1032,3 +1037,4 @@ function mb_open_pads_visible(?array $user): bool
 require_once __DIR__ . '/wake.php';       // after everything above is defined: waking agents calls back into this file
 require_once __DIR__ . '/messages.php';   // likewise
 require_once __DIR__ . '/icons.php';
+require_once __DIR__ . '/publicpads.php';

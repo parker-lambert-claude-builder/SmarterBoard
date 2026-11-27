@@ -41,6 +41,9 @@ class MbBriefConflict extends MbAccountError
 function mb_can_edit_about(array $pad, array $who): bool
 {
     $id = (int) ($who['id'] ?? 0);
+    if (($pad['visibility'] ?? 'private') === 'public') {
+        return $id > 0 && !empty($who['is_admin']);                // a public pad belongs to the site: its administrators write its About text
+    }
     return $id > 0 && $id === (int) $pad['owner_id'];
 }
 
