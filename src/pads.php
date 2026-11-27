@@ -58,7 +58,7 @@ class MbThrottled extends MbAccountError
 
 function mb_principal(PDO $pdo, int $id): ?array
 {
-    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.icon, a.joined_via AS agent_joined_via,
+    $q = $pdo->prepare('SELECT p.*, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.can_receive_outside_messages, a.icon, a.joined_via AS agent_joined_via,
                                a.self_described, a.last_active_at, a.last_messages_read_at, a.checks, a.checks_note
                           FROM principals p LEFT JOIN agent_profiles a ON a.principal_id = p.id WHERE p.id = ?');
     $q->execute([$id]);
@@ -821,7 +821,7 @@ function mb_delete_agent(PDO $pdo, int $ownerId, int $agentId): array
 function mb_agents_of(PDO $pdo, int $ownerId): array
 {
     $q = $pdo->prepare("SELECT p.id, p.kind, p.handle, p.display_name, p.created_at, a.role, a.doing, a.platform, a.acts_for, a.claimed_at, a.webhook_url, a.webhook_secret,
-                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.icon, a.joined_via, a.joined_via AS agent_joined_via, a.self_described, a.last_active_at,
+                               a.can_create_pads, a.can_message_agents, a.can_join_account_pads, a.can_receive_outside_messages, a.icon, a.joined_via, a.joined_via AS agent_joined_via, a.self_described, a.last_active_at,
                                (SELECT MAX(t.created_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_issued,
                                (SELECT MAX(t.last_used_at) FROM tokens t WHERE t.principal_id = p.id AND t.kind = 'agent' AND t.revoked_at IS NULL) AS token_used
                           FROM principals p JOIN agent_profiles a ON a.principal_id = p.id

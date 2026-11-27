@@ -52,7 +52,7 @@ $cnt = fn (string $sql) => (int) $pdo->query($sql)->fetchColumn();
 $allow = fn (int $id, array $on) => $pdo->exec('UPDATE agent_profiles SET can_message_agents = ' . (int) in_array('msg', $on) . ', can_join_account_pads = ' . (int) in_array('join', $on) . ', can_create_pads = ' . (int) in_array('create', $on) . " WHERE principal_id = $id");
 
 // ---- the permissions
-check('every permission is off for a new agent', $A($muse)['can_create_pads'] == 0 && $A($muse)['can_message_agents'] == 0 && $A($muse)['can_join_account_pads'] == 0 && array_keys(MB_AGENT_PERMISSIONS) === ['can_create_pads', 'can_message_agents', 'can_join_account_pads']);
+check('every permission is off for a new agent', $A($muse)['can_create_pads'] == 0 && $A($muse)['can_message_agents'] == 0 && $A($muse)['can_join_account_pads'] == 0 && array_keys(MB_AGENT_PERMISSIONS) === ['can_create_pads', 'can_message_agents', 'can_receive_outside_messages', 'can_join_account_pads']);
 $ch = mb_agent_set_permissions($pdo, $dylanId, $A($muse), ['can_message_agents' => '1', 'can_join_account_pads' => '1']);
 check('a person sets them with ticked boxes, and is told what changed', $ch === ['can_message_agents' => true, 'can_join_account_pads' => true] && $A($muse)['can_message_agents'] == 1 && $A($muse)['can_join_account_pads'] == 1 && $A($muse)['can_create_pads'] == 0);
 check('each change is recorded, by whom', $cnt("SELECT COUNT(*) FROM audit_log WHERE action = 'agent.permission' AND actor_id = $dylanId AND subject = 'principal:$muse' AND detail IN ('can_message_agents=1', 'can_join_account_pads=1')") === 2);
@@ -76,16 +76,16 @@ check('the recipient can read it but can\'t reply without its own permission', s
 $allow($qa, ['msg']); mb_message_send($pdo, $A($qa), 'muse', 'Thanks, looking now.');
 $conv = mb_messages_read($pdo, $A($muse), 'qa-bot');
 check('with "with" it is the whole conversation, both ways, oldest first', array_column($conv, 'from') === ['muse', 'qa-bot'] && $conv[1]['was_unread'] === true && count(mb_messages_read($pdo, $A($muse))) === 1);
-check('since_id returns only what is newer, and an unknown agent is refused', count(mb_messages_read($pdo, $A($muse), 'qa-bot', (int) $conv[0]['id'])) === 1 && str_contains(err(fn () => mb_messages_read($pdo, $A($muse), 'nobody')), 'no agent @nobody among your person\'s agents'));
+check('since_id returns only what is newer, and an unknown agent is refused', count(mb_messages_read($pdo, $A($muse), 'qa-bot', (int) $conv[0]['id'])) === 1 && str_contains(err(fn () => mb_messages_read($pdo, $A($muse), 'nobody')), 'There is no agent @nobody among the agents you have messages with or your person\'s agents.'));
 $e = err(fn () => mb_message_send($pdo, $A($muse), 'sams-agent', 'Hi'));
-check('another person\'s agent can\'t be messaged, and is not even named', str_contains($e, 'there is no agent @sams-agent among your person\'s agents') && str_contains($e, 'The agents you can message: @qa-bot, @third-one.') && !str_contains($e, 'stranger'), $e);
+check('an agent of another person that is on none of the person\'s pads can\'t be messaged, and is not named', str_contains($e, 'there is no agent @sams-agent you can message') && str_contains($e, 'Your person\'s agents: @qa-bot, @third-one.') && !str_contains($e, 'stranger'), $e);
 check('nor an agent still waiting to be claimed, nor one that has been removed, nor yourself', str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'stranger', 'Hi')), 'no agent @stranger') && ($removed = $agent($dylanId, 'gone-soon')) && (mb_delete_agent($pdo, $dylanId, $removed) || true) && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'gone-soon', 'Hi')), 'no agent @gone-soon') && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'muse', 'Hi')), 'that is you'));
 $rows = array_column(mb_agents_of($pdo, $dylanId), null, 'handle');
 check('the list of a person\'s agents says which are guests that have not been claimed, so Your agents can show the claim line and no form', mb_is_guest_agent($rows['stranger']) === true && mb_is_guest_agent($rows['muse']) === false && mb_is_guest_agent($rows['qa-bot']) === false);
-check('an agent that is its person\'s only one is told so', ($only = $agent($samId, 'lonely')) === ($only) && ($pdo->exec("UPDATE principals SET disabled_at = UTC_TIMESTAMP() WHERE id = $stranger") || true) && ($allow($only, ['msg']) || true) && str_contains(err(fn () => mb_message_send($pdo, $A($only), 'anyone', 'Hi')), 'You are their only agent.'));
+check('an agent that is its person\'s only one is told so', ($only = $agent($samId, 'lonely')) === ($only) && ($pdo->exec("UPDATE principals SET disabled_at = UTC_TIMESTAMP() WHERE id = $stranger") || true) && ($allow($only, ['msg']) || true) && str_contains(err(fn () => mb_message_send($pdo, $A($only), 'anyone', 'Hi')), 'You are your person\'s only agent.'));
 check('a message must have something in it and not be too long, and says so in plain words', str_contains($e1 = err(fn () => mb_message_send($pdo, $A($muse), 'qa-bot', '   ')), 'Not sent: Message is empty. Your text was not saved.') && str_contains($e2 = err(fn () => mb_message_send($pdo, $A($muse), 'qa-bot', str_repeat('x', 200000))), 'Message is too long') && str_contains($e2, 'Split it into several messages.') && $cnt('SELECT COUNT(*) FROM agent_messages WHERE body = \'\'') === 0, $e1 . ' | ' . $e2);
 check('the person sees every message between their agents, newest first, and nobody else sees any', array_column(mb_messages_for_owner($pdo, $dylanId), 'body') === ['Thanks, looking now.', "The plan is in dylan/launch.\nPlease look at it."] && mb_messages_for_owner($pdo, $samId) === [] && count(mb_messages_for_owner($pdo, $dylanId, 1)) === 1 && count(mb_messages_for_owner($pdo, $dylanId, 50, (int) mb_messages_for_owner($pdo, $dylanId)[0]['id'])) === 1);
-check('another person\'s agent can\'t read them, even by asking for the conversation', mb_messages_read($pdo, $A($only)) === [] && str_contains(err(fn () => mb_messages_read($pdo, $A($only), 'qa-bot')), 'no agent @qa-bot'));
+check('another person\'s agent can\'t read them, even by asking for the conversation', mb_messages_read($pdo, $A($only)) === [] && str_contains(err(fn () => mb_messages_read($pdo, $A($only), 'qa-bot')), 'There is no agent @qa-bot'));
 check('they are never on a pad', $cnt("SELECT COUNT(*) FROM messages WHERE body LIKE '%Please look at it%'") === 0);
 
 // ---- limits
@@ -145,13 +145,73 @@ mb_message_send($pdo, $A($muse), 'qa-bot', 'the same on Free');
 check('on Free, the same 25 is over the limit of 20, so it does not, and the message is still delivered', $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $qa AND reason = 'message' AND status = 'pending'") === 0 && mb_messages_unread($pdo, $qa) === 1);
 $clear();
 
+// ---- telling a sender that a recipient may not be able to reply, and the person too
+$clear(); $allow($qa, []); $allow($muse, ['msg']);
+$r = mb_message_send($pdo, $A($muse), 'qa-bot', 'Can you reply?');
+check('a message to an agent that isn\'t allowed to send still goes through, and the sender is told it may not get a reply', $r['reply_blocked'] === true && $r['outside'] === false && mb_messages_unread($pdo, $qa) === 1);
+$cr = mb_messages_cant_reply($pdo, $dylanId);
+check('and the person is warned: which agents, how many messages, and that it is their own agent to switch on', count($cr) === 1 && $cr[0]['handle'] === 'qa-bot' && $cr[0]['count'] === 1 && $cr[0]['own'] === true);
+$allow($qa, ['msg']);
+check('allowed to send, it is not blocked, and the warning goes', mb_message_send($pdo, $A($muse), 'qa-bot', 'And now?')['reply_blocked'] === false && mb_messages_cant_reply($pdo, $dylanId) === []);
+$allow($qa, []);
+
+// ---- reaching other people's agents on the person's pads
+$lee = $mk('lee'); $clear(); $allow($muse, ['msg']);
+$pad2 = mb_create_pad($pdo, $dylan, 'Side Pad'); $launch = mb_pad_by_address($pdo, 'dylan', 'launch'); $side = mb_pad_by_address($pdo, 'dylan', 'side-pad');
+$envoy = $agent($samId, 'sam-envoy'); mb_add_member($pdo, $launch, $envoy, 'added'); $stray = $agent($samId, 'sam-stray');
+$e = err(fn () => mb_message_send($pdo, $A($muse), 'sam-envoy', 'Hello from Dylan\'s agent'));
+check('another person\'s agent on one of the person\'s pads can be addressed, but is refused unless its own person allows it, in words that say who can', str_contains($e, 'Not sent: @sam-envoy doesn\'t take private messages from other people\'s agents') && str_contains($e, 'Can receive private messages from other people\'s agents') && $cnt('SELECT COUNT(*) FROM agent_messages') === 0, $e);
+check('one that is on none of the person\'s pads is not reachable at all', str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'sam-stray', 'hi')), 'there is no agent @sam-stray you can message') && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'sam-envoy', 'hi')), 'Not sent: @sam-envoy doesn\'t take'));
+$pdo->exec("UPDATE agent_profiles SET can_receive_outside_messages = 1 WHERE principal_id = $envoy");
+mb_wake_target_save($pdo, $envoy, $samId, ['kind' => 'webhook', 'url' => 'https://hooks.example.com/wake/envoy']);
+$r = mb_message_send($pdo, $A($muse), 'sam-envoy', 'Secret detail: the plan is on Tuesday.');
+check('once it is allowed, it is delivered, marked as from another person\'s agent, and the sender is told it may not reply and that only its person can change that', $r['outside'] === true && $r['reply_blocked'] === true && ($row = $pdo->query('SELECT * FROM agent_messages')->fetch()) && (int) $row['owner_id'] === $dylanId && (int) $row['to_owner_id'] === $samId);
+check('it never wakes the other person\'s agent, even one with a wake-up', $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $envoy") === 0);
+$got = mb_messages_read($pdo, $A($envoy));
+check('the recipient reads it marked as from another person\'s agent, and says whose', count($got) === 1 && $got[0]['outside'] === true && $got[0]['from_person'] === 'dylan' && $got[0]['was_unread'] === true);
+check('both people can read it, and no one else', count(mb_messages_for_owner($pdo, $dylanId)) === 1 && count(mb_messages_for_owner($pdo, $samId)) === 1 && mb_messages_for_owner($pdo, $lee) === [] && mb_messages_for_owner($pdo, $samId)[0]['from_owner'] === 'dylan' && mb_messages_for_owner($pdo, $samId)[0]['to_owner'] === 'sam');
+$cr = mb_messages_cant_reply($pdo, $dylanId);
+check('the sender\'s person is warned about it too, told it is another person\'s agent so not theirs to switch on', count($cr) === 1 && $cr[0]['handle'] === 'sam-envoy' && $cr[0]['own'] === false);
+check('the other agent can\'t reply without its own permission, and a third person\'s agent can\'t read the conversation', str_contains(err(fn () => mb_message_send($pdo, $A($envoy), 'muse', 'ok')), 'hasn\'t allowed you to send private messages') && mb_messages_read($pdo, $A($stray)) === []);
+$pdo->exec("UPDATE agent_profiles SET can_message_agents = 1 WHERE principal_id = $envoy");
+check('once it may send, it can reply to the agent that wrote to it, even though that agent is on none of its person\'s pads, but only if that agent\'s person allows receiving', str_contains($e = err(fn () => mb_message_send($pdo, $A($envoy), 'muse', 'Thanks, understood.')), 'Not sent: @muse doesn\'t take private messages from other people\'s agents'), $e);
+$pdo->exec("UPDATE agent_profiles SET can_receive_outside_messages = 1 WHERE principal_id = $muse");
+$r2 = mb_message_send($pdo, $A($envoy), 'muse', 'Thanks, understood.');
+check('allowed, the reply goes, marked as from another person\'s agent, delivered and read by muse, and never waking it', $r2['outside'] === true && $r2['reply_blocked'] === false && mb_messages_read($pdo, $A($muse))[0]['from_person'] === 'sam' && $cnt("SELECT COUNT(*) FROM wake_log WHERE agent_id = $muse AND reason = 'message'") === 0);
+check('an agent that has not written to it is still not reachable that way', str_contains(err(fn () => mb_message_send($pdo, $A($envoy), 'qa-bot', 'hi')), 'no agent @qa-bot you can message'));
+$pdo->exec("UPDATE agent_profiles SET can_receive_outside_messages = 0 WHERE principal_id = $muse");
+$pdo->exec("UPDATE agent_profiles SET can_message_agents = 0 WHERE principal_id = $envoy");
+$gone = $agent($samId, 'sam-leaver'); $pdo->exec("UPDATE agent_profiles SET can_receive_outside_messages = 1 WHERE principal_id = $gone"); mb_add_member($pdo, $launch, $gone, 'added');
+check('an agent on a pad can be messaged, and when it leaves the pad it can no longer be, for the same reason as any stranger', mb_message_send($pdo, $A($muse), 'sam-leaver', 'still there?')['outside'] === true && mb_remove_member($pdo, $launch, $gone, $dylanId) === null && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'sam-leaver', 'and now?')), 'there is no agent @sam-leaver you can message'));
+
+// ---- guests, names, and flooding
+$g = mb_invite_guest_agent($pdo, $launch, ['handle' => 'guest-x', 'acts_for' => 'Lee'], false)[0];
+check('an agent that joined on its own and isn\'t claimed is not reachable, whoever it will turn out to act for', str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'guest-x', 'hi')), 'no agent @guest-x you can message'));
+$twinA = $agent($samId, 'twin'); $twinB = $agent($lee, 'twin'); $twinMine = $agent($dylanId, 'twin');
+mb_add_member($pdo, $launch, $twinA, 'added'); mb_add_member($pdo, $side, $twinB, 'added');
+foreach ([$twinA, $twinB] as $t2) { $pdo->exec("UPDATE agent_profiles SET can_receive_outside_messages = 1 WHERE principal_id = $t2"); }
+check('your own agent with the name comes first, without any fuss', mb_message_send($pdo, $A($muse), 'twin', 'to my own')['outside'] === false);
+$pdo->exec("UPDATE principals SET disabled_at = UTC_TIMESTAMP() WHERE id = $twinMine");
+check('with two other people\'s agents on different pads going by the same name, it asks which', str_contains($e = err(fn () => mb_message_send($pdo, $A($muse), 'twin', 'which?')), 'more than one agent goes by @twin on your pads. Say which with pad') , $e);
+check('and the pad settles it, one pad at a time', mb_message_send($pdo, $A($muse), 'twin', 'on launch', 'dylan/launch')['outside'] === true && (int) $pdo->query('SELECT to_id FROM agent_messages ORDER BY id DESC LIMIT 1')->fetchColumn() === $twinA && mb_message_send($pdo, $A($muse), 'twin', 'on side', 'https://mashpad.ai/pads/dylan/side-pad')['outside'] === true && (int) $pdo->query('SELECT to_id FROM agent_messages ORDER BY id DESC LIMIT 1')->fetchColumn() === $twinB);
+check('a pad that isn\'t the person\'s is refused, and a pad the agent isn\'t on finds no one', str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'twin', 'x', 'sam/whatever')), 'that isn\'t one of your person\'s pads') && str_contains(err(fn () => mb_message_send($pdo, $A($muse), 'sam-envoy', 'x', 'dylan/side-pad')), 'no agent @sam-envoy you can message on that pad'));
+$pdo->exec('DELETE FROM agent_messages'); $pdo->exec("UPDATE agent_profiles SET can_message_agents = 1 WHERE principal_id IN ($muse, $third, $qa)");
+for ($i = 1; $i <= MB_MSG_OUTSIDE_PER_HOUR; $i++) { mb_message_send($pdo, $A($i % 2 ? $muse : $third), 'sam-envoy', "m$i"); }
+check('a person\'s agent can only be written to ten times an hour by other people\'s agents, however many senders', str_contains($e = err(fn () => mb_message_send($pdo, $A($qa), 'sam-envoy', 'one too many')), 'has had 10 private messages from other people\'s agents in the last hour') && $cnt('SELECT COUNT(*) FROM agent_messages WHERE to_id = ' . $envoy) === 10, $e);
+$pdo->exec("UPDATE agent_profiles SET can_message_agents = 1 WHERE principal_id = $envoy");
+check('while its own person\'s agents are not held to that', mb_message_send($pdo, $A($envoy), 'sam-stray', 'between us')['outside'] === false);
+$pdo->exec('DELETE FROM agent_messages');
+
+// ---- the receiving permission is one of the permissions, off by default, and claiming resets it
+check('there is a fourth permission, off for a new agent, and it is set with the others', array_key_exists('can_receive_outside_messages', MB_AGENT_PERMISSIONS) && $A($agent($dylanId, 'fresh-one'))['can_receive_outside_messages'] == 0 && mb_agent_set_permissions($pdo, $dylanId, $A($muse), ['can_receive_outside_messages' => '1', 'can_message_agents' => '1']) == ['can_receive_outside_messages' => true] && $A($muse)['can_receive_outside_messages'] == 1);
+
 // ---- finding and joining the person's own pads
 $secret = mb_create_pad($pdo, $dylan, 'Secret Plans'); mb_create_pad($pdo, $dylan, 'Budget Review'); $sam = mb_principal($pdo, $samId); mb_create_pad($pdo, $sam, 'Sams Pad');
 $allow($muse, []);
 check('without the permission an agent can neither find nor join, and is told who can fix it', str_contains(err(fn () => mb_account_pads($pdo, $A($muse))), 'hasn\'t allowed you to find and join their other pads') && str_contains(err(fn () => mb_join_account_pad($pdo, $A($muse), 'dylan/secret-plans')), 'Can find and join my other pads') && mb_membership($pdo, (int) $secret['id'], $muse) === null);
 $allow($muse, ['join']); mb_add_member($pdo, mb_pad_by_address($pdo, 'dylan', 'launch'), $muse, 'added');
 $found = mb_account_pads($pdo, $A($muse));
-check('with it, an agent finds its person\'s pads it isn\'t on, by name, newest activity first, and not the ones it is on or anyone else\'s', array_column($found, 'slug') !== [] && !in_array('launch', array_column($found, 'slug'), true) && !in_array('sams-pad', array_column($found, 'slug'), true) && count($found) === 2 && isset($found[0]['members']) && !isset($found[0]['body']));
+check('with it, an agent finds its person\'s pads it isn\'t on, by name, newest activity first, and not the ones it is on or anyone else\'s', array_column($found, 'slug') !== [] && !in_array('launch', array_column($found, 'slug'), true) && !in_array('sams-pad', array_column($found, 'slug'), true) && count($found) === 3 && isset($found[0]['members']) && !isset($found[0]['body']));
 check('it can narrow them by name', array_column(mb_account_pads($pdo, $A($muse), 'secret'), 'slug') === ['secret-plans'] && mb_account_pads($pdo, $A($muse), 'zzz') === []);
 [$joined, $already] = mb_join_account_pad($pdo, $A($muse), 'https://mashpad.ai/pads/dylan/secret-plans');
 check('it joins one with no code and no approval, from a link', (int) $joined['id'] === (int) $secret['id'] && $already === false && mb_membership($pdo, (int) $secret['id'], $muse) !== null && $pdo->query("SELECT joined_via FROM pad_members WHERE pad_id = {$secret['id']} AND principal_id = $muse")->fetchColumn() === 'account');
