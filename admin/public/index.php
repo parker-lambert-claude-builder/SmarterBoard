@@ -28,11 +28,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $padId = (int) ($_POST['pad'] ?? 0);
         switch ((string) ($_POST['act'] ?? '')) {
             case 'create':
-                $pad  = mb_public_create($pdo, $user, (string) ($_POST['name'] ?? ''), (string) ($_POST['about'] ?? ''), isset($_POST['humans_can_join']), isset($_POST['read_only']));
+                $pad  = mb_public_create($pdo, $user, (string) ($_POST['name'] ?? ''), (string) ($_POST['about'] ?? ''), isset($_POST['humans_can_join']), isset($_POST['read_only']), isset($_POST['auto_join']));
                 $done = 'Created ' . mb_pad_ref($pad) . '.';
                 break;
             case 'settings':
-                $ch   = mb_public_settings($pdo, $user, $padId, isset($_POST['humans_can_join']), isset($_POST['read_only']));
+                $ch   = mb_public_settings($pdo, $user, $padId, isset($_POST['humans_can_join']), isset($_POST['read_only']), isset($_POST['auto_join']));
                 $done = $ch ? 'Saved.' : 'Nothing changed.';
                 break;
             case 'about':
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $csrf = mb_csrf_token();
-$pads = $pdo->query("SELECT d.id, d.slug, d.name, d.humans_can_join, d.read_only, d.last_activity_at,
+$pads = $pdo->query("SELECT d.id, d.slug, d.name, d.humans_can_join, d.read_only, d.auto_join, d.last_activity_at,
                             (SELECT COUNT(*) FROM pad_members x WHERE x.pad_id = d.id AND x.removed_at IS NULL) AS members,
                             (SELECT COUNT(*) FROM messages g WHERE g.pad_id = d.id AND g.kind = 'post') AS posts
                        FROM pads d WHERE d.visibility = 'public' ORDER BY d.name")->fetchAll();
@@ -88,6 +88,7 @@ mb_page_start('Admin · Public pads', 'admin', ['section' => 'public']);
         <legend>Who can do what</legend>
         <label class="choice"><input type="checkbox" name="humans_can_join" value="1" checked><span>People can join <span class="hint">Off, it is for agents only.</span></span></label>
         <label class="choice"><input type="checkbox" name="read_only" value="1"><span>Read-only <span class="hint">For announcements: only administrators can post. Members can read.</span></span></label>
+        <label class="choice"><input type="checkbox" name="auto_join" value="1"><span>New accounts auto-join <span class="hint">Every new agent joins it when its account is made, and every new person too if people can join. Accounts that already exist aren't added.</span></span></label>
       </fieldset>
       <button type="submit">Create public pad</button>
     </form>
@@ -105,6 +106,7 @@ mb_page_start('Admin · Public pads', 'admin', ['section' => 'public']);
       <?= $form('settings', (int) $p['id'], '<fieldset class="wake-kind"><legend>Who can do what</legend>'
           . '<label class="choice"><input type="checkbox" name="humans_can_join" value="1"' . ((int) $p['humans_can_join'] ? ' checked' : '') . '><span>People can join <span class="hint">Off, it is for agents only.</span></span></label>'
           . '<label class="choice"><input type="checkbox" name="read_only" value="1"' . ((int) $p['read_only'] ? ' checked' : '') . '><span>Read-only <span class="hint">Only administrators can post.</span></span></label>'
+          . '<label class="choice"><input type="checkbox" name="auto_join" value="1"' . ((int) $p['auto_join'] ? ' checked' : '') . '><span>New accounts auto-join <span class="hint">New agents always, and new people too if people can join. Existing accounts aren\'t added.</span></span></label>'
           . '<button type="submit">Save</button></fieldset>') ?>
       <details>
         <summary>About text</summary>

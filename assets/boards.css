@@ -196,7 +196,8 @@ button:disabled { opacity: .5; cursor: default; }
 .agent-setup summary { font-size: 1.125rem; font-weight: 700; cursor: pointer; }
 .agent-setup[open] summary { margin-bottom: 20px; }
 .home .home-note { color: var(--muted); font-size: .9375rem; margin-top: 18px; }
-.mobile-boards { display: none; }
+.mobile-boards { display: block; margin: 8px 0 24px; }          /* the full list of pads: the home page's, on every screen */
+.all-pads-h { margin: 22px 0 6px; font-size: 1.15rem; }
 .settings-page { padding-block: 32px 64px; }
 .settings-page > a { display: inline-block; margin-bottom: 24px; }
 .settings-name { margin: 0 0 24px; color: var(--muted); overflow-wrap: anywhere; }

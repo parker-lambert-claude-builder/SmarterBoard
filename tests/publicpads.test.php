@@ -134,5 +134,33 @@ mb_pad_post($pdo, $open, $dylan, 'This goes too.');
 check('removing one deletes it with its messages, members and About text, and is recorded', mb_public_delete($pdo, $dylan, (int) $open['id']) === 'open-floor' && $cnt("SELECT COUNT(*) FROM pads WHERE id = {$open['id']}") === 0 && $cnt("SELECT COUNT(*) FROM messages WHERE pad_id = {$open['id']}") === 0 && $cnt("SELECT COUNT(*) FROM pad_members WHERE pad_id = {$open['id']}") === 0 && $cnt("SELECT COUNT(*) FROM audit_log WHERE action = 'public_pad.delete'") === 1);
 check('the name is free to use again', mb_pad_ref(mb_public_create($pdo, $dylan, 'Open Floor')) === 'public/open-floor');
 
+// ---- "New accounts auto-join"
+$pdo->exec('UPDATE plans SET max_agents = NULL');
+$existingHuman = $P($mk('already-here')); $existingAgent = $agent($leeId, 'already-bot');
+$welcome = mb_public_create($pdo, $dylan, 'Welcome', 'Read this first.', true, true, true);
+$botsOnly = mb_public_create($pdo, $dylan, 'Bots Only', '', false, false, true);
+$optIn = mb_public_create($pdo, $dylan, 'Opt In');
+check('the option is off unless it is asked for, and set when it is', (int) $optIn['auto_join'] === 0 && (int) $welcome['auto_join'] === 1 && (int) $botsOnly['auto_join'] === 1);
+check('accounts that already exist are not added when it is switched on', mb_membership($pdo, (int) $welcome['id'], (int) $existingHuman['id']) === null && mb_membership($pdo, (int) $welcome['id'], $existingAgent) === null);
+$newHuman = $mk('newcomer'); $newBot = $agent($leeId, 'new-bot');
+$on = fn (int $id, array $pad) => mb_membership($pdo, (int) $pad['id'], $id) !== null;
+check('a new person joins the pads that take new accounts and let people join, and not the others', $on($newHuman, $welcome) && !$on($newHuman, $botsOnly) && !$on($newHuman, $optIn));
+check('a new agent joins every pad that takes new accounts, whether or not people can join', $on($newBot, $welcome) && $on($newBot, $botsOnly) && !$on($newBot, $optIn));
+check('they joined as public pad members, with no notice posted', $pdo->query("SELECT joined_via FROM pad_members WHERE pad_id = {$welcome['id']} AND principal_id = $newHuman")->fetchColumn() === 'public' && $cnt("SELECT COUNT(*) FROM messages WHERE pad_id = {$welcome['id']} AND kind = 'event'") === 0);
+check('the account that owns public pads is never added to one', !$on($sys, $welcome));
+$g2 = mb_invite_guest_agent($pdo, mb_create_pad($pdo, $sam, 'Sams Second'), ['handle' => 'guest-two', 'acts_for' => 'Lee'], false)[0];
+check('a guest agent that joined on its own is not added until it is claimed', !$on((int) $g2['id'], $welcome) && !$on((int) $g2['id'], $botsOnly));
+require_once "$root/src/claims.php";
+[$claimCode] = mb_claim_create($pdo, $leeId); mb_claim_accept($pdo, $P((int) $g2['id']), $claimCode);
+check('and is added when it is claimed, now that it has an account', $on((int) $g2['id'], $welcome) && $on((int) $g2['id'], $botsOnly));
+$dupeFirst = $agent($samId, 'dupe-bot'); mb_public_remove_member($pdo, $dylan, (int) $botsOnly['id'], $dupeFirst);      // on Welcome only
+$dupeSecond = $agent($leeId, 'dupe-bot');
+check('a name already on a pad skips that pad without stopping the account being made', $dupeSecond > 0 && !$on($dupeSecond, $welcome) && $on($dupeSecond, $botsOnly));
+check('the changes are recorded', mb_public_settings($pdo, $dylan, (int) $optIn['id'], true, false, true) == ['auto_join' => true] && $cnt("SELECT COUNT(*) FROM audit_log WHERE action = 'public_pad.settings' AND detail = 'auto_join=1'") === 1 && mb_public_settings($pdo, $dylan, (int) $optIn['id'], true, false) === [] && (int) mb_pad_by_id($pdo, (int) $optIn['id'])['auto_join'] === 1);
+check('switched on, the next new person joins it too; switched off, they no longer do', $on($mk('after-on'), $optIn) && mb_public_settings($pdo, $dylan, (int) $optIn['id'], true, false, false) == ['auto_join' => false] && !$on($mk('after-off'), $optIn));
+check('only an administrator can change it', str_contains(err(fn () => mb_public_settings($pdo, $sam, (int) $welcome['id'], true, true, false)), 'Only an administrator') && (int) mb_pad_by_id($pdo, (int) $welcome['id'])['auto_join'] === 1);
+check('a pad that is read-only can take new accounts, which can then read it but not post', str_contains(err(fn () => mb_pad_post($pdo, mb_pad_by_id($pdo, (int) $welcome['id']), $P($newHuman), 'hi')), 'read-only public pad'));
+check('the function can be called for anyone and does nothing for the wrong kind of account', mb_public_auto_join($pdo, []) === [] && mb_public_auto_join($pdo, $P($sys)) === [] && mb_public_auto_join($pdo, $P($newHuman)) === []);
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail ? 1 : 0);

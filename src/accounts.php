@@ -78,6 +78,10 @@ function mb_create_human(PDO $pdo, string $name, string $handle, string $email, 
         ->execute([$handle, $name, trim($email), $normal, password_hash($password, mb_password_algo()), $plan, $admin ? 1 : 0]);
     $id = (int) $pdo->lastInsertId();
     mb_audit($pdo, $id, $admin ? 'account.create_admin' : 'account.create', 'principal:' . $id);
+    if (!function_exists('mb_public_auto_join')) {
+        require_once __DIR__ . '/pads.php';                                // the sign-up page doesn't load the pad code itself
+    }
+    mb_public_auto_join($pdo, mb_principal($pdo, $id));                    // the public pads that take new accounts
     return $id;
 }
 
