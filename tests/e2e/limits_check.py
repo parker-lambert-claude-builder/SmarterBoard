@@ -33,7 +33,7 @@ with sync_playwright() as p:
     bob = br.new_context(viewport={'width': 1280, 'height': 900}); bp = signin(bob, 'bob'); anon = br.new_context(viewport={'width': 1280, 'height': 900}).new_page()
     # ---- Admin > Plans
     r = bob.request.get(B + '/admin/plans/'); ck('only an administrator sees the Plans page: everyone else gets a 404', r.status == 404 and anon.request.get(B + '/admin/plans/').status == 404 and al.request.get(B + '/admin/plans/').status == 200)
-    ap.goto(B + '/admin/plans/'); ck('Plans is in the Admin navigation, with the page open', ap.locator('nav[aria-label="Admin sections"] a[aria-current="page"]').inner_text() == 'Plans' and ap.locator('nav[aria-label="Admin sections"] a').all_inner_texts() == ['Accounts', 'Plans', 'Public pads', 'Email'])
+    ap.goto(B + '/admin/plans/'); ck('Plans is in the Admin navigation, with the page open', ap.locator('nav[aria-label="Admin sections"] a[aria-current="page"]').inner_text() == 'Plans' and ap.locator('nav[aria-label="Admin sections"] a').all_inner_texts() == ['Accounts', 'Plans', 'Public pads', 'Cron', 'Email'])
     ck('both plans are listed with their values, and a blank where there is no limit', ap.locator('section.plan-edit').count() == 2 and ap.input_value('#free-retention_days') == '30' and ap.input_value('#free-max_agents') == '' and ap.input_value('#plus-retention_days') == '180' and ap.is_checked('#plus-threading') and not ap.is_checked('#free-threading'))
     ck('the name and price are not editable there', ap.locator('input[name="name"], input[name="price_cents"]').count() == 0 and 'name and price aren\'t edited here' in ap.inner_text('main'))
     save(ap, 'free', max_human_seats=1, max_agents=3)

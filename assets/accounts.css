@@ -213,4 +213,5 @@
 .manage .agent-title { margin: 0 0 6px; font-size: 1.25rem; line-height: 1.3; overflow-wrap: anywhere; }
 .account-page .manage .agent-info .agent-fact { margin: 0 0 4px; line-height: 1.5; font-size: 1rem; }
 @media (max-width: 520px) { .manage .agent-head { gap: 14px; } .manage .agent-icon-large { width: 56px; height: 56px; } }
+.manage code { overflow-wrap: anywhere; }
 

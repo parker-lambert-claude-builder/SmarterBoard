@@ -14,13 +14,12 @@ if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
 }
-require __DIR__ . '/../src/wake.php';
+require __DIR__ . '/../src/cron.php';
 $pdo = mb_db();
 if (!$pdo) {
     fwrite(STDERR, "Mashpad isn't set up on this server yet.\n");
     exit(1);
 }
-$sent   = mb_wake_flush($pdo, 200, 50);
-$pruned = mb_wake_prune($pdo);
-$messages = mb_messages_prune($pdo);
-echo json_encode(['sent' => $sent, 'pruned' => $pruned, 'messages_pruned' => $messages]) . "\n";
+$result = mb_cron_run($pdo, 'cron');       // the same job a cron service reaches at cron/ with a key
+echo json_encode($result) . "\n";
+exit(!empty($result['ok']) ? 0 : 1);

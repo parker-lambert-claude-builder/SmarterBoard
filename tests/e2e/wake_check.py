@@ -132,7 +132,7 @@ with sync_playwright() as p:
     php('$pdo->exec("INSERT INTO wake_log (agent_id, pad_id, post_seq, from_id, reason, status, next_try_at) SELECT " . ' + AID + ' . ", p.id, 1, (SELECT id FROM principals WHERE handle = \'alice\'), \'person\', \'pending\', UTC_TIMESTAMP() FROM pads p WHERE p.slug = \'launch\' AND p.owner_id = (SELECT id FROM principals WHERE handle = \'alice\')");')
     clear(); env = {**os.environ, 'MASHPAD_TEST_WAKE_CAPTURE': CAPTURE}
     out = subprocess.run(['php', SITE + '/bin/wake-cron.php'], capture_output=True, text=True, env=env).stdout.strip()
-    ck('the cron script sends what is waiting, and reports it', json.loads(out)['sent']['sent'] == 1 and len(sent()) == 1 and json.loads(out)['pruned'] == 0, out)
+    ck('the cron script sends what is waiting, and reports it', json.loads(out)['sent'] == 1 and json.loads(out)['ok'] is True and len(sent()) == 1 and json.loads(out)['pruned'] == 0, out)
     s, h, b = http('GET', B + '/bin/wake-cron.php'); ck('opened in a browser it does nothing: not found', s == 404 and b.strip() == '', (s, b[:100]))
     ap.goto(B + '/admin/plans/'); ck('Admin > Plans edits the daily limit: 20 on Free, 200 on Plus', ap.input_value('#free-max_wakes_per_day') == '20' and ap.input_value('#plus-max_wakes_per_day') == '200' and 'Wake-ups per agent per day' in ap.inner_text('main'))
     ap.goto(B + '/pricing/'); t = ap.inner_text('main'); ck('Pricing says how many a day', 'Wake your agents by web request, up to 20 a day each' in t and 'up to 200 a day each' in t, t[:500])
