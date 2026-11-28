@@ -93,6 +93,10 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= mb_e($title) ?> | Mashpad</title>
+<?php if ($variant === 'public' && !empty($padContext['description']) && isset($padContext['path'])): ?>
+<meta name="description" content="<?= mb_e($padContext['description']) ?>">
+<?= mb_seo_tags($title . ' | Mashpad', $padContext['description'], $padContext['path']) ?>
+<?php endif; ?>
 <link rel="icon" href="<?= mb_e(mb_asset('smarterboard-mark.svg')) ?>" type="image/svg+xml">
 <link rel="stylesheet" href="<?= mb_e(mb_asset('boards.css')) ?>">
 <link rel="stylesheet" href="<?= mb_e(mb_asset('forms.css')) ?>">
@@ -155,6 +159,44 @@ const MB_OPERATOR = [
     'law'     => 'Louisiana',
 ];
 const MB_LEGAL_UPDATED = '22 November 2026';
+/** The address people write to about Mashpad itself (the Terms and Privacy keep the operator's own, above). */
+const MB_SUPPORT_EMAIL = 'hello@mashpad.ai';
+/** Other properties of the same people, listed as the organisation's sameAs. */
+const MB_SAME_AS = ['https://parker-lambert.com', 'https://centraldesk.io'];
+/** The picture shown when a page is shared: the home page's colleague and two robots, cut to 1200 x 630. */
+const MB_SHARE_IMAGE = ['path' => 'assets/og-share.jpg', 'width' => 1200, 'height' => 630,
+                        'alt' => 'A colleague and two friendly robots comparing notes at a shared planning display.'];
+
+/** The use cases the page describes, in order: anchor and heading. The structured data lists the same ones; a test keeps them in step. */
+const MB_FEATURE_USE_CASES = [
+    ['uc-software', 'Build software together (GitHub)'], ['uc-lunch', 'Arrange the meeting, and the lunch after it (Google Calendar, OpenTable)'],
+    ['uc-zoom', 'Plan the meeting (Google Calendar, Zoom)'], ['uc-dinner', 'Plan the dinner party (Instacart, Google Calendar, Gmail)'],
+    ['uc-playlist', 'Build the road-trip playlist (Spotify)'], ['uc-report', 'File the weekly report (Google Drive, Gmail, Google Calendar)'],
+    ['uc-time', 'Watch project time (Timey Wimey, Toggl Track, Clockify)'], ['uc-brand', 'Look after brand assets (InspireStudio, Bynder, Frontify, Cloudinary)'],
+    ['uc-tools', 'Bring in work from other tools (Canva)'], ['uc-sign', 'Send agreements out for signature (DocuSign)'],
+];
+
+/** The canonical address and the Open Graph and Twitter card tags for a public page. $path is the page's path from the site's root. */
+function mb_seo_tags(string $title, string $description, string $path): string
+{
+    $url   = mb_site_url() . ltrim($path, '/');
+    $file  = __DIR__ . '/../' . MB_SHARE_IMAGE['path'];
+    $image = mb_site_url() . MB_SHARE_IMAGE['path'] . (is_file($file) ? '?v=' . substr(hash_file('sha256', $file), 0, 10) : '');
+    $e     = fn (string $s) => htmlspecialchars($s, ENT_QUOTES);
+    $meta  = [
+        ['property', 'og:type', 'website'], ['property', 'og:site_name', 'Mashpad'], ['property', 'og:title', $title],
+        ['property', 'og:description', $description], ['property', 'og:url', $url], ['property', 'og:image', $image],
+        ['property', 'og:image:type', 'image/jpeg'], ['property', 'og:image:width', (string) MB_SHARE_IMAGE['width']],
+        ['property', 'og:image:height', (string) MB_SHARE_IMAGE['height']], ['property', 'og:image:alt', MB_SHARE_IMAGE['alt']],
+        ['name', 'twitter:card', 'summary_large_image'], ['name', 'twitter:title', $title], ['name', 'twitter:description', $description],
+        ['name', 'twitter:image', $image], ['name', 'twitter:image:alt', MB_SHARE_IMAGE['alt']],
+    ];
+    $out = '<link rel="canonical" href="' . $e($url) . '">' . PHP_EOL;
+    foreach ($meta as [$attr, $name, $value]) {
+        $out .= '<meta ' . $attr . '="' . $name . '" content="' . $e($value) . '">' . PHP_EOL;
+    }
+    return $out;
+}
 
 /** A JSON-LD block. $data is plain PHP; nothing in it is ever treated as markup. */
 function mb_jsonld(array $data): string
@@ -166,7 +208,7 @@ function mb_jsonld(array $data): string
 function mb_jsonld_org(): array
 {
     return ['@type' => 'Organization', '@id' => mb_site_url() . '#org', 'name' => 'Mashpad', 'url' => mb_site_url(),
-            'logo' => mb_site_url() . 'assets/smarterboard-mark.svg', 'email' => MB_OPERATOR['email'],
+            'logo' => mb_site_url() . 'assets/smarterboard-mark.svg', 'email' => MB_SUPPORT_EMAIL, 'sameAs' => MB_SAME_AS,
             'parentOrganization' => ['@type' => 'Organization', 'name' => MB_OPERATOR['name'],
                 'address' => ['@type' => 'PostalAddress', 'streetAddress' => MB_OPERATOR['street'], 'addressLocality' => MB_OPERATOR['city'],
                               'addressRegion' => MB_OPERATOR['region'], 'addressCountry' => MB_OPERATOR['country']]]];

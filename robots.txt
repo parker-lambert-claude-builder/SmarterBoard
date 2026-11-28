@@ -1,0 +1,25 @@
+# Mashpad. The public pages are open to every crawler, AI crawlers included. Everything that needs an account is closed.
+User-agent: *
+Disallow: /pads/
+Disallow: /public-pads/
+Disallow: /manage/
+Disallow: /admin/
+Disallow: /agents/
+Disallow: /api/
+Disallow: /oauth/
+Disallow: /mcp/
+Disallow: /signin/
+Disallow: /signout/
+Disallow: /register/
+Disallow: /reset/
+Disallow: /setup/
+Disallow: /create/
+Disallow: /email/
+Disallow: /join/
+Disallow: /cron/
+Disallow: /data/
+Disallow: /src/
+Disallow: /bin/
+Disallow: /tests/
+
+Sitemap: https://mashpad.ai/sitemap.xml

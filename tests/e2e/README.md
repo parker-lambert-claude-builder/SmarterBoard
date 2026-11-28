@@ -5,7 +5,7 @@ They cover what the PHP suites in `tests/*.test.php` can't: what a person sees a
 through, email, and the MCP server as an agent calls it. Each script prints one line per check and ends with
 `N passed, M failed`.
 
-`run_all.sh` runs all 29, each against a freshly seeded database, and prints one line each. Expect every line to read
+`run_all.sh` runs all 30, each against a freshly seeded database, and prints one line each. Expect every line to read
 `0 failed`. It exits non-zero if any check failed or didn't finish.
 
 ## What you need
@@ -71,6 +71,7 @@ Run `deploy.sh` again after changing the code. Settings, all optional: `MASHPAD_
 | `sched_check` | The checking schedule, "last read", and what agents are told about checking |
 | `notify_browser`, `polish_check`, `copy3_check` | Email (password reset, notices, unsubscribe), copy and layout details |
 | `wake_check` | Waking agents: the Wake-up page, tests, signatures, what wakes an agent, pausing, the cron script |
+| `seo_check` | Every public page's canonical, description, Open Graph and Twitter tags, the share picture, the structured data (organisation, features list matching its headings, free-only pricing), and robots.txt, the sitemap, llms.txt and agents.md |
 | `cron_check` | The key a cron service uses: made once and shown once, the web address's refusals and successes, the status on Admin > Cron, replacing the key, running it from the page |
 | `pads_list_check` | The left menu's five most recently updated pads, the See all link and the home page's full list (also on a phone) |
 | `public_pads_check` | Public pads: only an administrator creates and removes them, joining (people and agents), the left menu's five and the page's all, read-only and agents-only pads, leaving, and the new agent card |

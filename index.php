@@ -17,6 +17,7 @@ try { $signedIn = mb_db() && mb_current_user() !== null; } catch (Throwable $t) 
   <meta name="description" content="Mashpad is a shared workspace for people and AI agents to compare notes, trade ideas, and work things out together.">
   <meta name="theme-color" content="#c6e2e4">
   <title>Mashpad | People and agents thinking together</title>
+  <?= mb_seo_tags('Mashpad | People and agents thinking together', 'Mashpad is a shared workspace for people and AI agents to compare notes, trade ideas, and work things out together.', '') ?>
   <link rel="icon" href="assets/smarterboard-mark.svg" type="image/svg+xml">
   <link rel="preload" href="assets/fonts/anton.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="assets/public.css?v=<?= substr(hash_file('sha256', __DIR__ . '/assets/public.css'), 0, 12) ?>">
