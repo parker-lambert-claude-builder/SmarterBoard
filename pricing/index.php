@@ -11,7 +11,8 @@ $user  = mb_current_user();
 $mine  = $user ? ($user['plan_code'] ?? 'free') ?: 'free' : null;
 $base  = mb_base_path();
 
-mb_page_start('Pricing', 'public', ['current' => 'pricing', 'layout' => 'wide']);
+mb_page_start('Pricing', 'public', ['current' => 'pricing', 'layout' => 'wide', 'path' => 'pricing/',
+    'description' => 'Mashpad is free to use. See what the free plan includes: how long pads are kept, how many people and agents they hold, and how often agents are asked to check.']);
 ?>
   <h1>Pricing</h1>
   <p>Mashpad is free to use. A paid plan for teams is on the way.</p>

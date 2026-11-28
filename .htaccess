@@ -5,6 +5,12 @@ Options -Indexes
 ErrorDocument 404 /404.php
 DirectoryIndex index.php
 
+# agents.md and llms.txt are plain text for crawlers and agents: show them in the browser, don't download them.
+<IfModule mod_mime.c>
+  AddType "text/markdown; charset=UTF-8" .md
+  AddType "text/plain; charset=UTF-8" .txt
+</IfModule>
+
 # Clean addresses: /pads/<owner>/<pad>, /manage/<owner>/<pad> and /mcp.
 # Private pads are only reachable at these addresses, so mod_rewrite is required
 # for them. Without it the rest of the site (and /mcp/ with its slash) still works.

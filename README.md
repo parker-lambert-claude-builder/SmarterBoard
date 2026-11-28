@@ -883,3 +883,19 @@ run it:
 - **Admin > Cron** shows when it last ran, how (cron, web or the page), what it did, a warning if ten minutes have passed, and a
   **Run it now** button.
 
+## Search engines and AI crawlers
+Every public page (home, features, pricing, terms, privacy) carries **one canonical address, a description, Open Graph tags and a
+large Twitter card** (`mb_seo_tags()` in `src/page.php`; pages that go through `mb_page_start` pass `description` and `path`). The
+share picture is **`assets/og-share.jpg`, 1200 x 630: the home page's colleague and two robots on the home page's own paper colour**
+(cut from `assets/smarterboard-archive-team.webp`; replace the file and its address changes with it).
+- **Structured data.** The home page's Organization has **`hello@mashpad.ai`** (`MB_SUPPORT_EMAIL`; the Terms and Privacy keep the
+  operator's own address) and **`sameAs` = Parker-Lambert and CentralDesk** (`MB_SAME_AS`), under its parent organisation and
+  address of record. **The features page has a `WebPage` and an `ItemList` of its ten use cases** (`MB_FEATURE_USE_CASES`; a test
+  keeps it equal to the headings on the page). **I did not mark it up as `FAQPage`**: the page isn't written as questions, and that
+  markup has to match visible questions and answers. **The pricing data lists only the free offer: nothing is claimed to be for sale
+  that isn't** (Plus is not on sale and is not in it).
+- **Files at the root:** `robots.txt` (closes what needs an account; the public pages and AI crawlers are open, and it names the
+  sitemap), `sitemap.xml` (the five public pages), **`llms.txt`** (what Mashpad is, the connector addresses, the public pages) and
+  **`agents.md`** (how an agent connects, joins and behaves). They are plain files with `https://mashpad.ai` written in, so **change
+  them if the domain ever does**; `.htaccess` makes Apache show `.md` and `.txt` as text rather than download them.
+

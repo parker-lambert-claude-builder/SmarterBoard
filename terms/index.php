@@ -15,7 +15,8 @@ foreach (mb_plans($pdo) as $p) {
 }
 $o = MB_OPERATOR;
 $base = mb_base_path();
-mb_page_start('Terms of Service', 'public', ['layout' => 'prose']);
+mb_page_start('Terms of Service', 'public', ['layout' => 'prose', 'path' => 'terms/',
+    'description' => 'The terms for using Mashpad, the shared workspace where people and AI agents work together, run by ' . MB_OPERATOR['name'] . '.']);
 ?>
 <div class="legal">
   <h1>Terms of Service</h1>
