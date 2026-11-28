@@ -868,3 +868,18 @@ invitation, an app's sign-in or the person), **and when a guest agent is claimed
 join with. **A pad that can't take the new account (a name already on it) is skipped without stopping the account being made**,
 and no "joined" notice is posted.
 
+## The scheduled job, from cron or from a cron service
+One job (`mb_cron_run()` in `src/cron.php`) sends the wake-ups that are due, tidies the wake-up log and deletes private messages
+past their plan's retention. It is safe every minute and safe to overlap (a second run that finds one going does nothing). Two ways to
+run it:
+- **The host's cron, on the server:** `php /path/to/site/bin/wake-cron.php` (command line only; opened in a browser it is a 404).
+- **A third-party cron service, over the web:** call **`https://<site>/cron/`** (keep the trailing slash) every minute. **It needs a
+  key**, made on **Admin > Cron** and **shown once** (only its SHA-256 is kept; making another replaces it at once). Send it as
+  `Authorization: Bearer <key>` (best: addresses get logged along the way), as `X-Cron-Key: <key>`, or as `?key=<key>` for services
+  that can only call an address. GET, POST and HEAD all run it. **Anything else (no key, a wrong key, plain http from another
+  machine, another method) is the same 404 as a page that doesn't exist, after a short pause**, so the address reveals nothing and a
+  guess costs time. The answer is a small JSON summary (`sent`, `retry`, `failed`, `pruned`, `messages_pruned`, `ran_at`, `ms`),
+  `no-store`, `noindex`, never containing the key or anything from a pad.
+- **Admin > Cron** shows when it last ran, how (cron, web or the page), what it did, a warning if ten minutes have passed, and a
+  **Run it now** button.
+

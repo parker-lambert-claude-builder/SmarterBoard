@@ -126,6 +126,7 @@ function mb_page_start(string $title, string $variant = '', ?array $padContext =
       <a href="<?= $root ?>admin/"<?= ($padContext['section'] ?? '') === 'accounts' ? ' aria-current="page"' : '' ?>>Accounts</a>
       <a href="<?= $root ?>admin/plans/"<?= ($padContext['section'] ?? '') === 'plans' ? ' aria-current="page"' : '' ?>>Plans</a>
       <a href="<?= $root ?>admin/public/"<?= ($padContext['section'] ?? '') === 'public' ? ' aria-current="page"' : '' ?>>Public pads</a>
+      <a href="<?= $root ?>admin/cron/"<?= ($padContext['section'] ?? '') === 'cron' ? ' aria-current="page"' : '' ?>>Cron</a>
       <a href="<?= $root ?>admin/email/"<?= ($padContext['section'] ?? '') === 'email' ? ' aria-current="page"' : '' ?>>Email</a>
     </nav>
     <?php else: ?>
